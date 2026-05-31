@@ -6,6 +6,7 @@ pub enum DirectiveClass {
     /// Thin alias over an existing lean-ctx core API. No new logic.
     Router,
     /// Already handled (better) by the hook layer; engine must not double-track.
+    /// Taxonomy-only in v1: no table entry yet; exercised by the backing test.
     Hook,
     /// A genuine rushdown engine construct with no lean-ctx equivalent.
     Extension,
@@ -22,10 +23,9 @@ pub struct DirectiveAudit {
     pub directive: &'static str,
     /// R / H / E classification.
     pub class: DirectiveClass,
-    /// For Router/Hook directives: crate-relative source file of the backing
-    /// API (e.g. `src/core/structured_read.rs`). `std` / `rushdown` / `chrono`
-    /// for non-source backings. Empty only for pure-Extension entries with no
-    /// stable anchor yet.
+    /// Backing identifier: either a crate-relative `src/` path (Task 3 asserts
+    /// it exists) or a well-known external name (`std`, `chrono`, `glob`,
+    /// `rushdown`). Empty only for pure-Extension entries with no stable anchor.
     pub backing: &'static str,
     /// Rough bridge-size estimate in lines (spec §3.1 "Bridge-Zeilenschätzung").
     pub est_bridge_lines: u32,
@@ -257,6 +257,24 @@ mod tests {
                 assert!(
                     !entry.backing.is_empty(),
                     "directive `{}` is Router/Hook but has no backing",
+                    entry.directive
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn audit_backing_files_exist() {
+        // CARGO_MANIFEST_DIR is the `rust/` crate root at compile time.
+        let crate_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for entry in directive_audit() {
+            if entry.backing.starts_with("src/") {
+                let path = crate_root.join(entry.backing);
+                assert!(
+                    path.exists(),
+                    "backing file `{}` for directive `{}` does not exist — \
+                     the verified code anchor moved; update the audit",
+                    entry.backing,
                     entry.directive
                 );
             }
