@@ -5,4 +5,5 @@
 
 pub mod args;
 pub mod audit;
+pub mod fragments;
 pub mod header;
