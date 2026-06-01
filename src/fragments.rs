@@ -38,7 +38,10 @@ impl FragmentRegistry {
         if let Some(content) = self.builtins.get(name) {
             return Ok((*content).to_string());
         }
-        // Reject names with path-traversal components before touching the filesystem.
+        // Reject path-traversal components (ParentDir/RootDir) BEFORE any filesystem
+        // access. Do NOT remove as "redundant": canonicalize() on a non-existent
+        // traversal path fails with NotFound (masking the escape) and never reaches
+        // the starts_with(jail) check below — so this upfront guard is load-bearing.
         if Path::new(name).components().any(|c| {
             matches!(
                 c,

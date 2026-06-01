@@ -1,7 +1,7 @@
 //! Render-time bridge dispatch. The renderer hook carries `Rc<EngineContext>`
 //! (incl. the bridge registry) via a custom `LmdRendererOptions` (rushdown's
 //! `RendererOptions` is an empty marker trait), then dispatches each lmd node
-//! into the registry. Phase 1 writes bridge output raw via write_safe_str.
+//! into the registry. Phase 1 writes bridge output raw via write_html.
 //! Mirrors the Phase-0 spike renderer structs.
 
 use core::any::TypeId;
