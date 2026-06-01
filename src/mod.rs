@@ -8,3 +8,4 @@ pub mod audit;
 pub mod fragments;
 pub mod header;
 pub mod node;
+pub mod parser;
