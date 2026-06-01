@@ -4,3 +4,4 @@
 //! Phase-0 gate (see docs/lean-md/decisions/2026-05-31-phase-0-gate-outcome.md).
 
 pub mod audit;
+pub mod args;
