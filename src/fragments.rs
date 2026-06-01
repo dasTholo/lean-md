@@ -38,6 +38,15 @@ impl FragmentRegistry {
         if let Some(content) = self.builtins.get(name) {
             return Ok((*content).to_string());
         }
+        // Reject names with path-traversal components before touching the filesystem.
+        if Path::new(name).components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::ParentDir | std::path::Component::RootDir
+            )
+        }) {
+            return Err(ResolveError::Jail(format!("{name} escapes jail")));
+        }
         let candidate = jail_root.join(format!("{name}.lmd.md"));
         let jail = jail_root
             .canonicalize()
@@ -71,7 +80,7 @@ mod tests {
     fn unknown_fragment_errors() {
         let reg = FragmentRegistry::with_builtins();
         let err = reg.resolve("does-not-exist", Path::new(".")).unwrap_err();
-        matches!(err, ResolveError::NotFound(_));
+        assert!(matches!(err, ResolveError::NotFound(_)));
     }
 
     #[test]
@@ -88,6 +97,6 @@ mod tests {
     fn jail_blocks_escape() {
         let reg = FragmentRegistry::with_builtins();
         let err = reg.resolve("../etc/passwd", Path::new(".")).unwrap_err();
-        matches!(err, ResolveError::Jail(_));
+        assert!(matches!(err, ResolveError::Jail(_)));
     }
 }
