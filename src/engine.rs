@@ -92,32 +92,43 @@ mod tests {
         let out = render(&format!("@read {}\n", f.to_str().unwrap()));
         assert!(out.contains("ENGINE_SENTINEL_7"), "got: {out}");
     }
-    // CONCERN (Read→Delta off-by-one): assertion intentionally NOT weakened.
-    // Empirically reproducible finding in `ctx_read::handle`'s cache state machine
-    // (rust/src/tools/ctx_read.rs:660 handle_full_with_auto_delta):
-    //   * `full_content_delivered` is only set inside the `was_hit` branch, AND
-    //   * rushdown renders the *final* block directive such that the 2nd-and-LAST
-    //     `@read p` is emitted as a FULL read, whereas a 2nd *non-final* `@read p`
-    //     (e.g. with a 3rd directive after it) becomes the expected `[unchanged]`
-    //     cache-hit stub.
-    // Observed (2 reads): read#1=full+sentinel, read#2=full+sentinel  -> 2 sentinels.
-    // Observed (3 reads): read#1=full+sentinel, read#2=stub, read#3=stub -> 1 sentinel.
-    // So the shared session cache DOES warm (3rd read proves Read→Delta), but the
-    // cache-hit does not deterministically land on the 2nd read of a *trailing*
-    // directive. This is a `ctx_read` state-machine / rushdown render-order
-    // interaction, NOT an lmd wiring bug. Ignored pending a Phase-1 follow-up.
+    // Read→Delta guarantee (spec §4.2a / §6 gate). The `[unchanged]` cache-hit
+    // stub is a `mode=full` feature: `auto` deliberately compresses (and auto
+    // re-reads are already compact), so the clean single-sentinel stub only lands
+    // in full mode — verified empirically 2026-06-02. The fixture is multi-line
+    // with the sentinel on line 2 so the cache-hit proof-line (first file line)
+    // never leaks the sentinel into a stub. Three reads match the spec's
+    // "3-Read/mode=full" gate.
     #[test]
-    #[ignore = "Read->Delta off-by-one: 2nd read of a TRAILING @read still full; see comment + handoff"]
     fn reread_same_path_is_cache_hit_not_full() {
         let f = std::env::temp_dir().join("lmd_reread_cache.txt");
-        std::fs::write(&f, "REREAD_SENTINEL_99\n").unwrap();
+        std::fs::write(&f, "// reread fixture header\nREREAD_SENTINEL_99\n").unwrap();
         let p = f.to_str().unwrap();
-        let out = render(&format!("@read {p}\n\n@read {p}\n"));
-        let hits = out.matches("REREAD_SENTINEL_99").count();
+        let out = render(&format!(
+            "@read {p} mode=full\n\n@read {p} mode=full\n\n@read {p} mode=full\n"
+        ));
+        let sentinels = out.matches("REREAD_SENTINEL_99").count();
+        let stubs = out.matches("[unchanged").count();
         assert_eq!(
-            hits, 1,
-            "2nd read must be a cache-hit, not a full re-dump; got {hits}x in: {out}"
+            sentinels, 1,
+            "only the first full read carries the sentinel; re-reads must be cache-hit stubs; got {sentinels}x in: {out}"
         );
+        assert!(
+            stubs >= 2,
+            "the 2nd and 3rd reads must be [unchanged] cache-hit stubs; got {stubs} in: {out}"
+        );
+    }
+
+    #[test]
+    fn inline_comment_injection_is_inert() {
+        // F-2 e2e: `{{ -->x }}` must NOT be claimed as a directive (invalid name
+        // charset) and must NOT inject an HTML comment into the render.
+        let out = render("pre {{ -->x }} post\n");
+        assert!(
+            !out.contains("<!-- lmd"),
+            "injection must not reach the comment fallback; got: {out}"
+        );
+        assert!(out.contains("pre") && out.contains("post"), "got: {out}");
     }
     #[test]
     fn header_is_stripped_from_output() {
