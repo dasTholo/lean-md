@@ -14,6 +14,10 @@ use inline::LmdInlineParser;
 pub fn lmd_parser_extension() -> impl ParserExtension {
     parser_extension(|p| {
         p.add_block_parser(LmdBlockParser::new, NoParserOptions, PRIORITY_ATX_HEADING);
-        p.add_inline_parser(LmdInlineParser::new, NoParserOptions, PRIORITY_EMPHASIS + 100);
+        p.add_inline_parser(
+            LmdInlineParser::new,
+            NoParserOptions,
+            PRIORITY_EMPHASIS + 100,
+        );
     })
 }

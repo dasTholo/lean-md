@@ -57,7 +57,10 @@ impl BlockParser for LmdBlockParser {
         let (line, _seg) = reader.peek_line_bytes()?;
         let (name, args) = parse_directive_line(line.as_ref())?;
         reader.advance_to_eol();
-        Some((arena.new_node(LmdDirective::new(name, args)), State::NO_CHILDREN))
+        Some((
+            arena.new_node(LmdDirective::new(name, args)),
+            State::NO_CHILDREN,
+        ))
     }
 
     fn cont(

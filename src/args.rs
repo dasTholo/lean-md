@@ -27,7 +27,10 @@ impl DirectiveArgs {
     }
 
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.named.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+        self.named
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
     }
 }
 

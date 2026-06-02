@@ -31,7 +31,13 @@ impl NodeKind for LmdDirective {
 
 impl PrettyPrint for LmdDirective {
     fn pretty_print(&self, w: &mut dyn Write, _source: &str, level: usize) -> fmt::Result {
-        writeln!(w, "{}LmdDirective: @{} {}", pp_indent(level), self.name, self.args)
+        writeln!(
+            w,
+            "{}LmdDirective: @{} {}",
+            pp_indent(level),
+            self.name,
+            self.args
+        )
     }
 }
 
@@ -65,7 +71,13 @@ impl NodeKind for LmdInline {
 
 impl PrettyPrint for LmdInline {
     fn pretty_print(&self, w: &mut dyn Write, _source: &str, level: usize) -> fmt::Result {
-        writeln!(w, "{}LmdInline: {{{{ {} {} }}}}", pp_indent(level), self.name, self.args)
+        writeln!(
+            w,
+            "{}LmdInline: {{{{ {} {} }}}}",
+            pp_indent(level),
+            self.name,
+            self.args
+        )
     }
 }
 
