@@ -30,6 +30,14 @@ pub struct LmdRendererOptions {
 
 impl RendererOptions for LmdRendererOptions {}
 
+/// Neutralize HTML-comment delimiters so an untrusted directive name or a
+/// bridge err str cannot break out of the fallback `<!-- … -->` wrapper
+/// (spec §9 F-2). Phase-1 target is the AI ctx, not a browser DOM, so a
+/// minimal delimiter-escape is sufficient.
+fn sanitize_comment(s: &str) -> String {
+    s.replace("-->", "--&gt;").replace("<!--", "&lt;!--")
+}
+
 /// Look up `name` in the registry and run the bridge; on miss/error emit a
 /// visible comment instead of failing the whole render.
 fn dispatch(ctx: &Rc<EngineContext>, name: &str, raw_args: &str) -> String {
@@ -37,9 +45,13 @@ fn dispatch(ctx: &Rc<EngineContext>, name: &str, raw_args: &str) -> String {
     match ctx.registry.get(name) {
         Some(bridge) => match bridge.execute(ctx, &args) {
             Ok(out) => out,
-            Err(e) => format!("<!-- lmd:@{name} error: {e:?} -->"),
+            Err(e) => format!(
+                "<!-- lmd:@{} err: {} -->",
+                sanitize_comment(name),
+                sanitize_comment(&format!("{e:?}"))
+            ),
         },
-        None => format!("<!-- lmd: unknown directive @{name} -->"),
+        None => format!("<!-- lmd: unknown directive @{} -->", sanitize_comment(name)),
     }
 }
 
@@ -154,4 +166,16 @@ where
             LmdRendererOptions { ctx: ctx.clone() },
         );
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_comment;
+
+    #[test]
+    fn sanitizes_comment_breakout_sequences() {
+        assert_eq!(sanitize_comment("x-->y"), "x--&gt;y");
+        assert_eq!(sanitize_comment("<!--z"), "&lt;!--z");
+        assert_eq!(sanitize_comment("plain"), "plain");
+    }
 }
