@@ -10,17 +10,36 @@ use rushdown::text::Reader;
 
 use super::super::node::LmdInline;
 
+/// True if `name` matches the lmd directive-name grammar: an ascii-alphabetic
+/// first byte, then only `[a-z0-9-]` (ascii-alphanumeric or `-`). Mirrors the
+/// block grammar in `block.rs::parse_directive_line` so inline and block
+/// directives share one charset (spec §9 F-2).
+fn is_valid_directive_name(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    match bytes.first() {
+        Some(b) if b.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    bytes.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'-')
+}
+
 /// Pure recognizer for the body between `{{ ` and ` }}`: first token is the
-/// directive name, the remainder (trimmed) is the args. Returns None if empty.
+/// directive name, the remainder (trimmed) is the args. Returns None if empty
+/// or if the directive name does not match the `[a-z0-9-]`-with-alpha-start
+/// charset (spec §9 F-2).
 pub fn parse_inline_body(body: &str) -> Option<(String, String)> {
     let body = body.trim();
     if body.is_empty() {
         return None;
     }
-    match body.split_once(char::is_whitespace) {
-        Some((name, args)) => Some((name.to_string(), args.trim().to_string())),
-        None => Some((body.to_string(), String::new())),
+    let (name, args) = match body.split_once(char::is_whitespace) {
+        Some((name, args)) => (name.to_string(), args.trim().to_string()),
+        None => (body.to_string(), String::new()),
+    };
+    if !is_valid_directive_name(&name) {
+        return None;
     }
+    Some((name, args))
 }
 
 #[derive(Debug, Default)]
@@ -96,5 +115,17 @@ mod tests {
     #[test]
     fn rejects_empty() {
         assert!(parse_inline_body("   ").is_none());
+    }
+
+    #[test]
+    fn rejects_comment_injection_name() {
+        // F-2: a name that is not [a-z0-9-]-with-alpha-start must NOT be claimed,
+        // so `{{ -->x }}` can never reach the HTML-comment render fallback.
+        assert!(parse_inline_body("-->x").is_none());
+        assert!(parse_inline_body("a-->b").is_none());
+        assert!(parse_inline_body("<script").is_none());
+        // valid names still parse
+        assert_eq!(parse_inline_body("read").unwrap().0, "read");
+        assert_eq!(parse_inline_body("hard-rules x").unwrap().0, "hard-rules");
     }
 }
