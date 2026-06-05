@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::core::cache::SessionCache;
+use crate::core::call_graph::CallGraph;
+use crate::core::graph_index::{self, ProjectIndex};
 use rushdown::new_markdown_to_html;
 
 use super::bridges::{default_registry, BridgeError, BridgeRegistry};
@@ -27,6 +29,11 @@ pub struct EngineContext {
     pub cache: RefCell<SessionCache>,
     pub max_chain_depth: usize,
     depth: Cell<usize>,
+    /// Lazy per-render memo of the static graph index (one build, shared by
+    /// every `@graph` op in this render — §4.2a-analog).
+    graph_index: RefCell<Option<Rc<ProjectIndex>>>,
+    /// Lazy per-render memo of the call graph (built from `graph_index`).
+    call_graph: RefCell<Option<Rc<CallGraph>>>,
 }
 
 impl EngineContext {
@@ -39,6 +46,8 @@ impl EngineContext {
             cache: RefCell::new(SessionCache::new()),
             max_chain_depth: 16,
             depth: Cell::new(0),
+            graph_index: RefCell::new(None),
+            call_graph: RefCell::new(None),
         }
     }
     /// Increment the include-chain depth; error past `max_chain_depth` (§7).
@@ -52,6 +61,30 @@ impl EngineContext {
     }
     pub fn leave(&self) {
         self.depth.set(self.depth.get().saturating_sub(1));
+    }
+
+    /// Lazy-build + memoize the static project index for this render.
+    pub fn index(&self) -> Rc<ProjectIndex> {
+        if let Some(existing) = self.graph_index.borrow().as_ref() {
+            return existing.clone();
+        }
+        let root = self.jail_root.to_str().unwrap_or(".");
+        let built = Rc::new(graph_index::load_or_build(root));
+        *self.graph_index.borrow_mut() = Some(built.clone());
+        built
+    }
+
+    /// Lazy-build + memoize the call graph (depends on `index()`).
+    pub fn call_graph(&self) -> Rc<CallGraph> {
+        if let Some(existing) = self.call_graph.borrow().as_ref() {
+            return existing.clone();
+        }
+        let index = self.index();
+        let root = self.jail_root.to_str().unwrap_or(".");
+        let built = Rc::new(CallGraph::load_or_build(root, &index));
+        let _ = built.save();
+        *self.call_graph.borrow_mut() = Some(built.clone());
+        built
     }
 }
 
@@ -170,5 +203,19 @@ mod tests {
         let out = render("@lean-md\nshell: allow\n\n@query git --version\n");
         std::env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
         assert!(out.contains("git version"), "got: {out}");
+    }
+
+    #[test]
+    fn index_memo_returns_same_handle_twice() {
+        let ctx = Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            PathBuf::from("."),
+        ));
+        let a = ctx.index();
+        let b = ctx.index();
+        assert!(
+            Rc::ptr_eq(&a, &b),
+            "index() must memoize one build per render"
+        );
     }
 }
