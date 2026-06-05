@@ -3,6 +3,7 @@
 //! bridge can re-enter the engine (e.g. `@include` renders its fragment).
 
 pub mod include;
+pub mod list;
 pub mod read;
 pub mod search;
 
@@ -46,13 +47,12 @@ impl BridgeRegistry {
     }
 }
 
-/// The Phase-1 default registry: `@read` (Router) + `@include` (Extension).
-/// Phase-2 adds `@search` (Router → ctx_search).
 pub fn default_registry() -> BridgeRegistry {
     let mut reg = BridgeRegistry::new();
     reg.register(Box::new(read::ReadBridge));
     reg.register(Box::new(include::IncludeBridge));
     reg.register(Box::new(search::SearchBridge));
+    reg.register(Box::new(list::ListBridge));
     reg
 }
 
