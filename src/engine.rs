@@ -218,4 +218,17 @@ mod tests {
             "index() must memoize one build per render"
         );
     }
+
+    #[test]
+    fn graph_directive_renders_dependents_e2e() {
+        // Render a `@graph dependents` directive end-to-end against this repo.
+        let out = render("@graph dependents rust/src/lmd/engine.rs\n");
+        // Either a dependents list or the graceful "No dependents" line — the
+        // directive must be dispatched (not the unknown-directive fallback).
+        assert!(
+            out.contains("dependent") || out.contains("No dependents"),
+            "got: {out}"
+        );
+        assert!(!out.contains("unknown directive"), "got: {out}");
+    }
 }
