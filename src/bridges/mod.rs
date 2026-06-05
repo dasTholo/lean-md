@@ -5,6 +5,7 @@
 pub mod count;
 pub mod date;
 pub mod env;
+pub mod graph;
 pub mod include;
 pub mod list;
 pub mod query;
@@ -61,6 +62,7 @@ pub fn default_registry() -> BridgeRegistry {
     reg.register(Box::new(count::CountBridge));
     reg.register(Box::new(date::DateBridge));
     reg.register(Box::new(env::EnvBridge));
+    reg.register(Box::new(graph::GraphBridge));
     reg.register(Box::new(read::ReadBridge));
     reg.register(Box::new(include::IncludeBridge));
     reg.register(Box::new(search::SearchBridge));
@@ -83,7 +85,7 @@ mod tests {
     fn default_registry_has_all_core_bridges() {
         let reg = default_registry();
         for name in [
-            "read", "include", "search", "list", "env", "date", "count", "query",
+            "read", "include", "search", "list", "env", "date", "count", "query", "graph",
         ] {
             assert!(reg.get(name).is_some(), "missing bridge: {name}");
         }
