@@ -2,6 +2,7 @@
 //! lean-ctx core API (spec §4.2). `execute` takes `&Rc<EngineContext>` so a
 //! bridge can re-enter the engine (e.g. `@include` renders its fragment).
 
+pub mod env;
 pub mod include;
 pub mod list;
 pub mod read;
@@ -49,6 +50,7 @@ impl BridgeRegistry {
 
 pub fn default_registry() -> BridgeRegistry {
     let mut reg = BridgeRegistry::new();
+    reg.register(Box::new(env::EnvBridge));
     reg.register(Box::new(read::ReadBridge));
     reg.register(Box::new(include::IncludeBridge));
     reg.register(Box::new(search::SearchBridge));
