@@ -7,6 +7,7 @@
 pub struct DirectiveArgs {
     positional: Vec<String>,
     named: Vec<(String, String)>,
+    raw: String,
 }
 
 impl DirectiveArgs {
@@ -19,7 +20,11 @@ impl DirectiveArgs {
                 _ => positional.push(tok.to_string()),
             }
         }
-        Self { positional, named }
+        Self {
+            positional,
+            named,
+            raw: raw.trim().to_string(),
+        }
     }
 
     pub fn positional(&self, i: usize) -> Option<&str> {
@@ -31,6 +36,12 @@ impl DirectiveArgs {
             .iter()
             .find(|(k, _)| k == key)
             .map(|(_, v)| v.as_str())
+    }
+
+    /// The trimmed raw argument string (everything after the directive name),
+    /// space-preserving — needed by `@query` whose command contains spaces.
+    pub fn raw(&self) -> &str {
+        &self.raw
     }
 }
 
@@ -52,5 +63,11 @@ mod tests {
         let a = DirectiveArgs::parse("   ");
         assert_eq!(a.positional(0), None);
         assert_eq!(a.get("x"), None);
+    }
+
+    #[test]
+    fn raw_preserves_full_command_line() {
+        let a = DirectiveArgs::parse("echo hello world mode=x");
+        assert_eq!(a.raw(), "echo hello world mode=x");
     }
 }
