@@ -80,9 +80,12 @@ mod tests {
         assert!(reg.get("nope").is_none());
     }
     #[test]
-    fn default_registry_has_read_and_include() {
+    fn default_registry_has_all_core_bridges() {
         let reg = default_registry();
-        assert!(reg.get("read").is_some());
-        assert!(reg.get("include").is_some());
+        for name in [
+            "read", "include", "search", "list", "env", "date", "count", "query",
+        ] {
+            assert!(reg.get(name).is_some(), "missing bridge: {name}");
+        }
     }
 }
