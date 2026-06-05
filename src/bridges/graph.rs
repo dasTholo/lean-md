@@ -50,12 +50,16 @@ impl DirectiveBridge for GraphBridge {
             }
             "context" => {
                 let target = args.positional(1).ok_or(BridgeError::MissingArg("path"))?;
-                let abs = if std::path::Path::new(target).is_absolute() {
-                    target.to_string()
-                } else {
-                    format!("{root}/{target}")
+                let jail_root = std::path::Path::new(root);
+                // §7 PathJail: resolve the target inside the jail; an absolute
+                // arg makes `join` ignore `root`, so `jail_path` is what actually
+                // refuses out-of-jail and `..`-traversal paths before any read.
+                let abs = match crate::core::pathjail::jail_path(&jail_root.join(target), jail_root) {
+                    Ok(p) => p,
+                    Err(_) => return Ok(format!("Path '{target}' is outside the jail root")),
                 };
-                match graph_context::build_graph_context(&abs, root, None) {
+                let abs = abs.to_str().unwrap_or(target);
+                match graph_context::build_graph_context(abs, root, None) {
                     Some(gc) => Ok(graph_context::format_graph_context(&gc)),
                     None => Ok(format!("No graph context available for '{target}'")),
                 }
@@ -234,6 +238,27 @@ mod tests {
             .expect("context op must not error");
         // Either a rendered context or a graceful "no context" line — never empty.
         assert!(!out.trim().is_empty(), "got empty output");
+    }
+
+    #[test]
+    fn context_op_rejects_out_of_jail_path() {
+        use crate::lmd::header::LeanMdHeader;
+        use std::path::PathBuf;
+        let ctx = Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            PathBuf::from("."),
+        ));
+        // Absolute path outside the jail root must be refused, not read.
+        let args = DirectiveArgs::parse("context /etc/passwd");
+        let out = GraphBridge.execute(&ctx, &args).expect("must not error");
+        assert!(
+            out.contains("outside") || out.contains("No graph context"),
+            "out-of-jail path must be refused gracefully, got: {out}"
+        );
+        assert!(
+            !out.contains("root:"),
+            "must not leak /etc/passwd content, got: {out}"
+        );
     }
 
     #[test]
