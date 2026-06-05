@@ -32,7 +32,10 @@ mod tests {
     use std::path::PathBuf;
 
     fn ctx() -> Rc<EngineContext> {
-        Rc::new(EngineContext::new(LeanMdHeader::default(), PathBuf::from(".")))
+        Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            PathBuf::from("."),
+        ))
     }
 
     #[test]
@@ -54,7 +57,9 @@ mod tests {
 
     #[test]
     fn missing_key_errors() {
-        let err = EnvBridge.execute(&ctx(), &DirectiveArgs::parse("")).unwrap_err();
+        let err = EnvBridge
+            .execute(&ctx(), &DirectiveArgs::parse(""))
+            .unwrap_err();
         assert!(matches!(err, BridgeError::MissingArg(_)));
     }
 

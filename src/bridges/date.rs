@@ -32,12 +32,17 @@ mod tests {
     use std::path::PathBuf;
 
     fn ctx() -> Rc<EngineContext> {
-        Rc::new(EngineContext::new(LeanMdHeader::default(), PathBuf::from(".")))
+        Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            PathBuf::from("."),
+        ))
     }
 
     #[test]
     fn default_format_is_iso_date() {
-        let out = DateBridge.execute(&ctx(), &DirectiveArgs::parse("")).unwrap();
+        let out = DateBridge
+            .execute(&ctx(), &DirectiveArgs::parse(""))
+            .unwrap();
         // YYYY-MM-DD => length 10, dashes at index 4 and 7.
         assert_eq!(out.len(), 10, "got: {out}");
         assert_eq!(out.as_bytes()[4], b'-', "got: {out}");

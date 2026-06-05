@@ -19,7 +19,10 @@ impl DirectiveBridge for ListBridge {
         _ctx: &Rc<EngineContext>,
         args: &DirectiveArgs,
     ) -> Result<String, BridgeError> {
-        let path = args.positional(0).or_else(|| args.get("path")).unwrap_or(".");
+        let path = args
+            .positional(0)
+            .or_else(|| args.get("path"))
+            .unwrap_or(".");
         let depth = args
             .get("depth")
             .and_then(|s| s.parse::<usize>().ok())
@@ -38,7 +41,10 @@ mod tests {
     use std::path::PathBuf;
 
     fn ctx() -> Rc<EngineContext> {
-        Rc::new(EngineContext::new(LeanMdHeader::default(), PathBuf::from(".")))
+        Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            PathBuf::from("."),
+        ))
     }
 
     #[test]
