@@ -51,7 +51,10 @@ fn dispatch(ctx: &Rc<EngineContext>, name: &str, raw_args: &str) -> String {
                 sanitize_comment(&format!("{e:?}"))
             ),
         },
-        None => format!("<!-- lmd: unknown directive @{} -->", sanitize_comment(name)),
+        None => format!(
+            "<!-- lmd: unknown directive @{} -->",
+            sanitize_comment(name)
+        ),
     }
 }
 

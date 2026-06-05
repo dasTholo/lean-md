@@ -20,7 +20,9 @@ fn is_valid_directive_name(name: &str) -> bool {
         Some(b) if b.is_ascii_alphabetic() => {}
         _ => return false,
     }
-    bytes.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'-')
+    bytes
+        .iter()
+        .all(|b| b.is_ascii_alphanumeric() || *b == b'-')
 }
 
 /// Pure recognizer for the body between `{{ ` and ` }}`: first token is the
