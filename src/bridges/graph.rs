@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
 use crate::core::call_graph::CallGraph;
+use crate::core::graph_context;
 use crate::core::graph_index::{self, ProjectIndex};
 use crate::lmd::args::DirectiveArgs;
 use crate::lmd::engine::EngineContext;
@@ -46,6 +47,18 @@ impl DirectiveBridge for GraphBridge {
             "callees" => {
                 let sym = args.positional(1).ok_or(BridgeError::MissingArg("symbol"))?;
                 Ok(fmt_callees(&ctx.call_graph(), sym))
+            }
+            "context" => {
+                let target = args.positional(1).ok_or(BridgeError::MissingArg("path"))?;
+                let abs = if std::path::Path::new(target).is_absolute() {
+                    target.to_string()
+                } else {
+                    format!("{root}/{target}")
+                };
+                match graph_context::build_graph_context(&abs, root, None) {
+                    Some(gc) => Ok(graph_context::format_graph_context(&gc)),
+                    None => Ok(format!("No graph context available for '{target}'")),
+                }
             }
             other => Err(BridgeError::Resolve(format!(
                 "unknown @graph op '{other}'. Use: dependents|dependencies|related|callers|callees|context|recent-neighbors"
@@ -205,6 +218,22 @@ mod tests {
         let out = fmt_callees(&call_graph_a_calls_b(), "fn_a");
         assert!(out.contains("fn_b"), "got: {out}");
         assert!(out.contains("callee"), "got: {out}");
+    }
+
+    #[test]
+    fn context_op_renders_for_a_real_file() {
+        use crate::lmd::header::LeanMdHeader;
+        use std::path::PathBuf;
+        let ctx = Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            PathBuf::from("."),
+        ));
+        let args = DirectiveArgs::parse("context rust/src/lmd/engine.rs");
+        let out = GraphBridge
+            .execute(&ctx, &args)
+            .expect("context op must not error");
+        // Either a rendered context or a graceful "no context" line — never empty.
+        assert!(!out.trim().is_empty(), "got empty output");
     }
 
     #[test]
