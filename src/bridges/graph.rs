@@ -4,6 +4,7 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
+use crate::core::call_graph::CallGraph;
 use crate::core::graph_index::{self, ProjectIndex};
 use crate::lmd::args::DirectiveArgs;
 use crate::lmd::engine::EngineContext;
@@ -37,6 +38,14 @@ impl DirectiveBridge for GraphBridge {
                 let target = args.positional(1).ok_or(BridgeError::MissingArg("path"))?;
                 let key = graph_index::graph_relative_key(target, root);
                 Ok(fmt_related(&ctx.index(), &key, depth_arg(args)))
+            }
+            "callers" => {
+                let sym = args.positional(1).ok_or(BridgeError::MissingArg("symbol"))?;
+                Ok(fmt_callers(&ctx.call_graph(), sym))
+            }
+            "callees" => {
+                let sym = args.positional(1).ok_or(BridgeError::MissingArg("symbol"))?;
+                Ok(fmt_callees(&ctx.call_graph(), sym))
             }
             other => Err(BridgeError::Resolve(format!(
                 "unknown @graph op '{other}'. Use: dependents|dependencies|related|callers|callees|context|recent-neighbors"
@@ -107,6 +116,42 @@ fn fmt_related(index: &ProjectIndex, key: &str, depth: usize) -> String {
     out
 }
 
+fn fmt_callers(graph: &CallGraph, symbol: &str) -> String {
+    let callers = graph.callers_of(symbol);
+    if callers.is_empty() {
+        return format!(
+            "No callers of '{symbol}' ({} edges in call graph)",
+            graph.edges.len()
+        );
+    }
+    let mut out = format!("{} caller(s) of '{symbol}':\n", callers.len());
+    for e in &callers {
+        out.push_str(&format!(
+            "  {} → {}  (L{})\n",
+            e.caller_file, e.caller_symbol, e.caller_line
+        ));
+    }
+    out
+}
+
+fn fmt_callees(graph: &CallGraph, symbol: &str) -> String {
+    let callees = graph.callees_of(symbol);
+    if callees.is_empty() {
+        return format!(
+            "No callees of '{symbol}' ({} edges in call graph)",
+            graph.edges.len()
+        );
+    }
+    let mut out = format!("{} callee(s) of '{symbol}':\n", callees.len());
+    for e in &callees {
+        out.push_str(&format!(
+            "  → {}  ({}:L{})\n",
+            e.callee_name, e.caller_file, e.caller_line
+        ));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,6 +179,32 @@ mod tests {
     fn fmt_dependents_empty_is_explained() {
         let out = fmt_dependents(&index_a_imports_b(), "nope.rs", 2);
         assert!(out.contains("No dependents"), "got: {out}");
+    }
+
+    fn call_graph_a_calls_b() -> crate::core::call_graph::CallGraph {
+        use crate::core::call_graph::{CallEdge, CallGraph};
+        let mut g = CallGraph::new("/tmp/g");
+        g.edges.push(CallEdge {
+            caller_file: "a.rs".into(),
+            caller_symbol: "fn_a".into(),
+            caller_line: 10,
+            callee_name: "fn_b".into(),
+        });
+        g
+    }
+
+    #[test]
+    fn fmt_callers_lists_calling_symbols() {
+        let out = fmt_callers(&call_graph_a_calls_b(), "fn_b");
+        assert!(out.contains("fn_a"), "got: {out}");
+        assert!(out.contains("caller"), "got: {out}");
+    }
+
+    #[test]
+    fn fmt_callees_lists_called_symbols() {
+        let out = fmt_callees(&call_graph_a_calls_b(), "fn_a");
+        assert!(out.contains("fn_b"), "got: {out}");
+        assert!(out.contains("callee"), "got: {out}");
     }
 
     #[test]
