@@ -72,7 +72,7 @@ pub fn directive_audit() -> Vec<DirectiveAudit> {
         DirectiveAudit {
             directive: "@graph",
             class: Router,
-            backing: "src/core/graph_index.rs",
+            backing: "src/core/graph_index/mod.rs",
             est_bridge_lines: 80,
             note: "7 ops via graph_index/call_graph/graph_context; recent-neighbors gated on G-1",
         },
