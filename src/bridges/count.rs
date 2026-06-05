@@ -24,7 +24,7 @@ impl DirectiveBridge for CountBridge {
             .positional(0)
             .ok_or(BridgeError::MissingArg("pattern"))?;
         match glob::glob(pattern) {
-            Ok(paths) => Ok(paths.filter(|r| r.is_ok()).count().to_string()),
+            Ok(paths) => Ok(paths.filter_map(Result::ok).count().to_string()),
             Err(e) => Err(BridgeError::Resolve(format!("bad glob: {e}"))),
         }
     }
