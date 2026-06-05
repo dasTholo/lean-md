@@ -64,6 +64,16 @@ impl DirectiveBridge for GraphBridge {
                     None => Ok(format!("No graph context available for '{target}'")),
                 }
             }
+            "recent-neighbors" => {
+                let seeds: Vec<String> = (1..)
+                    .map_while(|i| args.positional(i))
+                    .map(|p| graph_index::graph_relative_key(p, root))
+                    .collect();
+                if seeds.is_empty() {
+                    return Err(BridgeError::MissingArg("seed-path"));
+                }
+                Ok(fmt_recent_neighbors(root, &seeds))
+            }
             other => Err(BridgeError::Resolve(format!(
                 "unknown @graph op '{other}'. Use: dependents|dependencies|related|callers|callees|context|recent-neighbors"
             ))),
@@ -169,6 +179,26 @@ fn fmt_callees(graph: &CallGraph, symbol: &str) -> String {
     out
 }
 
+/// Render the rank map (lower rank = closer neighbor) as a sorted list.
+fn fmt_recent_neighbors(root: &str, seeds: &[String]) -> String {
+    match graph_context::graph_neighbor_ranks_for_recent_files(root, seeds, 10, 20) {
+        Some(ranks) if !ranks.is_empty() => {
+            let mut entries: Vec<(&String, &usize)> = ranks.iter().collect();
+            entries.sort_by(|a, b| a.1.cmp(b.1).then_with(|| a.0.cmp(b.0)));
+            let mut out = format!(
+                "{} graph neighbor(s) of {} recent seed(s):\n",
+                entries.len(),
+                seeds.len()
+            );
+            for (path, rank) in entries {
+                out.push_str(&format!("  [{rank}] {path}\n"));
+            }
+            out
+        }
+        _ => format!("No graph neighbors for {} seed(s)", seeds.len()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,6 +289,33 @@ mod tests {
             !out.contains("root:"),
             "must not leak /etc/passwd content, got: {out}"
         );
+    }
+
+    #[test]
+    fn recent_neighbors_requires_at_least_one_seed() {
+        use crate::lmd::header::LeanMdHeader;
+        use std::path::PathBuf;
+        let ctx = Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            PathBuf::from("."),
+        ));
+        let err = GraphBridge
+            .execute(&ctx, &DirectiveArgs::parse("recent-neighbors"))
+            .unwrap_err();
+        assert!(matches!(err, BridgeError::MissingArg(_)), "got: {err:?}");
+    }
+
+    #[test]
+    fn recent_neighbors_renders_for_real_seed() {
+        use crate::lmd::header::LeanMdHeader;
+        use std::path::PathBuf;
+        let ctx = Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            PathBuf::from("."),
+        ));
+        let args = DirectiveArgs::parse("recent-neighbors rust/src/lmd/engine.rs");
+        let out = GraphBridge.execute(&ctx, &args).expect("must not error");
+        assert!(!out.trim().is_empty(), "got empty output");
     }
 
     #[test]
