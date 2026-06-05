@@ -152,4 +152,23 @@ mod tests {
             "inline dispatch must fire; got: {out}"
         );
     }
+
+    #[test]
+    fn query_denied_without_shell_allow() {
+        // Default header => shell=deny => @query must not execute.
+        let out = render("@query git --version\n");
+        assert!(
+            !out.contains("git version"),
+            "shell must be denied without shell=allow; got: {out}"
+        );
+    }
+
+    #[test]
+    fn query_runs_with_shell_allow_header() {
+        // Hermetic allowlist pin (see bridge unit test). nextest = process-per-test.
+        std::env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git");
+        let out = render("@lean-md\nshell: allow\n\n@query git --version\n");
+        std::env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+        assert!(out.contains("git version"), "got: {out}");
+    }
 }

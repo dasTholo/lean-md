@@ -7,6 +7,7 @@ pub mod date;
 pub mod env;
 pub mod include;
 pub mod list;
+pub mod query;
 pub mod read;
 pub mod search;
 
@@ -22,6 +23,11 @@ pub enum BridgeError {
     Resolve(String),
     Io(String),
     DepthExceeded,
+    /// `@query` invoked without `@lean-md shell=allow` (Spec §7 consumer gate).
+    ShellDenied,
+    /// `@query` command rejected by an inherited lean-ctx shell defense
+    /// (strict-mode `$()`/backtick block or shell allowlist).
+    ShellRejected(String),
 }
 
 pub trait DirectiveBridge {
@@ -59,6 +65,7 @@ pub fn default_registry() -> BridgeRegistry {
     reg.register(Box::new(include::IncludeBridge));
     reg.register(Box::new(search::SearchBridge));
     reg.register(Box::new(list::ListBridge));
+    reg.register(Box::new(query::QueryBridge));
     reg
 }
 
