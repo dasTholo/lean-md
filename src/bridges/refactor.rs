@@ -77,21 +77,74 @@ impl DirectiveBridge for RefactorBridge {
         args: &DirectiveArgs,
     ) -> Result<String, BridgeError> {
         let op = args.positional(0).ok_or(BridgeError::MissingArg("op"))?;
-        let _op_stem = map_op(op).ok_or_else(|| {
+        let op_stem = map_op(op).ok_or_else(|| {
             BridgeError::Resolve(format!(
                 "unknown @refactor op '{op}'. Use: rename|move|safe-delete|inline"
             ))
         })?;
 
         let root = ctx.jail_root.to_str().unwrap_or(".");
-        let (_obj, _abs) = build_target(args, root)?;
+        let (mut obj, abs) = build_target(args, root)?;
 
-        // Backend dispatch (preview + apply) is implemented in Tasks 2/3.
-        // For now surface a clear placeholder so callers know the op was
-        // recognised but the action is not yet wired.
-        Ok(format!(
-            "PENDING: @refactor {op} — backend dispatch not yet implemented (Task 2/3)"
-        ))
+        // Positional-flag detection (same pattern as edit.rs symbolic_edit).
+        let flag = |w: &str| {
+            (1_usize..)
+                .map_while(|i| args.positional(i))
+                .any(|t| t == w)
+        };
+
+        // Task 2: preview path. Task 3 will extend this branch check to also
+        // handle plan_hash= → apply. The branch point is already scaffolded so
+        // Task 3 only needs to replace "_preview" with the apply stem + flags.
+        let action_suffix = if args.get("plan_hash").is_some() {
+            // Apply branch is wired in Task 3; for now also preview.
+            "_preview"
+        } else {
+            "_preview"
+        };
+
+        let action = format!("{op_stem}{action_suffix}");
+        obj.insert("action".into(), action.into());
+
+        // Op-specific flag/arg mapping.
+        match op_stem {
+            "rename" => {
+                let new_name = args.get("new").ok_or(BridgeError::MissingArg("new"))?;
+                obj.insert("new_name".into(), new_name.into());
+                if flag("search-comments") {
+                    obj.insert("search_comments".into(), true.into());
+                }
+                if flag("search-text") {
+                    obj.insert("search_text_occurrences".into(), true.into());
+                }
+            }
+            "move" => {
+                let target = args.get("target");
+                let parent = args.get("parent");
+                match (target, parent) {
+                    (None, None) => return Err(BridgeError::MissingArg("target")),
+                    (Some(t), _) => {
+                        obj.insert("target_path".into(), t.into());
+                    }
+                    (None, Some(p)) => {
+                        obj.insert("target_parent".into(), p.into());
+                    }
+                }
+            }
+            "safe_delete" => {
+                // No mandatory extras for safe-delete.
+            }
+            "inline" => {
+                if flag("keep-definition") {
+                    obj.insert("keep_definition".into(), true.into());
+                }
+            }
+            _ => {}
+        }
+
+        // Preview is read-only — NO cache clear (apply-path cache clear is Task 3).
+        let out = crate::tools::ctx_refactor::handle(&serde_json::Value::Object(obj), root, &abs);
+        Ok(out)
     }
 }
 
@@ -226,5 +279,154 @@ mod tests {
     #[test]
     fn refactor_is_registered() {
         assert!(super::super::default_registry().get("refactor").is_some());
+    }
+
+    // ── Task 2: preview-path dispatch ────────────────────────────────────────
+
+    /// Helper: ctx rooted at a real temp dir with a Rust source file.
+    fn ctx_with_file(dir_suffix: &str) -> (Rc<EngineContext>, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(dir_suffix);
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("subject.rs");
+        std::fs::write(&f, "pub fn my_func() {}\n").unwrap();
+        (ctx_at(dir.clone()), f)
+    }
+
+    /// All four preview ops must return a clean BACKEND_REQUIRED envelope (or
+    /// ERROR envelope) — never a panic, never MissingArg — when no IDE is
+    /// present (headless).
+    #[test]
+    fn rename_preview_returns_backend_required_envelope() {
+        let (ctx, f) = ctx_with_file("lmd_refactor_rename_preview");
+        let input = format!(
+            "rename path={} line=1 new=renamed_func",
+            f.to_str().unwrap()
+        );
+        let out = RefactorBridge
+            .execute(&ctx, &DirectiveArgs::parse(&input))
+            .unwrap();
+        assert!(
+            out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
+            "rename preview must degrade cleanly, got: {out}"
+        );
+    }
+
+    #[test]
+    fn move_preview_returns_backend_required_envelope() {
+        let (ctx, f) = ctx_with_file("lmd_refactor_move_preview");
+        let input = format!("move path={} line=1 target=other/", f.to_str().unwrap());
+        let out = RefactorBridge
+            .execute(&ctx, &DirectiveArgs::parse(&input))
+            .unwrap();
+        assert!(
+            out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
+            "move preview must degrade cleanly, got: {out}"
+        );
+    }
+
+    #[test]
+    fn safe_delete_preview_returns_backend_required_envelope() {
+        let (ctx, f) = ctx_with_file("lmd_refactor_safedel_preview");
+        let input = format!("safe-delete path={} line=1", f.to_str().unwrap());
+        let out = RefactorBridge
+            .execute(&ctx, &DirectiveArgs::parse(&input))
+            .unwrap();
+        assert!(
+            out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
+            "safe-delete preview must degrade cleanly, got: {out}"
+        );
+    }
+
+    #[test]
+    fn inline_preview_returns_backend_required_envelope() {
+        let (ctx, f) = ctx_with_file("lmd_refactor_inline_preview");
+        let input = format!("inline path={} line=1", f.to_str().unwrap());
+        let out = RefactorBridge
+            .execute(&ctx, &DirectiveArgs::parse(&input))
+            .unwrap();
+        assert!(
+            out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
+            "inline preview must degrade cleanly, got: {out}"
+        );
+    }
+
+    /// move without target= or parent= → MissingArg("target").
+    #[test]
+    fn move_without_target_errors() {
+        let (ctx, f) = ctx_with_file("lmd_refactor_move_notarget");
+        let err = RefactorBridge
+            .execute(
+                &ctx,
+                &DirectiveArgs::parse(&format!("move path={} line=1", f.to_str().unwrap())),
+            )
+            .unwrap_err();
+        assert!(
+            matches!(err, BridgeError::MissingArg("target")),
+            "got: {err:?}"
+        );
+    }
+
+    /// rename without new= → MissingArg("new").
+    #[test]
+    fn rename_without_new_errors() {
+        let (ctx, f) = ctx_with_file("lmd_refactor_rename_nonew");
+        let err = RefactorBridge
+            .execute(
+                &ctx,
+                &DirectiveArgs::parse(&format!("rename path={} line=1", f.to_str().unwrap())),
+            )
+            .unwrap_err();
+        assert!(
+            matches!(err, BridgeError::MissingArg("new")),
+            "got: {err:?}"
+        );
+    }
+
+    /// move with parent= (no target=) → not a MissingArg, reaches backend.
+    #[test]
+    fn move_with_parent_reaches_backend() {
+        let (ctx, f) = ctx_with_file("lmd_refactor_move_parent");
+        let input = format!(
+            "move path={} line=1 parent=OtherStruct",
+            f.to_str().unwrap()
+        );
+        let out = RefactorBridge
+            .execute(&ctx, &DirectiveArgs::parse(&input))
+            .unwrap();
+        assert!(
+            out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
+            "move(parent=) must degrade cleanly, got: {out}"
+        );
+    }
+
+    /// rename with search-comments / search-text flags → clean backend call.
+    #[test]
+    fn rename_preview_with_flags_reaches_backend() {
+        let (ctx, f) = ctx_with_file("lmd_refactor_rename_flags");
+        let input = format!(
+            "rename search-comments search-text path={} line=1 new=bar",
+            f.to_str().unwrap()
+        );
+        let out = RefactorBridge
+            .execute(&ctx, &DirectiveArgs::parse(&input))
+            .unwrap();
+        assert!(
+            out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
+            "rename(flags) must degrade cleanly, got: {out}"
+        );
+    }
+
+    /// inline with keep-definition flag → clean backend call.
+    #[test]
+    fn inline_preview_keep_definition_reaches_backend() {
+        let (ctx, f) = ctx_with_file("lmd_refactor_inline_keepdef");
+        let input = format!("inline keep-definition path={} line=1", f.to_str().unwrap());
+        let out = RefactorBridge
+            .execute(&ctx, &DirectiveArgs::parse(&input))
+            .unwrap();
+        assert!(
+            out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
+            "inline(keep-definition) must degrade cleanly, got: {out}"
+        );
     }
 }
