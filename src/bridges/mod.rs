@@ -4,6 +4,7 @@
 
 pub mod count;
 pub mod date;
+pub mod edit;
 pub mod env;
 pub mod graph;
 pub mod include;
@@ -34,7 +35,7 @@ pub enum BridgeError {
 pub trait DirectiveBridge {
     fn name(&self) -> &'static str;
     fn execute(&self, ctx: &Rc<EngineContext>, args: &DirectiveArgs)
-        -> Result<String, BridgeError>;
+               -> Result<String, BridgeError>;
 }
 
 /// Name-keyed registry of directive bridges.
@@ -61,6 +62,7 @@ pub fn default_registry() -> BridgeRegistry {
     let mut reg = BridgeRegistry::new();
     reg.register(Box::new(count::CountBridge));
     reg.register(Box::new(date::DateBridge));
+    reg.register(Box::new(edit::EditBridge));
     reg.register(Box::new(env::EnvBridge));
     reg.register(Box::new(graph::GraphBridge));
     reg.register(Box::new(read::ReadBridge));
@@ -86,6 +88,7 @@ mod tests {
         let reg = default_registry();
         for name in [
             "read", "include", "search", "list", "env", "date", "count", "query", "graph",
+            "edit",
         ] {
             assert!(reg.get(name).is_some(), "missing bridge: {name}");
         }
