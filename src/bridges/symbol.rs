@@ -58,9 +58,10 @@ impl DirectiveBridge for SymbolBridge {
 /// type_hierarchy. Builds the ctx_refactor arg map from path + line(1-idx) +
 /// column(0-idx, default 0) and passes the jail-resolved abs_path. `scope`
 /// (refs/impl) and `direction` (type_hierarchy) are forwarded when present.
-/// Enrichment of the returned location list is layered on in Task 3.
+/// The returned location list is cache-name enriched (see `enrich_locations`);
+/// `type_hierarchy` renders its own tree and is left verbatim.
 fn nav(
-    _ctx: &Rc<EngineContext>,
+    ctx: &Rc<EngineContext>,
     args: &DirectiveArgs,
     action: &str,
     root: &str,
@@ -93,11 +94,14 @@ fn nav(
         obj.insert("direction".into(), direction.into());
     }
 
-    Ok(crate::tools::ctx_refactor::handle(
-        &serde_json::Value::Object(obj),
-        root,
-        &abs,
-    ))
+    let out = crate::tools::ctx_refactor::handle(&serde_json::Value::Object(obj), root, &abs);
+    // Cache-name enrichment is meaningful for location lists (refs/def/impl/
+    // declaration). type_hierarchy renders its own tree, so leave it verbatim.
+    if action == "type_hierarchy" {
+        Ok(out)
+    } else {
+        Ok(enrich_locations(&out, ctx, root))
+    }
 }
 
 /// `@symbol overview <path>` → ctx_refactor symbols_overview (path only).
@@ -114,6 +118,123 @@ fn overview(
         .map_err(|e| BridgeError::Resolve(format!("path blocked by jail: {e}")))?;
     let obj = serde_json::json!({ "action": "symbols_overview" });
     Ok(crate::tools::ctx_refactor::handle(&obj, root, &abs))
+}
+
+/// `impl X for Y { … }` → `Y`; `impl Y { … }` → `Y`; otherwise None.
+/// Generics are skipped: `impl<T> Tr<T> for Wid<T>` → `Wid` (spec §4.2 Z. 262).
+fn extract_impl_type(line: &str) -> Option<String> {
+    // Strip the `impl` keyword, tolerating a generic param list with no space:
+    // `impl Bar` and `impl<T> Tr<T> for Wid<T>` both reduce to the post-`impl`
+    // remainder.
+    let after = line.trim_start().strip_prefix("impl")?;
+    if !after.starts_with([' ', '<']) {
+        return None;
+    }
+    // Skip a leading `impl<…>` generic param list (balanced angle brackets) so
+    // `impl<T> Tr<T> for Wid<T>` re-anchors on the trait/type token.
+    let rest = skip_generics(after.trim_start());
+    let target = match rest.find(" for ") {
+        Some(i) => &rest[i + " for ".len()..],
+        None => rest,
+    };
+    let name: String = target
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':')
+        .collect();
+    let name = name.trim_end_matches(':').to_string();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+/// If `s` starts with a `<…>` generic param block, return the remainder after
+/// the balanced closing `>` (whitespace-trimmed); otherwise return `s` as-is.
+fn skip_generics(s: &str) -> &str {
+    if !s.starts_with('<') {
+        return s;
+    }
+    let mut depth = 0usize;
+    for (i, c) in s.char_indices() {
+        match c {
+            '<' => depth += 1,
+            '>' => {
+                depth -= 1;
+                if depth == 0 {
+                    return s[i + c.len_utf8()..].trim_start();
+                }
+            }
+            _ => {}
+        }
+    }
+    s
+}
+
+/// Annotation for one location's source line: the impl type name if present,
+/// else the trimmed line (truncated) so the agent sees the code without a
+/// re-read (the §4.2 token win).
+fn annotate_line(line_text: &str) -> String {
+    if let Some(name) = extract_impl_type(line_text) {
+        return name;
+    }
+    let t = line_text.trim();
+    let snip: String = t.chars().take(80).collect();
+    if t.chars().count() > 80 {
+        format!("{snip}…")
+    } else {
+        snip
+    }
+}
+
+/// Parse a `  {rel_path}:{line}:{col}` location line into (rel_path, 1-based
+/// line). Header/note/"Total:" lines (no trailing `:int:int`) return None.
+fn parse_location_line(line: &str) -> Option<(String, usize)> {
+    let t = line.trim();
+    let (rest, col) = t.rsplit_once(':')?;
+    col.parse::<usize>().ok()?;
+    let (path, ln) = rest.rsplit_once(':')?;
+    let ln: usize = ln.parse().ok()?;
+    if path.is_empty() {
+        return None;
+    }
+    Some((path.to_string(), ln))
+}
+
+/// Cache-name enrichment (spec §4.2 Z. 259–266): for each `file:line:col`
+/// location, read the target line from the shared EngineContext cache (warm
+/// ~13-tok hit, §3.4) and append the extracted type/symbol name. Non-location
+/// lines pass through unchanged.
+fn enrich_locations(raw: &str, ctx: &Rc<EngineContext>, root: &str) -> String {
+    let mut out = String::new();
+    for line in raw.lines() {
+        if let Some((rel, ln)) = parse_location_line(line) {
+            if let Some(text) = line_from_cache(ctx, root, &rel, ln) {
+                out.push_str(line);
+                out.push_str("  → ");
+                out.push_str(&annotate_line(&text));
+                out.push('\n');
+                continue;
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+/// Read line `ln` (1-based) of `rel` from the shared cache; warm it first via a
+/// `ctx_read` full read so the lookup is a ~13-tok cache hit (spec §3.4). Never
+/// `fresh`/`raw`.
+fn line_from_cache(ctx: &Rc<EngineContext>, root: &str, rel: &str, ln: usize) -> Option<String> {
+    let abs = crate::core::path_resolve::resolve_tool_path(Some(root), None, rel).ok()?;
+    {
+        let mut cache = ctx.cache.borrow_mut();
+        let _ = crate::tools::ctx_read::handle(&mut cache, &abs, "full", crate::tools::CrpMode::Off);
+    }
+    let content = ctx.cache.borrow().get_full_content(&abs)?;
+    content.lines().nth(ln.saturating_sub(1)).map(str::to_string)
 }
 
 #[cfg(test)]
@@ -251,6 +372,65 @@ mod tests {
         let out = SymbolBridge.execute(&ctx, &args).unwrap();
         assert!(!out.trim().is_empty(), "declaration produced empty output");
         assert!(!out.contains("unknown @symbol op"), "op must dispatch: {out}");
+    }
+
+    #[test]
+    fn extract_impl_type_handles_for_and_inherent() {
+        // spec §4.2: "impl X for Y -> Y"
+        assert_eq!(super::extract_impl_type("impl Foo for Bar {"), Some("Bar".into()));
+        assert_eq!(super::extract_impl_type("    impl Bar {"), Some("Bar".into()));
+        assert_eq!(
+            super::extract_impl_type("impl<T> Trait<T> for Widget<T> {"),
+            Some("Widget".into())
+        );
+        assert_eq!(super::extract_impl_type("fn helper() {}"), None);
+    }
+
+    #[test]
+    fn annotate_line_falls_back_to_trimmed_snippet() {
+        assert_eq!(super::annotate_line("impl Foo for Bar {"), "Bar");
+        assert_eq!(super::annotate_line("    fn helper(x: u32) {}"), "fn helper(x: u32) {}");
+    }
+
+    #[test]
+    fn parse_location_line_extracts_path_and_line() {
+        assert_eq!(
+            super::parse_location_line("  src/a.rs:42:7"),
+            Some(("src/a.rs".into(), 42usize))
+        );
+        // Header / notes / "Total:" lines are not locations.
+        assert_eq!(super::parse_location_line("3 location(s):"), None);
+        assert_eq!(super::parse_location_line("No results found."), None);
+    }
+
+    #[test]
+    fn enrich_appends_impl_type_name_from_cache() {
+        // A synthetic ctx_refactor-style location list against a real fixture,
+        // proving enrichment reads the target line and appends the type name —
+        // independent of a live language server.
+        let dir = std::env::temp_dir().join("lmd_symbol_enrich");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("impls.rs");
+        std::fs::write(
+            &f,
+            "struct Bar;\ntrait Foo {}\nimpl Foo for Bar {\n    fn m(&self) {}\n}\n",
+        )
+            .unwrap();
+        let ctx = ctx_at(dir.clone());
+
+        // Location line points at the `impl Foo for Bar` line (1-based L3).
+        let raw = format!("1 location(s):\n  {}:3:0\n", f.to_str().unwrap());
+        let out = super::enrich_locations(&raw, &ctx, dir.to_str().unwrap());
+        assert!(out.contains(":3:0"), "original location must remain: {out}");
+        assert!(out.contains("Bar"), "enrichment must append the impl type: {out}");
+    }
+
+    #[test]
+    fn enrich_passes_through_non_location_lines() {
+        let ctx = ctx_at(PathBuf::from("."));
+        let raw = "No results found.";
+        let out = super::enrich_locations(raw, &ctx, ".");
+        assert_eq!(out.trim(), "No results found.");
     }
 
     #[test]
