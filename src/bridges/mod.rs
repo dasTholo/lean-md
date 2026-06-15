@@ -11,6 +11,7 @@ pub mod include;
 pub mod list;
 pub mod query;
 pub mod read;
+pub mod refactor;
 pub mod search;
 pub mod symbol;
 
@@ -72,6 +73,7 @@ pub fn default_registry() -> BridgeRegistry {
     reg.register(Box::new(list::ListBridge));
     reg.register(Box::new(query::QueryBridge));
     reg.register(Box::new(symbol::SymbolBridge));
+    reg.register(Box::new(refactor::RefactorBridge));
     reg
 }
 
@@ -90,7 +92,7 @@ mod tests {
         let reg = default_registry();
         for name in [
             "read", "include", "search", "list", "env", "date", "count", "query", "graph", "edit",
-            "symbol",
+            "symbol", "refactor",
         ] {
             assert!(reg.get(name).is_some(), "missing bridge: {name}");
         }
