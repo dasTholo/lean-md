@@ -231,4 +231,41 @@ mod tests {
         );
         assert!(!out.contains("unknown directive"), "got: {out}");
     }
+
+    #[test]
+    fn edit_invalidates_reader_set_read_and_graph() {
+        // Phase-3.1 gate: after @edit, the @read+@graph reader set must observe
+        // the post-edit state — not a stale warm-cache hit.
+        //
+        // `render()` uses jail_root="." (project root), which blocks /tmp writes.
+        // Use `render_body` with an explicit EngineContext whose jail_root is the
+        // temp dir, matching the pattern in bridges/edit.rs unit tests.
+        let dir = std::env::temp_dir().join("lmd_gate_edit_reader_set");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("fixture.txt");
+        std::fs::write(&f, "// gate fixture\nGATE_BEFORE_42\n").unwrap();
+        let p = f.to_str().unwrap();
+
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let doc = format!(
+            "@read {p} mode=full\n\n\
+             @edit {p} old=\"GATE_BEFORE_42\" new=\"GATE_AFTER_42\"\n\n\
+             @read {p} mode=full\n\n\
+             @graph dependents {p}\n"
+        );
+        let out = render_body(&ctx, &doc);
+
+        // The post-edit read must carry the NEW token.
+        assert!(out.contains("GATE_AFTER_42"), "post-edit read missing new bytes: {out}");
+        // GATE_BEFORE_42 may appear at most twice: once in the first (pre-edit)
+        // @read and once in the @edit evidence diff ("-GATE_BEFORE_42").  A third
+        // occurrence would mean the second @read served a stale cache hit.
+        assert!(
+            out.matches("GATE_BEFORE_42").count() <= 2,
+            "post-edit @read must not serve stale cache — got a third occurrence of \
+             old bytes: {out}"
+        );
+        // @graph still dispatches (not the unknown-directive fallback) after the edit.
+        assert!(!out.contains("unknown directive"), "graph broke post-edit: {out}");
+    }
 }
