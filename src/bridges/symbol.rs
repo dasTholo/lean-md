@@ -66,21 +66,35 @@ fn nav(
     action: &str,
     root: &str,
 ) -> Result<String, BridgeError> {
-    let path = args
-        .positional(1)
-        .or_else(|| args.get("path"))
-        .ok_or(BridgeError::MissingArg("path"))?;
-    let line: u64 = args
-        .get("line")
-        .ok_or(BridgeError::MissingArg("line"))?
-        .parse()
-        .map_err(|_| BridgeError::Resolve("line must be a 1-based integer".into()))?;
-    let column: u64 = args
-        .get("column")
-        .and_then(|c| c.parse().ok())
-        .unwrap_or(0);
+    // Symbol addressing: `name=Class/method` resolves to path+position via the
+    // shared symbol index (spec §4.2 Z. 265–266). Resolution errors
+    // (NO_SYMBOL/AMBIGUOUS_SYMBOL) are surfaced verbatim.
+    let (rel_path, line, column);
+    if let Some(name_path) = args.get("name") {
+        match crate::tools::ctx_refactor::resolve_name_path(name_path, root) {
+            Ok(r) => {
+                let leaf = name_path.rsplit('/').next().unwrap_or(name_path);
+                column = column_of(ctx, root, &r.rel_path, r.start_line, leaf);
+                line = r.start_line as u64;
+                rel_path = r.rel_path;
+            }
+            Err(e) => return Ok(format!("ERROR: {e}")),
+        }
+    } else {
+        let path = args
+            .positional(1)
+            .or_else(|| args.get("path"))
+            .ok_or(BridgeError::MissingArg("path"))?;
+        line = args
+            .get("line")
+            .ok_or(BridgeError::MissingArg("line"))?
+            .parse()
+            .map_err(|_| BridgeError::Resolve("line must be a 1-based integer".into()))?;
+        column = args.get("column").and_then(|c| c.parse().ok()).unwrap_or(0);
+        rel_path = path.to_string();
+    }
 
-    let abs = crate::core::path_resolve::resolve_tool_path(Some(root), None, path)
+    let abs = crate::core::path_resolve::resolve_tool_path(Some(root), None, &rel_path)
         .map_err(|e| BridgeError::Resolve(format!("path blocked by jail: {e}")))?;
 
     let mut obj = serde_json::Map::new();
@@ -222,6 +236,31 @@ fn enrich_locations(raw: &str, ctx: &Rc<EngineContext>, root: &str) -> String {
         out.push('\n');
     }
     out
+}
+
+/// 0-based column of `leaf` on line `ln` (1-based) of `rel`, read from the
+/// shared cache; 0 if not found (the position still lands on the symbol's line).
+/// Prefers a word-boundary match so a leaf that also occurs as a substring of an
+/// earlier identifier (`Bar` inside `FooBar`) does not steal the column; falls
+/// back to the first substring occurrence, then to column 0.
+fn column_of(ctx: &Rc<EngineContext>, root: &str, rel: &str, ln: usize, leaf: &str) -> u64 {
+    let Some(text) = line_from_cache(ctx, root, rel, ln) else {
+        return 0;
+    };
+    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
+    let byte = text
+        .match_indices(leaf)
+        .find(|(i, m)| {
+            let before_ok = text[..*i].chars().next_back().map_or(true, |c| !is_ident(c));
+            let after_ok = text[i + m.len()..]
+                .chars()
+                .next()
+                .map_or(true, |c| !is_ident(c));
+            before_ok && after_ok
+        })
+        .map(|(i, _)| i)
+        .or_else(|| text.find(leaf));
+    byte.map_or(0, |b| text[..b].chars().count() as u64)
 }
 
 /// Read line `ln` (1-based) of `rel` from the shared cache; warm it first via a
@@ -434,6 +473,37 @@ mod tests {
     }
 
     #[test]
+    fn name_addressing_resolves_position_for_a_real_symbol() {
+        // `name=` must resolve via resolve_name_path → dispatch the op without
+        // requiring an explicit line=. Headless: a result list or a degradation
+        // envelope, never the missing-line error and never a panic.
+        let dir = std::env::temp_dir().join("lmd_symbol_name_addr");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("n.rs");
+        std::fs::write(&f, "pub fn uniquely_named_fn() {}\n").unwrap();
+        let ctx = ctx_at(dir.clone());
+
+        let args = DirectiveArgs::parse("impl name=uniquely_named_fn");
+        let out = SymbolBridge.execute(&ctx, &args).unwrap();
+        assert!(!out.contains("MissingArg"), "name= must supply the position: {out}");
+        assert!(!out.contains("unknown @symbol op"), "op must dispatch: {out}");
+        assert!(!out.trim().is_empty(), "empty output");
+    }
+
+    #[test]
+    fn name_addressing_unknown_symbol_is_clear() {
+        let ctx = ctx_at(PathBuf::from("."));
+        let out = SymbolBridge
+            .execute(&ctx, &DirectiveArgs::parse("impl name=ThisSymbolDoesNotExist_xyz"))
+            .unwrap();
+        // resolve_name_path returns a NO_SYMBOL error string; surface it.
+        assert!(
+            out.contains("NO_SYMBOL") || out.contains("no symbol"),
+            "unknown name must produce a clear no-symbol message: {out}"
+        );
+    }
+
+    #[test]
     fn type_hierarchy_passes_direction() {
         let dir = std::env::temp_dir().join("lmd_symbol_th");
         std::fs::create_dir_all(&dir).unwrap();
@@ -448,5 +518,20 @@ mod tests {
         let out = SymbolBridge.execute(&ctx, &args).unwrap();
         assert!(!out.trim().is_empty(), "type-hierarchy produced empty output");
         assert!(!out.contains("unknown @symbol op"), "op must dispatch: {out}");
+    }
+
+    #[test]
+    fn column_of_prefers_word_boundary_over_substring() {
+        // `Bar` occurs inside `FooBar` (byte 8) and standalone (byte 16); the
+        // word-boundary match must pick the standalone occurrence so name=
+        // addressing lands on the right symbol, not an earlier substring.
+        let dir = std::env::temp_dir().join("lmd_symbol_colof");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("c.rs");
+        std::fs::write(&f, "impl FooBar for Bar {\n}\n").unwrap();
+        let ctx = ctx_at(dir.clone());
+
+        let col = super::column_of(&ctx, dir.to_str().unwrap(), f.to_str().unwrap(), 1, "Bar");
+        assert_eq!(col, 16, "must pick standalone Bar, not the FooBar substring");
     }
 }
