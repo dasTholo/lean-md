@@ -12,6 +12,7 @@ pub mod list;
 pub mod query;
 pub mod read;
 pub mod search;
+pub mod symbol;
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -35,7 +36,7 @@ pub enum BridgeError {
 pub trait DirectiveBridge {
     fn name(&self) -> &'static str;
     fn execute(&self, ctx: &Rc<EngineContext>, args: &DirectiveArgs)
-               -> Result<String, BridgeError>;
+        -> Result<String, BridgeError>;
 }
 
 /// Name-keyed registry of directive bridges.
@@ -70,6 +71,7 @@ pub fn default_registry() -> BridgeRegistry {
     reg.register(Box::new(search::SearchBridge));
     reg.register(Box::new(list::ListBridge));
     reg.register(Box::new(query::QueryBridge));
+    reg.register(Box::new(symbol::SymbolBridge));
     reg
 }
 
@@ -87,8 +89,8 @@ mod tests {
     fn default_registry_has_all_core_bridges() {
         let reg = default_registry();
         for name in [
-            "read", "include", "search", "list", "env", "date", "count", "query", "graph",
-            "edit",
+            "read", "include", "search", "list", "env", "date", "count", "query", "graph", "edit",
+            "symbol",
         ] {
             assert!(reg.get(name).is_some(), "missing bridge: {name}");
         }
