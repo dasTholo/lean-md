@@ -256,7 +256,10 @@ mod tests {
         let out = render_body(&ctx, &doc);
 
         // The post-edit read must carry the NEW token.
-        assert!(out.contains("GATE_AFTER_42"), "post-edit read missing new bytes: {out}");
+        assert!(
+            out.contains("GATE_AFTER_42"),
+            "post-edit read missing new bytes: {out}"
+        );
         // GATE_BEFORE_42 may appear at most twice: once in the first (pre-edit)
         // @read and once in the @edit evidence diff ("-GATE_BEFORE_42").  A third
         // occurrence would mean the second @read served a stale cache hit.
@@ -266,6 +269,41 @@ mod tests {
              old bytes: {out}"
         );
         // @graph still dispatches (not the unknown-directive fallback) after the edit.
-        assert!(!out.contains("unknown directive"), "graph broke post-edit: {out}");
+        assert!(
+            !out.contains("unknown directive"),
+            "graph broke post-edit: {out}"
+        );
+    }
+
+    #[test]
+    fn symbol_overview_renders_e2e() {
+        // Phase-3.2 gate: @symbol must dispatch through the full render pipeline,
+        // not the unknown-directive fallback.
+        let dir = std::env::temp_dir().join("lmd_gate_symbol_overview");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("e2e.rs");
+        std::fs::write(&f, "pub fn rendered_symbol() {}\n").unwrap();
+        let p = f.to_str().unwrap();
+
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let out = render_body(&ctx, &format!("@symbol overview {p}\n"));
+
+        assert!(
+            !out.contains("unknown directive"),
+            "symbol must dispatch: {out}"
+        );
+        assert!(!out.trim().is_empty(), "empty render");
+    }
+
+    #[test]
+    fn symbol_unknown_op_renders_bridge_error_not_unknown_directive() {
+        // The directive IS known; only the op is wrong → bridge error comment,
+        // never the unknown-directive fallback.
+        let out = render("@symbol frobnicate x.rs\n");
+        assert!(!out.contains("unknown directive @symbol"), "got: {out}");
+        assert!(
+            out.contains("unknown @symbol op"),
+            "expected op error: {out}"
+        );
     }
 }
