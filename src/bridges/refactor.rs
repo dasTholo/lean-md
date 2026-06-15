@@ -93,15 +93,10 @@ impl DirectiveBridge for RefactorBridge {
                 .any(|t| t == w)
         };
 
-        // Task 2: preview path. Task 3 will extend this branch check to also
-        // handle plan_hash= → apply. The branch point is already scaffolded so
-        // Task 3 only needs to replace "_preview" with the apply stem + flags.
-        let action_suffix = if args.get("plan_hash").is_some() {
-            // Apply branch is wired in Task 3; for now also preview.
-            "_preview"
-        } else {
-            "_preview"
-        };
+        // Task 2: preview path only.
+        // TODO(Task 3): replace with apply branch keyed on args.get("plan_hash") —
+        // when plan_hash= is present use "_apply", otherwise "_preview".
+        let action_suffix = "_preview";
 
         let action = format!("{op_stem}{action_suffix}");
         obj.insert("action".into(), action.into());
@@ -123,7 +118,13 @@ impl DirectiveBridge for RefactorBridge {
                 let parent = args.get("parent");
                 match (target, parent) {
                     (None, None) => return Err(BridgeError::MissingArg("target")),
-                    (Some(t), _) => {
+                    (Some(t), Some(p)) => {
+                        // Pass BOTH keys through so ctx_refactor::resolve_move_target
+                        // fires INVALID_TARGET (spec: XOR enforced by backend, not bridge).
+                        obj.insert("target_path".into(), t.into());
+                        obj.insert("target_parent".into(), p.into());
+                    }
+                    (Some(t), None) => {
                         obj.insert("target_path".into(), t.into());
                     }
                     (None, Some(p)) => {
@@ -396,6 +397,24 @@ mod tests {
         assert!(
             out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
             "move(parent=) must degrade cleanly, got: {out}"
+        );
+    }
+
+    /// move with BOTH target= and parent= → ctx_refactor::resolve_move_target fires
+    /// INVALID_TARGET (XOR is enforced by the backend, not the bridge).
+    #[test]
+    fn move_both_target_and_parent_returns_invalid_target() {
+        let (ctx, f) = ctx_with_file("lmd_refactor_move_both");
+        let input = format!(
+            "move path={} line=1 target=other/ parent=OtherStruct",
+            f.to_str().unwrap()
+        );
+        let out = RefactorBridge
+            .execute(&ctx, &DirectiveArgs::parse(&input))
+            .unwrap();
+        assert!(
+            out.contains("INVALID_TARGET"),
+            "both target+parent must yield INVALID_TARGET, got: {out}"
         );
     }
 
