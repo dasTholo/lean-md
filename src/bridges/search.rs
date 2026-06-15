@@ -30,7 +30,7 @@ impl DirectiveBridge for SearchBridge {
             .get("max")
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(20);
-        let (out, _hits) = crate::tools::ctx_search::handle(
+        let outcome = crate::tools::ctx_search::handle(
             pattern,
             dir,
             ext,
@@ -39,7 +39,7 @@ impl DirectiveBridge for SearchBridge {
             true,  // respect_gitignore
             false, // allow_secret_paths
         );
-        Ok(out)
+        Ok(outcome.text)
     }
 }
 
