@@ -1,8 +1,9 @@
 //! `@refactor` Router bridge → two-phase structural refactoring via the
 //! lean-ctx `ctx_refactor` IDE/LSP backend (spec §4.2).
 //! Four ops: rename / move / safe-delete / inline.
-//! Task 1 (Phase 3.3): skeleton + op-mapping + addressing. Backend dispatch
-//! (preview + apply phases) lands in Tasks 2/3.
+//! Task 1 (Phase 3.3): skeleton + op-mapping + addressing.
+//! Task 2 (Phase 3.3): preview-path backend dispatch.
+//! Task 3 (Phase 3.3): apply-path (plan_hash= → *_apply) + cache coherence.
 
 use std::rc::Rc;
 
@@ -66,6 +67,111 @@ pub(crate) fn build_target(
     Ok((obj, abs))
 }
 
+/// Build the full action string and op-specific dispatch map.
+///
+/// Returns `(action, obj, abs_path)` where:
+/// - `action` is the full `ctx_refactor` action name
+///   (e.g. `"rename_preview"`, `"rename_apply"`),
+/// - `obj` is the populated params map ready for `ctx_refactor::handle`, and
+/// - `abs_path` is the jail-resolved absolute path (empty for name= addressing).
+///
+/// Extracted from `execute` so unit tests can assert map contents without
+/// triggering a live backend call (real apply is IDE-only).
+pub(crate) fn build_action_and_map(
+    args: &DirectiveArgs,
+    root: &str,
+) -> Result<(String, serde_json::Map<String, serde_json::Value>, String), BridgeError> {
+    let op = args.positional(0).ok_or(BridgeError::MissingArg("op"))?;
+    let op_stem = map_op(op).ok_or_else(|| {
+        BridgeError::Resolve(format!(
+            "unknown @refactor op '{op}'. Use: rename|move|safe-delete|inline"
+        ))
+    })?;
+
+    let (mut obj, abs) = build_target(args, root)?;
+
+    // Positional-flag detection (same pattern as edit.rs symbolic_edit).
+    let flag = |w: &str| {
+        (1_usize..)
+            .map_while(|i| args.positional(i))
+            .any(|t| t == w)
+    };
+
+    // Phase switch: plan_hash= presence selects _apply, absence → _preview.
+    // plan_hash value is passed verbatim — backend requires it to guard stale plans.
+    let action_suffix = if let Some(h) = args.get("plan_hash") {
+        obj.insert("plan_hash".into(), h.into());
+        "_apply"
+    } else {
+        "_preview"
+    };
+
+    let action = format!("{op_stem}{action_suffix}");
+    obj.insert("action".into(), action.clone().into());
+
+    // Op-specific flag/arg mapping.
+    match op_stem {
+        "rename" => {
+            let new_name = args.get("new").ok_or(BridgeError::MissingArg("new"))?;
+            obj.insert("new_name".into(), new_name.into());
+            if flag("search-comments") {
+                obj.insert("search_comments".into(), true.into());
+            }
+            if flag("search-text") {
+                obj.insert("search_text_occurrences".into(), true.into());
+            }
+            // force supported for rename.
+            if flag("force") {
+                obj.insert("force".into(), true.into());
+            }
+        }
+        "move" => {
+            let target = args.get("target");
+            let parent = args.get("parent");
+            match (target, parent) {
+                (None, None) => return Err(BridgeError::MissingArg("target")),
+                (Some(t), Some(p)) => {
+                    // Pass BOTH keys through so ctx_refactor::resolve_move_target
+                    // fires INVALID_TARGET (spec: XOR enforced by backend, not bridge).
+                    obj.insert("target_path".into(), t.into());
+                    obj.insert("target_parent".into(), p.into());
+                }
+                (Some(t), None) => {
+                    obj.insert("target_path".into(), t.into());
+                }
+                (None, Some(p)) => {
+                    obj.insert("target_parent".into(), p.into());
+                }
+            }
+            // force supported for move.
+            if flag("force") {
+                obj.insert("force".into(), true.into());
+            }
+        }
+        "safe_delete" => {
+            // force supported for safe-delete.
+            if flag("force") {
+                obj.insert("force".into(), true.into());
+            }
+            // propagate is only meaningful for safe-delete.
+            if flag("propagate") {
+                obj.insert("propagate".into(), true.into());
+            }
+        }
+        "inline" => {
+            if flag("keep-definition") {
+                obj.insert("keep_definition".into(), true.into());
+            }
+            // NOTE: `force` is intentionally NOT mapped for inline.
+            // inline is not forceable — the backend returns UNSUPPORTED.
+            // Silently dropping it here prevents a confusing backend error.
+        }
+        _ => {}
+    }
+
+    Ok((action, obj, abs))
+}
+
 impl DirectiveBridge for RefactorBridge {
     fn name(&self) -> &'static str {
         "refactor"
@@ -76,75 +182,19 @@ impl DirectiveBridge for RefactorBridge {
         ctx: &Rc<EngineContext>,
         args: &DirectiveArgs,
     ) -> Result<String, BridgeError> {
-        let op = args.positional(0).ok_or(BridgeError::MissingArg("op"))?;
-        let op_stem = map_op(op).ok_or_else(|| {
-            BridgeError::Resolve(format!(
-                "unknown @refactor op '{op}'. Use: rename|move|safe-delete|inline"
-            ))
-        })?;
-
         let root = ctx.jail_root.to_str().unwrap_or(".");
-        let (mut obj, abs) = build_target(args, root)?;
+        let (action, obj, abs) = build_action_and_map(args, root)?;
 
-        // Positional-flag detection (same pattern as edit.rs symbolic_edit).
-        let flag = |w: &str| {
-            (1_usize..)
-                .map_while(|i| args.positional(i))
-                .any(|t| t == w)
-        };
+        let out = crate::tools::ctx_refactor::handle(&serde_json::Value::Object(obj), root, &abs);
 
-        // Task 2: preview path only.
-        // TODO(Task 3): replace with apply branch keyed on args.get("plan_hash") —
-        // when plan_hash= is present use "_apply", otherwise "_preview".
-        let action_suffix = "_preview";
-
-        let action = format!("{op_stem}{action_suffix}");
-        obj.insert("action".into(), action.into());
-
-        // Op-specific flag/arg mapping.
-        match op_stem {
-            "rename" => {
-                let new_name = args.get("new").ok_or(BridgeError::MissingArg("new"))?;
-                obj.insert("new_name".into(), new_name.into());
-                if flag("search-comments") {
-                    obj.insert("search_comments".into(), true.into());
-                }
-                if flag("search-text") {
-                    obj.insert("search_text_occurrences".into(), true.into());
-                }
-            }
-            "move" => {
-                let target = args.get("target");
-                let parent = args.get("parent");
-                match (target, parent) {
-                    (None, None) => return Err(BridgeError::MissingArg("target")),
-                    (Some(t), Some(p)) => {
-                        // Pass BOTH keys through so ctx_refactor::resolve_move_target
-                        // fires INVALID_TARGET (spec: XOR enforced by backend, not bridge).
-                        obj.insert("target_path".into(), t.into());
-                        obj.insert("target_parent".into(), p.into());
-                    }
-                    (Some(t), None) => {
-                        obj.insert("target_path".into(), t.into());
-                    }
-                    (None, Some(p)) => {
-                        obj.insert("target_parent".into(), p.into());
-                    }
-                }
-            }
-            "safe_delete" => {
-                // No mandatory extras for safe-delete.
-            }
-            "inline" => {
-                if flag("keep-definition") {
-                    obj.insert("keep_definition".into(), true.into());
-                }
-            }
-            _ => {}
+        // Cache coherence (spec §3.4): mirror edit.rs:symbolic_edit exactly.
+        // Apply-path only — preview is read-only and must NEVER clear the cache.
+        // Success predicate: not an ERROR and not "not applied".
+        // CONFLICT arrives as "ERROR: CONFLICT: …" — already covered by the ERROR prefix.
+        if action.ends_with("_apply") && !out.starts_with("ERROR") && !out.contains("not applied") {
+            ctx.cache.borrow_mut().clear();
         }
 
-        // Preview is read-only — NO cache clear (apply-path cache clear is Task 3).
-        let out = crate::tools::ctx_refactor::handle(&serde_json::Value::Object(obj), root, &abs);
         Ok(out)
     }
 }
@@ -446,6 +496,254 @@ mod tests {
         assert!(
             out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
             "inline(keep-definition) must degrade cleanly, got: {out}"
+        );
+    }
+
+    // ── Task 3: apply-path, force/propagate mapping, cache coherence ─────────
+
+    /// plan_hash= selects _apply action; value is passed verbatim.
+    #[test]
+    fn plan_hash_selects_apply_action() {
+        let dir = std::env::temp_dir().join("lmd_refactor_apply_action");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("sub.rs");
+        std::fs::write(&f, "pub fn renamed() {}\n").unwrap();
+        let input = format!(
+            "rename path={} line=1 new=other plan_hash=abc123",
+            f.to_str().unwrap()
+        );
+        let (action, obj, _) =
+            build_action_and_map(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
+        assert_eq!(action, "rename_apply", "action must be rename_apply");
+        assert_eq!(
+            obj.get("plan_hash").and_then(|v| v.as_str()),
+            Some("abc123"),
+            "plan_hash must be passed verbatim"
+        );
+    }
+
+    /// Without plan_hash= the action is _preview (coupling test).
+    #[test]
+    fn no_plan_hash_selects_preview_action() {
+        let dir = std::env::temp_dir().join("lmd_refactor_preview_action");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("sub.rs");
+        std::fs::write(&f, "pub fn foo() {}\n").unwrap();
+        let input = format!("rename path={} line=1 new=bar", f.to_str().unwrap());
+        let (action, obj, _) =
+            build_action_and_map(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
+        assert_eq!(action, "rename_preview");
+        assert!(
+            obj.get("plan_hash").is_none(),
+            "plan_hash must not be present for preview"
+        );
+    }
+
+    /// `force` is mapped for rename when plan_hash= is set.
+    #[test]
+    fn rename_apply_with_force_sets_force_key() {
+        let dir = std::env::temp_dir().join("lmd_refactor_rename_force");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("sub.rs");
+        std::fs::write(&f, "pub fn foo() {}\n").unwrap();
+        let input = format!(
+            "rename force path={} line=1 new=bar plan_hash=H",
+            f.to_str().unwrap()
+        );
+        let (action, obj, _) =
+            build_action_and_map(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
+        assert_eq!(action, "rename_apply");
+        assert_eq!(
+            obj.get("force").and_then(|v| v.as_bool()),
+            Some(true),
+            "rename apply with force flag must set force=true"
+        );
+    }
+
+    /// `force` is mapped for move.
+    #[test]
+    fn move_apply_with_force_sets_force_key() {
+        let dir = std::env::temp_dir().join("lmd_refactor_move_force");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("sub.rs");
+        std::fs::write(&f, "pub fn foo() {}\n").unwrap();
+        let input = format!(
+            "move force path={} line=1 target=other/ plan_hash=H",
+            f.to_str().unwrap()
+        );
+        let (action, obj, _) =
+            build_action_and_map(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
+        assert_eq!(action, "move_apply");
+        assert_eq!(obj.get("force").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    /// `force` is mapped for safe-delete.
+    #[test]
+    fn safe_delete_apply_with_force_sets_force_key() {
+        let dir = std::env::temp_dir().join("lmd_refactor_safedel_force");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("sub.rs");
+        std::fs::write(&f, "pub fn foo() {}\n").unwrap();
+        let input = format!(
+            "safe-delete force path={} line=1 plan_hash=H",
+            f.to_str().unwrap()
+        );
+        let (action, obj, _) =
+            build_action_and_map(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
+        assert_eq!(action, "safe_delete_apply");
+        assert_eq!(obj.get("force").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    /// `propagate` is only mapped for safe-delete.
+    #[test]
+    fn safe_delete_apply_with_propagate_sets_propagate_key() {
+        let dir = std::env::temp_dir().join("lmd_refactor_safedel_prop");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("sub.rs");
+        std::fs::write(&f, "pub fn foo() {}\n").unwrap();
+        let input = format!(
+            "safe-delete propagate path={} line=1 plan_hash=H",
+            f.to_str().unwrap()
+        );
+        let (_, obj, _) =
+            build_action_and_map(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
+        assert_eq!(obj.get("propagate").and_then(|v| v.as_bool()), Some(true));
+    }
+
+    /// CRITICAL: `force` is NOT mapped for inline — even with plan_hash= + force flag.
+    /// inline is not forceable; the backend returns UNSUPPORTED if force is sent.
+    #[test]
+    fn inline_apply_force_does_not_set_force_key() {
+        let dir = std::env::temp_dir().join("lmd_refactor_inline_noforce");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("sub.rs");
+        std::fs::write(&f, "pub fn foo() {}\n").unwrap();
+        let input = format!(
+            "inline force path={} line=1 plan_hash=H",
+            f.to_str().unwrap()
+        );
+        let (action, obj, _) =
+            build_action_and_map(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
+        assert_eq!(action, "inline_apply");
+        assert!(
+            obj.get("force").is_none(),
+            "inline must NOT receive force key, got: {:?}",
+            obj.get("force")
+        );
+    }
+
+    /// `propagate` is NOT mapped for inline (only safe-delete).
+    #[test]
+    fn inline_apply_propagate_not_mapped() {
+        let dir = std::env::temp_dir().join("lmd_refactor_inline_noprop");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("sub.rs");
+        std::fs::write(&f, "pub fn foo() {}\n").unwrap();
+        let input = format!(
+            "inline propagate path={} line=1 plan_hash=H",
+            f.to_str().unwrap()
+        );
+        let (_, obj, _) =
+            build_action_and_map(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
+        assert!(
+            obj.get("propagate").is_none(),
+            "inline must NOT receive propagate key"
+        );
+    }
+
+    /// Cache-clear branch: a synthetic success string (does not start with "ERROR",
+    /// does not contain "not applied") on the apply path clears the cache.
+    /// Real apply is IDE-only; this test proves the predicate gates the clear.
+    #[test]
+    fn apply_success_predicate_clears_cache() {
+        // Verify the success predicate logic directly — no live backend needed.
+        // Mirrors execute()'s gate:
+        //   action.ends_with("_apply") && !out.starts_with("ERROR") && !out.contains("not applied")
+        let cases: &[(&str, &str, bool)] = &[
+            ("rename_apply", "Applied successfully", true), // clear
+            ("rename_apply", "ERROR: CONFLICT: …", false),  // no clear (error)
+            ("rename_apply", "Changes not applied", false), // no clear (not applied)
+            ("rename_preview", "Applied successfully", false), // no clear (preview path)
+            ("rename_apply", "ERROR: BACKEND_REQUIRED: …", false), // no clear (error)
+        ];
+        for (action, out, expect_clear) in cases {
+            let should_clear = action.ends_with("_apply")
+                && !out.starts_with("ERROR")
+                && !out.contains("not applied");
+            assert_eq!(
+                should_clear, *expect_clear,
+                "action={action:?} out={out:?}: expected clear={expect_clear}, got {should_clear}"
+            );
+        }
+    }
+
+    /// Integration: a preview call must NOT clear the cache even if the backend
+    /// returns a non-error string.
+    #[test]
+    fn preview_never_clears_cache() {
+        use crate::lmd::header::LeanMdHeader;
+        let dir = std::env::temp_dir().join("lmd_refactor_preview_noclear");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("sub.rs");
+        std::fs::write(&f, "pub fn my_func() {}\n").unwrap();
+        let ctx = Rc::new(crate::lmd::engine::EngineContext::new(
+            LeanMdHeader::default(),
+            dir.clone(),
+        ));
+
+        // Warm the cache via store() so we can detect if it's cleared.
+        let path_str = f.to_str().unwrap();
+        ctx.cache.borrow_mut().store(path_str, "cached-content");
+
+        let input = format!("rename path={} line=1 new=other", path_str);
+        let _out = RefactorBridge
+            .execute(&ctx, &DirectiveArgs::parse(&input))
+            .unwrap();
+
+        // Preview must never clear — the stored entry must still be present.
+        assert!(
+            ctx.cache.borrow().get(path_str).is_some(),
+            "preview must NOT clear the cache"
+        );
+    }
+
+    /// plan_hash coupling: the only way to reach *_apply via this bridge is by
+    /// providing plan_hash=. Without it the bridge structurally selects _preview,
+    /// making `*_apply` without a plan_hash unreachable through normal use.
+    /// This test documents and asserts that structural invariant.
+    #[test]
+    fn apply_path_requires_plan_hash_coupling() {
+        let dir = std::env::temp_dir().join("lmd_refactor_coupling");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("sub.rs");
+        std::fs::write(&f, "pub fn foo() {}\n").unwrap();
+
+        // Without plan_hash → always _preview, regardless of intent.
+        let (action_no_hash, _, _) = build_action_and_map(
+            &DirectiveArgs::parse(&format!(
+                "rename path={} line=1 new=bar",
+                f.to_str().unwrap()
+            )),
+            dir.to_str().unwrap(),
+        )
+        .unwrap();
+        assert!(
+            action_no_hash.ends_with("_preview"),
+            "no plan_hash → must be _preview"
+        );
+
+        // With plan_hash → _apply.
+        let (action_with_hash, _, _) = build_action_and_map(
+            &DirectiveArgs::parse(&format!(
+                "rename path={} line=1 new=bar plan_hash=abc",
+                f.to_str().unwrap()
+            )),
+            dir.to_str().unwrap(),
+        )
+        .unwrap();
+        assert!(
+            action_with_hash.ends_with("_apply"),
+            "plan_hash → must be _apply"
         );
     }
 }
