@@ -189,14 +189,20 @@ impl DirectiveBridge for RefactorBridge {
 
         // Cache coherence (spec §3.4): mirror edit.rs:symbolic_edit exactly.
         // Apply-path only — preview is read-only and must NEVER clear the cache.
-        // Success predicate: not an ERROR and not "not applied".
         // CONFLICT arrives as "ERROR: CONFLICT: …" — already covered by the ERROR prefix.
-        if action.ends_with("_apply") && !out.starts_with("ERROR") && !out.contains("not applied") {
+        if apply_succeeded(&action, &out) {
             ctx.cache.borrow_mut().clear();
         }
 
         Ok(out)
     }
+}
+
+/// Apply succeeded and the shared cache must be invalidated (spec §3.4):
+/// only on the apply phase, and only when the backend reports neither an
+/// ERROR envelope nor a "not applied" no-op. Mirrors edit.rs:symbolic_edit.
+pub(crate) fn apply_succeeded(action: &str, out: &str) -> bool {
+    action.ends_with("_apply") && !out.starts_with("ERROR") && !out.contains("not applied")
 }
 
 #[cfg(test)]
@@ -653,12 +659,11 @@ mod tests {
 
     /// Cache-clear branch: a synthetic success string (does not start with "ERROR",
     /// does not contain "not applied") on the apply path clears the cache.
-    /// Real apply is IDE-only; this test proves the predicate gates the clear.
+    /// Real apply is IDE-only; this test exercises the production predicate directly.
     #[test]
     fn apply_success_predicate_clears_cache() {
-        // Verify the success predicate logic directly — no live backend needed.
-        // Mirrors execute()'s gate:
-        //   action.ends_with("_apply") && !out.starts_with("ERROR") && !out.contains("not applied")
+        // Drive the production predicate — not an inline copy.
+        // If apply_succeeded drifts this test immediately fails.
         let cases: &[(&str, &str, bool)] = &[
             ("rename_apply", "Applied successfully", true), // clear
             ("rename_apply", "ERROR: CONFLICT: …", false),  // no clear (error)
@@ -667,9 +672,7 @@ mod tests {
             ("rename_apply", "ERROR: BACKEND_REQUIRED: …", false), // no clear (error)
         ];
         for (action, out, expect_clear) in cases {
-            let should_clear = action.ends_with("_apply")
-                && !out.starts_with("ERROR")
-                && !out.contains("not applied");
+            let should_clear = super::apply_succeeded(action, out);
             assert_eq!(
                 should_clear, *expect_clear,
                 "action={action:?} out={out:?}: expected clear={expect_clear}, got {should_clear}"
@@ -681,7 +684,6 @@ mod tests {
     /// returns a non-error string.
     #[test]
     fn preview_never_clears_cache() {
-        use crate::lmd::header::LeanMdHeader;
         let dir = std::env::temp_dir().join("lmd_refactor_preview_noclear");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("sub.rs");
