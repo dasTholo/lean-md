@@ -27,46 +27,6 @@ fn map_op(op: &str) -> Option<&'static str> {
     })
 }
 
-/// Shared target-address map builder.  Called once per `execute` so Tasks 2/3
-/// can reuse it without duplicating the addressing logic.
-///
-/// Returns `(obj, abs_path)` where:
-/// - `obj` is a `serde_json::Map` pre-populated with either
-///   `{ "name_path": … }` (name= addressing) or
-///   `{ "line": …, "column": … }` (path= addressing); and
-/// - `abs_path` is the jail-resolved absolute path string
-///   (empty string when `name=` addressing is used — ctx_refactor resolves
-///   name_path via its own symbol index, so no path is needed here).
-pub(crate) fn build_target(
-    args: &DirectiveArgs,
-    root: &str,
-) -> Result<(serde_json::Map<String, serde_json::Value>, String), BridgeError> {
-    let mut obj = serde_json::Map::new();
-
-    if let Some(name) = args.get("name") {
-        // name= addressing: ctx_refactor resolves the symbol via its index.
-        obj.insert("name_path".into(), name.into());
-        return Ok((obj, String::new()));
-    }
-
-    // path= + line= + column= addressing (positional path is NOT used for
-    // @refactor — plan spec: `path=` named arg only).
-    let path = args.get("path").ok_or(BridgeError::MissingArg("path"))?;
-    let line: u64 = args
-        .get("line")
-        .ok_or(BridgeError::MissingArg("line"))?
-        .parse()
-        .map_err(|_| BridgeError::Resolve("line must be a 1-based integer".into()))?;
-    let column: u64 = args.get("column").and_then(|c| c.parse().ok()).unwrap_or(0);
-
-    let abs = crate::core::path_resolve::resolve_tool_path(Some(root), None, path)
-        .map_err(|e| BridgeError::Resolve(format!("path blocked by jail: {e}")))?;
-
-    obj.insert("line".into(), line.into());
-    obj.insert("column".into(), column.into());
-    Ok((obj, abs))
-}
-
 /// Build the full action string and op-specific dispatch map.
 ///
 /// Returns `(action, obj, abs_path)` where:
@@ -88,7 +48,7 @@ pub(crate) fn build_action_and_map(
         ))
     })?;
 
-    let (mut obj, abs) = build_target(args, root)?;
+    let (mut obj, abs) = super::addressing::build_target(args, root)?;
 
     // Positional-flag detection (same pattern as edit.rs symbolic_edit).
     let flag = |w: &str| {
@@ -255,57 +215,15 @@ mod tests {
     // ── address-map builder ────────────────────────────────────────────────────
 
     #[test]
-    fn name_addressing_inserts_name_path() {
-        let (obj, abs) = build_target(&DirectiveArgs::parse("rename name=MyStruct"), ".").unwrap();
-        assert_eq!(
-            obj.get("name_path").and_then(|v| v.as_str()),
-            Some("MyStruct")
-        );
-        assert!(obj.get("line").is_none(), "no line when name= used");
-        assert!(obj.get("column").is_none(), "no column when name= used");
-        assert!(
-            abs.is_empty(),
-            "abs_path must be empty for name= addressing"
-        );
-    }
-
-    #[test]
-    fn path_addressing_inserts_line_and_column() {
-        let dir = std::env::temp_dir().join("lmd_refactor_addr");
-        std::fs::create_dir_all(&dir).unwrap();
-        let f = dir.join("a.rs");
-        std::fs::write(&f, "fn foo() {}\n").unwrap();
-
-        let input = format!("rename path={} line=1 column=3", f.to_str().unwrap());
-        let (obj, abs) =
-            build_target(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
-
-        assert_eq!(obj.get("line").and_then(|v| v.as_u64()), Some(1));
-        assert_eq!(obj.get("column").and_then(|v| v.as_u64()), Some(3));
-        assert!(obj.get("name_path").is_none());
-        assert!(!abs.is_empty(), "abs_path must be set for path= addressing");
-    }
-
-    #[test]
-    fn path_addressing_column_defaults_to_zero() {
-        let dir = std::env::temp_dir().join("lmd_refactor_coldef");
-        std::fs::create_dir_all(&dir).unwrap();
-        let f = dir.join("b.rs");
-        std::fs::write(&f, "fn bar() {}\n").unwrap();
-
-        let input = format!("rename path={} line=1", f.to_str().unwrap());
-        let (obj, _) = build_target(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
-
-        assert_eq!(obj.get("column").and_then(|v| v.as_u64()), Some(0));
-    }
-
-    #[test]
     fn path_addressing_missing_line_errors() {
-        let ctx = ctx_at(PathBuf::from("."));
         let dir = std::env::temp_dir().join("lmd_refactor_noline");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("c.rs");
         std::fs::write(&f, "fn baz() {}\n").unwrap();
+        // Root ctx at the temp dir so jail resolution succeeds; the test
+        // asserts that path= without line= yields MissingArg("line") (the
+        // require_line=true contract delegated to addressing::build_target).
+        let ctx = ctx_at(dir.clone());
 
         let err = RefactorBridge
             .execute(
@@ -728,7 +646,7 @@ mod tests {
             )),
             dir.to_str().unwrap(),
         )
-        .unwrap();
+            .unwrap();
         assert!(
             action_no_hash.ends_with("_preview"),
             "no plan_hash → must be _preview"
@@ -742,7 +660,7 @@ mod tests {
             )),
             dir.to_str().unwrap(),
         )
-        .unwrap();
+            .unwrap();
         assert!(
             action_with_hash.ends_with("_apply"),
             "plan_hash → must be _apply"

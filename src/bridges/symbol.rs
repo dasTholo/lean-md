@@ -61,6 +61,9 @@ impl DirectiveBridge for SymbolBridge {
 /// (refs/impl) and `direction` (type_hierarchy) are forwarded when present.
 /// The returned location list is cache-name enriched (see `enrich_locations`);
 /// `type_hierarchy` renders its own tree and is left verbatim.
+// NOTE: nav does NOT use bridges::addressing::build_target — nav resolves
+// name= locally to a position (column_of) and accepts a positional path;
+// build_target passes name_path through to the backend. See addressing.rs.
 fn nav(
     ctx: &Rc<EngineContext>,
     args: &DirectiveArgs,
@@ -491,7 +494,7 @@ mod tests {
             &f,
             "struct Bar;\ntrait Foo {}\nimpl Foo for Bar {\n    fn m(&self) {}\n}\n",
         )
-        .unwrap();
+            .unwrap();
         let ctx = ctx_at(dir.clone());
 
         // Location line points at the `impl Foo for Bar` line (1-based L3).

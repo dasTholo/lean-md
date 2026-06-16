@@ -2,6 +2,7 @@
 //! lean-ctx core API (spec §4.2). `execute` takes `&Rc<EngineContext>` so a
 //! bridge can re-enter the engine (e.g. `@include` renders its fragment).
 
+pub mod addressing;
 pub mod count;
 pub mod date;
 pub mod edit;
@@ -37,7 +38,7 @@ pub enum BridgeError {
 pub trait DirectiveBridge {
     fn name(&self) -> &'static str;
     fn execute(&self, ctx: &Rc<EngineContext>, args: &DirectiveArgs)
-        -> Result<String, BridgeError>;
+               -> Result<String, BridgeError>;
 }
 
 /// Name-keyed registry of directive bridges.
