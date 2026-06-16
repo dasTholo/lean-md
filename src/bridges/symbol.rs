@@ -8,6 +8,7 @@
 //! `type-hierarchy` are IDE-only (§3.3): the BACKEND_REQUIRED envelope passes
 //! through unchanged.
 
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
@@ -45,12 +46,12 @@ impl DirectiveBridge for SymbolBridge {
                 "unknown @symbol op '{op}'. Use: refs|def|impl|declaration|type-hierarchy|overview"
             ))
         })?;
-        let root = ctx.jail_root.to_str().unwrap_or(".").to_string();
+        let root = ctx.jail_root.to_str().unwrap_or(".");
 
         if action == "symbols_overview" {
-            return overview(ctx, args, &root);
+            return overview(ctx, args, root);
         }
-        nav(ctx, args, action, &root)
+        nav(ctx, args, action, root)
     }
 }
 
@@ -69,14 +70,12 @@ fn nav(
     // Symbol addressing: `name=Class/method` resolves to path+position via the
     // shared symbol index (spec §4.2 Z. 265–266). Resolution errors
     // (NO_SYMBOL/AMBIGUOUS_SYMBOL) are surfaced verbatim.
-    let (rel_path, line, column);
-    if let Some(name_path) = args.get("name") {
+    let (rel_path, line, column) = if let Some(name_path) = args.get("name") {
         match crate::tools::ctx_refactor::resolve_name_path(name_path, root) {
             Ok(r) => {
                 let leaf = name_path.rsplit('/').next().unwrap_or(name_path);
-                column = column_of(ctx, root, &r.rel_path, r.start_line, leaf);
-                line = r.start_line as u64;
-                rel_path = r.rel_path;
+                let column = column_of(ctx, root, &r.rel_path, r.start_line, leaf);
+                (r.rel_path, r.start_line as u64, column)
             }
             Err(e) => return Ok(format!("ERROR: {e}")),
         }
@@ -85,14 +84,14 @@ fn nav(
             .positional(1)
             .or_else(|| args.get("path"))
             .ok_or(BridgeError::MissingArg("path"))?;
-        line = args
+        let line = args
             .get("line")
             .ok_or(BridgeError::MissingArg("line"))?
             .parse()
             .map_err(|_| BridgeError::Resolve("line must be a 1-based integer".into()))?;
-        column = args.get("column").and_then(|c| c.parse().ok()).unwrap_or(0);
-        rel_path = path.to_string();
-    }
+        let column = args.get("column").and_then(|c| c.parse().ok()).unwrap_or(0);
+        (path.to_string(), line, column)
+    };
 
     let abs = crate::core::path_resolve::resolve_tool_path(Some(root), None, &rel_path)
         .map_err(|e| BridgeError::Resolve(format!("path blocked by jail: {e}")))?;
@@ -221,13 +220,22 @@ fn parse_location_line(line: &str) -> Option<(String, usize)> {
 /// ~13-tok hit, §3.4) and append the extracted type/symbol name. Non-location
 /// lines pass through unchanged.
 fn enrich_locations(raw: &str, ctx: &Rc<EngineContext>, root: &str) -> String {
+    // Per-call content cache: decompress each distinct file at most once. N hits
+    // in the same file would otherwise re-decompress the whole file N× (each
+    // `line_from_cache` does a full `get_full_content`). The map lives only for
+    // the duration of THIS call (one location list) so it cannot serve a stale
+    // read across invocations — mtime cache coherence is unaffected.
+    let mut contents: HashMap<String, String> = HashMap::new();
     let mut out = String::new();
     for line in raw.lines() {
         if let Some((rel, ln)) = parse_location_line(line) {
-            if let Some(text) = line_from_cache(ctx, root, &rel, ln) {
+            let content = contents
+                .entry(rel.clone())
+                .or_insert_with(|| file_content_from_cache(ctx, root, &rel).unwrap_or_default());
+            if let Some(text) = content.lines().nth(ln.saturating_sub(1)) {
                 out.push_str(line);
                 out.push_str("  → ");
-                out.push_str(&annotate_line(&text));
+                out.push_str(&annotate_line(text));
                 out.push('\n');
                 continue;
             }
@@ -251,11 +259,11 @@ fn column_of(ctx: &Rc<EngineContext>, root: &str, rel: &str, ln: usize, leaf: &s
     let byte = text
         .match_indices(leaf)
         .find(|(i, m)| {
-            let before_ok = text[..*i].chars().next_back().map_or(true, |c| !is_ident(c));
+            let before_ok = text[..*i].chars().next_back().is_none_or(|c| !is_ident(c));
             let after_ok = text[i + m.len()..]
                 .chars()
                 .next()
-                .map_or(true, |c| !is_ident(c));
+                .is_none_or(|c| !is_ident(c));
             before_ok && after_ok
         })
         .map(|(i, _)| i)
@@ -267,13 +275,24 @@ fn column_of(ctx: &Rc<EngineContext>, root: &str, rel: &str, ln: usize, leaf: &s
 /// `ctx_read` full read so the lookup is a ~13-tok cache hit (spec §3.4). Never
 /// `fresh`/`raw`.
 fn line_from_cache(ctx: &Rc<EngineContext>, root: &str, rel: &str, ln: usize) -> Option<String> {
+    file_content_from_cache(ctx, root, rel)?
+        .lines()
+        .nth(ln.saturating_sub(1))
+        .map(str::to_string)
+}
+
+/// Read the FULL content of `rel` from the shared cache (one decompress),
+/// warming it first via a `ctx_read` full read so the lookup is a ~13-tok cache
+/// hit (spec §3.4). Never `fresh`/`raw`. Callers that need many lines of the
+/// same file index into this string once instead of re-decompressing per line.
+fn file_content_from_cache(ctx: &Rc<EngineContext>, root: &str, rel: &str) -> Option<String> {
     let abs = crate::core::path_resolve::resolve_tool_path(Some(root), None, rel).ok()?;
     {
         let mut cache = ctx.cache.borrow_mut();
-        let _ = crate::tools::ctx_read::handle(&mut cache, &abs, "full", crate::tools::CrpMode::Off);
+        let _ =
+            crate::tools::ctx_read::handle(&mut cache, &abs, "full", crate::tools::CrpMode::Off);
     }
-    let content = ctx.cache.borrow().get_full_content(&abs)?;
-    content.lines().nth(ln.saturating_sub(1)).map(str::to_string)
+    ctx.cache.borrow().get_full_content(&abs)
 }
 
 #[cfg(test)]
@@ -374,7 +393,10 @@ mod tests {
                 &DirectiveArgs::parse(&format!("impl {}", f.to_str().unwrap())),
             )
             .unwrap_err();
-        assert!(matches!(err, BridgeError::MissingArg("line")), "got: {err:?}");
+        assert!(
+            matches!(err, BridgeError::MissingArg("line")),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -390,7 +412,10 @@ mod tests {
         let args = DirectiveArgs::parse(&format!("refs {} line=1 column=3", f.to_str().unwrap()));
         let out = SymbolBridge.execute(&ctx, &args).unwrap();
         assert!(!out.trim().is_empty(), "refs produced empty output");
-        assert!(!out.contains("unknown @symbol op"), "op must dispatch: {out}");
+        assert!(
+            !out.contains("unknown @symbol op"),
+            "op must dispatch: {out}"
+        );
     }
 
     #[test]
@@ -410,14 +435,23 @@ mod tests {
         ));
         let out = SymbolBridge.execute(&ctx, &args).unwrap();
         assert!(!out.trim().is_empty(), "declaration produced empty output");
-        assert!(!out.contains("unknown @symbol op"), "op must dispatch: {out}");
+        assert!(
+            !out.contains("unknown @symbol op"),
+            "op must dispatch: {out}"
+        );
     }
 
     #[test]
     fn extract_impl_type_handles_for_and_inherent() {
         // spec §4.2: "impl X for Y -> Y"
-        assert_eq!(super::extract_impl_type("impl Foo for Bar {"), Some("Bar".into()));
-        assert_eq!(super::extract_impl_type("    impl Bar {"), Some("Bar".into()));
+        assert_eq!(
+            super::extract_impl_type("impl Foo for Bar {"),
+            Some("Bar".into())
+        );
+        assert_eq!(
+            super::extract_impl_type("    impl Bar {"),
+            Some("Bar".into())
+        );
         assert_eq!(
             super::extract_impl_type("impl<T> Trait<T> for Widget<T> {"),
             Some("Widget".into())
@@ -428,7 +462,10 @@ mod tests {
     #[test]
     fn annotate_line_falls_back_to_trimmed_snippet() {
         assert_eq!(super::annotate_line("impl Foo for Bar {"), "Bar");
-        assert_eq!(super::annotate_line("    fn helper(x: u32) {}"), "fn helper(x: u32) {}");
+        assert_eq!(
+            super::annotate_line("    fn helper(x: u32) {}"),
+            "fn helper(x: u32) {}"
+        );
     }
 
     #[test]
@@ -454,14 +491,17 @@ mod tests {
             &f,
             "struct Bar;\ntrait Foo {}\nimpl Foo for Bar {\n    fn m(&self) {}\n}\n",
         )
-            .unwrap();
+        .unwrap();
         let ctx = ctx_at(dir.clone());
 
         // Location line points at the `impl Foo for Bar` line (1-based L3).
         let raw = format!("1 location(s):\n  {}:3:0\n", f.to_str().unwrap());
         let out = super::enrich_locations(&raw, &ctx, dir.to_str().unwrap());
         assert!(out.contains(":3:0"), "original location must remain: {out}");
-        assert!(out.contains("Bar"), "enrichment must append the impl type: {out}");
+        assert!(
+            out.contains("Bar"),
+            "enrichment must append the impl type: {out}"
+        );
     }
 
     #[test]
@@ -485,8 +525,14 @@ mod tests {
 
         let args = DirectiveArgs::parse("impl name=uniquely_named_fn");
         let out = SymbolBridge.execute(&ctx, &args).unwrap();
-        assert!(!out.contains("MissingArg"), "name= must supply the position: {out}");
-        assert!(!out.contains("unknown @symbol op"), "op must dispatch: {out}");
+        assert!(
+            !out.contains("MissingArg"),
+            "name= must supply the position: {out}"
+        );
+        assert!(
+            !out.contains("unknown @symbol op"),
+            "op must dispatch: {out}"
+        );
         assert!(!out.trim().is_empty(), "empty output");
     }
 
@@ -494,7 +540,10 @@ mod tests {
     fn name_addressing_unknown_symbol_is_clear() {
         let ctx = ctx_at(PathBuf::from("."));
         let out = SymbolBridge
-            .execute(&ctx, &DirectiveArgs::parse("impl name=ThisSymbolDoesNotExist_xyz"))
+            .execute(
+                &ctx,
+                &DirectiveArgs::parse("impl name=ThisSymbolDoesNotExist_xyz"),
+            )
             .unwrap();
         // resolve_name_path returns a NO_SYMBOL error string; surface it.
         assert!(
@@ -516,8 +565,14 @@ mod tests {
             f.to_str().unwrap()
         ));
         let out = SymbolBridge.execute(&ctx, &args).unwrap();
-        assert!(!out.trim().is_empty(), "type-hierarchy produced empty output");
-        assert!(!out.contains("unknown @symbol op"), "op must dispatch: {out}");
+        assert!(
+            !out.trim().is_empty(),
+            "type-hierarchy produced empty output"
+        );
+        assert!(
+            !out.contains("unknown @symbol op"),
+            "op must dispatch: {out}"
+        );
     }
 
     #[test]
@@ -532,6 +587,9 @@ mod tests {
         let ctx = ctx_at(dir.clone());
 
         let col = super::column_of(&ctx, dir.to_str().unwrap(), f.to_str().unwrap(), 1, "Bar");
-        assert_eq!(col, 16, "must pick standalone Bar, not the FooBar substring");
+        assert_eq!(
+            col, 16,
+            "must pick standalone Bar, not the FooBar substring"
+        );
     }
 }

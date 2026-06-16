@@ -293,6 +293,12 @@ mod tests {
             "symbol must dispatch: {out}"
         );
         assert!(!out.trim().is_empty(), "empty render");
+        // I-2: symbols_overview resolves the tree-sitter fallthrough BEFORE the
+        // LSP `open_file` round-trip, so a headless run never leaks `open_file`.
+        assert!(
+            !out.contains("open_file"),
+            "headless overview must not leak open_file error: {out}"
+        );
     }
 
     #[test]
