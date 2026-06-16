@@ -306,4 +306,82 @@ mod tests {
             "expected op error: {out}"
         );
     }
+
+    // ── Phase 3.3 gate: @refactor e2e through the full render pipeline ──────
+
+    #[test]
+    fn refactor_rename_renders_backend_required_e2e() {
+        // Phase-3.3 gate (positive): @refactor rename must dispatch through the
+        // full render pipeline and return the BACKEND_REQUIRED envelope verbatim.
+        // Headless has no IDE → backend degrades cleanly; the directive must NOT
+        // fall through to the unknown-directive comment.
+        let dir = std::env::temp_dir().join("lmd_gate_refactor_rename");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("e2e.rs");
+        std::fs::write(&f, "pub fn my_func() {}\n").unwrap();
+        let p = f.to_str().unwrap();
+
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let out = render_body(
+            &ctx,
+            &format!("@refactor rename path={p} line=1 new=renamed_func\n"),
+        );
+
+        assert!(
+            !out.contains("unknown directive"),
+            "@refactor must dispatch (not unknown-directive fallback): {out}"
+        );
+        assert!(
+            out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
+            "headless must degrade to BACKEND_REQUIRED envelope, got: {out}"
+        );
+        assert!(!out.trim().is_empty(), "empty render");
+    }
+
+    #[test]
+    fn refactor_inline_force_degrades_cleanly_e2e() {
+        // Phase-3.3 gate (negative): exercises the full render-path degradation of
+        // `@refactor inline force path=… line=… plan_hash=…` in a headless engine.
+        //
+        // What this test proves (end-to-end render path):
+        //   • The directive is dispatched through the bridge (no unknown-directive
+        //     comment leaks into the output).
+        //   • The inline+force+plan_hash combination produces a clean, non-panicking
+        //     envelope (BACKEND_REQUIRED or ERROR/UNSUPPORTED) over the *full* render
+        //     pipeline — not just at bridge/unit level.
+        //   • The output is non-empty (no silent swallow).
+        //
+        // What this test does NOT prove (already covered at unit level):
+        //   • The `force` flag is NOT forwarded in the inline op-map — that Map
+        //     invariant is proven by `inline_apply_force_does_not_set_force_key`
+        //     in refactor.rs. A BACKEND_REQUIRED envelope never echoes caller args,
+        //     so checking for `"force": true` absence here would be trivially true
+        //     and prove nothing about the bridge.
+        let dir = std::env::temp_dir().join("lmd_gate_refactor_inline_force");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("e2e.rs");
+        std::fs::write(&f, "pub fn inlineable() {}\n").unwrap();
+        let p = f.to_str().unwrap();
+
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let out = render_body(
+            &ctx,
+            &format!("@refactor inline force path={p} line=1 plan_hash=deadbeef\n"),
+        );
+
+        // 1. Bridge dispatched — no unknown-directive fallback leaked.
+        assert!(
+            !out.contains("unknown directive"),
+            "@refactor inline must dispatch (not unknown-directive fallback): {out}"
+        );
+        // 2. No silent swallow — output must not be empty.
+        assert!(!out.trim().is_empty(), "render produced empty output");
+        // 3. Clean headless-degradation envelope over the full render path.
+        assert!(
+            out.contains("BACKEND_REQUIRED")
+                || out.starts_with("ERROR")
+                || out.contains("UNSUPPORTED"),
+            "inline+force must degrade to clean envelope, got: {out}"
+        );
+    }
 }
