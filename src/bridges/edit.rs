@@ -73,7 +73,9 @@ fn text_edit(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String, Br
 /// inside ctx_refactor). name_path resolution + headless tree-sitter range write
 /// are inherited from ctx_refactor; this bridge only maps args and invalidates.
 fn symbolic_edit(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String, BridgeError> {
-    let symbol = args.get("symbol").ok_or(BridgeError::MissingArg("symbol"))?;
+    let symbol = args
+        .get("symbol")
+        .ok_or(BridgeError::MissingArg("symbol"))?;
     let positional_flag = |w: &str| (1..).map_while(|i| args.positional(i)).any(|t| t == w);
 
     let mut obj = serde_json::Map::new();
@@ -163,7 +165,10 @@ mod tests {
             )
         };
         assert!(reread.contains("AFTER"), "stale cache hit, got: {reread}");
-        assert!(!reread.contains("BEFORE"), "must not show old bytes: {reread}");
+        assert!(
+            !reread.contains("BEFORE"),
+            "must not show old bytes: {reread}"
+        );
     }
 
     #[test]
@@ -175,9 +180,8 @@ mod tests {
         std::fs::write(&f, "fn greet() {\n    println!(\"old\");\n}\n").unwrap();
         let ctx = ctx_at(&dir);
 
-        let args = DirectiveArgs::parse(
-            r#"symbol=greet body="fn greet() {\n    println!(\"new\");\n}""#,
-        );
+        let args =
+            DirectiveArgs::parse(r#"symbol=greet body="fn greet() {\n    println!(\"new\");\n}""#);
         let out = EditBridge.execute(&ctx, &args).unwrap();
         // Either applied (headless) or a precise degradation envelope — never a panic.
         assert!(
@@ -207,6 +211,9 @@ mod tests {
         let err = EditBridge
             .execute(&ctx, &DirectiveArgs::parse("some.txt"))
             .unwrap_err();
-        assert!(matches!(err, BridgeError::MissingArg("old")), "got: {err:?}");
+        assert!(
+            matches!(err, BridgeError::MissingArg("old")),
+            "got: {err:?}"
+        );
     }
 }
