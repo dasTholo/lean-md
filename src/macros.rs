@@ -154,6 +154,83 @@ pub(super) fn scan_env_refs(expr: &str) -> Vec<String> {
     out
 }
 
+/// Pass 1 (spec §2.3): line-scan `input`, pulling `@define name(params) …
+/// @define-end` blocks and `@import target /` lines into `ctx.macros` and
+/// STRIPPING them from the returned text (the definition space is invisible).
+/// Forward references are free: every define is registered before any `@call`
+/// renders. Re-entrant-safe: re-running on a macro/fragment body is a cheap
+/// no-op when it carries no definition lines; `@import` is deduped per render.
+pub fn extract_definitions(ctx: &Rc<EngineContext>, input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut lines = input.lines().peekable();
+
+    while let Some(line) = lines.next() {
+        let trimmed = line.trim_start();
+
+        if let Some(rest) = trimmed.strip_prefix("@import") {
+            let target = rest.trim().trim_end_matches('/').trim();
+            if !target.is_empty() {
+                import_library(ctx, target, &mut out);
+            }
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("@define") {
+            let header = rest.trim();
+            if header.is_empty() || header.starts_with("-end") {
+                continue; // stray `@define-end` — drop silently
+            }
+            match parse_call_signature(header) {
+                Some((name, params)) => {
+                    let mut body = String::new();
+                    let mut closed = false;
+                    for inner in lines.by_ref() {
+                        if inner.trim_start().starts_with("@define-end") {
+                            closed = true;
+                            break;
+                        }
+                        body.push_str(inner);
+                        body.push('\n');
+                    }
+                    if !closed {
+                        out.push_str(&format!("<!-- lmd: unterminated @define {name} -->\n"));
+                        break;
+                    }
+                    ctx.macros
+                        .borrow_mut()
+                        .insert_authored(MacroDef { name, params, body });
+                }
+                None => {
+                    out.push_str("<!-- lmd: malformed @define signature -->\n");
+                }
+            }
+            continue;
+        }
+
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+/// Load `<target>.lmd.md` (built-in-first via the fragment registry, jailed),
+/// recurse `extract_definitions` over it to register its macros, emit nothing.
+/// Deduped: a library is loaded at most once per render.
+fn import_library(ctx: &Rc<EngineContext>, target: &str, out: &mut String) {
+    let candidate = ctx.jail_root.join(format!("{target}.lmd.md"));
+    if !ctx.mark_imported(&candidate) {
+        return;
+    }
+    match ctx.fragments.resolve(target, &ctx.jail_root) {
+        Ok(content) => {
+            let _ = extract_definitions(ctx, &content);
+        }
+        Err(e) => {
+            out.push_str(&format!("<!-- lmd: @import {target} failed: {e:?} -->\n"));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -226,5 +303,50 @@ mod tests {
     fn eval_condition_surfaces_error() {
         let ctx = ctx_with(LeanMdHeader::default());
         assert!(eval_condition(&ctx, "undefined_ident == 1").is_err());
+    }
+
+    #[test]
+    fn extract_define_fills_registry_and_strips_body() {
+        let ctx = ctx_with(LeanMdHeader::default());
+        let input = "before\n@define greet(name)\nhi {{ name }}\n@define-end\nafter\n";
+        let stripped = extract_definitions(&ctx, input);
+        assert!(stripped.contains("before") && stripped.contains("after"));
+        assert!(
+            !stripped.contains("@define") && !stripped.contains("hi {{ name }}"),
+            "definition space leaked into body: {stripped}"
+        );
+        let reg = ctx.macros.borrow();
+        let def = reg.get("greet").expect("greet must be registered");
+        assert_eq!(def.params, vec!["name".to_string()]);
+        assert_eq!(def.body.trim(), "hi {{ name }}");
+    }
+
+    #[test]
+    fn unterminated_define_emits_comment_not_panic() {
+        let ctx = ctx_with(LeanMdHeader::default());
+        let stripped = extract_definitions(&ctx, "@define x()\nbody never closed\n");
+        assert!(
+            stripped.contains("unterminated @define"),
+            "must surface a visible error, got: {stripped}"
+        );
+    }
+
+    #[test]
+    fn import_loads_jailed_library_invisibly() {
+        let dir = std::env::temp_dir().join("lmd_p4_import");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("lib.lmd.md"),
+            "@define libmac()\nFROM_LIB\n@define-end\n",
+        )
+        .unwrap();
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let stripped = extract_definitions(&ctx, "@import lib /\nbody\n");
+        assert!(stripped.contains("body"));
+        assert!(!stripped.contains("@import"), "import must be invisible");
+        assert!(
+            ctx.macros.borrow().get("libmac").is_some(),
+            "imported macro must register"
+        );
     }
 }

@@ -133,6 +133,9 @@ pub fn render(input: &str) -> String {
 /// Build a fresh rushdown render closure wired with the lmd extensions and
 /// render `body`. Re-entrant: `@include` calls this for fragment content.
 pub fn render_body(ctx: &Rc<EngineContext>, body: &str) -> String {
+    // Pass 1 (spec §2.3): strip the definition space (@define/@import) into the
+    // macro registry — invisible. (Pass 3 container-prune is added in Phase 4B.)
+    let body = super::macros::extract_definitions(ctx, body);
     let render = new_markdown_to_html(
         rushdown::parser::Options::default(),
         rushdown::renderer::html::Options::default(),
@@ -140,7 +143,7 @@ pub fn render_body(ctx: &Rc<EngineContext>, body: &str) -> String {
         lmd_renderer_extension(ctx.clone()),
     );
     let mut out = String::new();
-    let _ = render(&mut out, body);
+    let _ = render(&mut out, &body);
     out
 }
 
@@ -206,6 +209,15 @@ mod tests {
             "header must not appear; got: {out}"
         );
         assert!(out.contains("lean-ctx"));
+    }
+    #[test]
+    fn define_is_invisible_in_render() {
+        let out = render("@define m()\nMACRO_BODY_SENTINEL\n@define-end\n\nvisible prose\n");
+        assert!(
+            !out.contains("MACRO_BODY_SENTINEL") && !out.contains("@define"),
+            "definition space must not appear in render: {out}"
+        );
+        assert!(out.contains("visible prose"), "got: {out}");
     }
     #[test]
     fn unknown_directive_renders_comment() {
@@ -530,7 +542,7 @@ mod tests {
             dir.join("m.rs"),
             "fn gate_impacted() {}\nfn c() { gate_impacted(); }\n",
         )
-            .unwrap();
+        .unwrap();
         let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
         let out = render_body(&ctx, "@impact analyze path=m.rs\n");
         assert!(
