@@ -391,4 +391,70 @@ mod tests {
             "inline+force must degrade to clean envelope, got: {out}"
         );
     }
+
+    // ── Phase 3.4 gate: @reformat + @inspect e2e through the render pipeline ──
+
+    #[test]
+    fn reformat_renders_backend_required_e2e() {
+        // @reformat must dispatch through the full render pipeline and degrade
+        // to the BACKEND_REQUIRED envelope headless — never the unknown-directive
+        // fallback, never a panic.
+        let dir = std::env::temp_dir().join("lmd_gate_reformat");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("e2e.rs");
+        std::fs::write(&f, "fn   spaced( ) {}\n").unwrap();
+        let p = f.to_str().unwrap();
+
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let out = render_body(&ctx, &format!("@reformat path={p}\n"));
+
+        assert!(
+            !out.contains("unknown directive"),
+            "@reformat must dispatch (not unknown-directive fallback): {out}"
+        );
+        assert!(
+            out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
+            "headless reformat must degrade to BACKEND_REQUIRED envelope, got: {out}"
+        );
+        assert!(!out.trim().is_empty(), "empty render");
+    }
+
+    #[test]
+    fn inspect_run_renders_backend_required_e2e() {
+        // @inspect run <path> must dispatch and degrade cleanly headless.
+        let dir = std::env::temp_dir().join("lmd_gate_inspect_run");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("e2e.rs");
+        std::fs::write(&f, "fn foo() {}\n").unwrap();
+        let p = f.to_str().unwrap();
+
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let out = render_body(&ctx, &format!("@inspect run {p}\n"));
+
+        assert!(
+            !out.contains("unknown directive"),
+            "@inspect must dispatch (not unknown-directive fallback): {out}"
+        );
+        assert!(
+            out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
+            "headless inspect run must degrade to BACKEND_REQUIRED, got: {out}"
+        );
+        assert!(!out.trim().is_empty(), "empty render");
+    }
+
+    #[test]
+    fn inspect_list_renders_e2e() {
+        // @inspect list (project-wide, no path) must dispatch — degradation or
+        // a profile listing, never the unknown-directive fallback.
+        let dir = std::env::temp_dir().join("lmd_gate_inspect_list");
+        std::fs::create_dir_all(&dir).unwrap();
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let out = render_body(&ctx, "@inspect list\n");
+
+        assert!(
+            !out.contains("unknown directive"),
+            "@inspect list must dispatch (not unknown-directive fallback): {out}"
+        );
+        assert!(!out.trim().is_empty(), "empty render");
+    }
 }
