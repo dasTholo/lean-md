@@ -2,9 +2,9 @@
 //! Mirrors the Phase-0 spike's ShoutInline (trigger `{`, manual advance of the
 //! full match because the inline dispatcher does not pre-consume the trigger).
 
-use rushdown::ast::*;
+use rushdown::ast::{Arena, NodeRef};
 use rushdown::parser;
-use rushdown::parser::*;
+use rushdown::parser::{AnyInlineParser, InlineParser};
 use rushdown::text;
 use rushdown::text::Reader;
 

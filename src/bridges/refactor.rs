@@ -118,14 +118,12 @@ pub(crate) fn build_action_and_map(
                 obj.insert("propagate".into(), true.into());
             }
         }
-        "inline" => {
-            if flag("keep-definition") {
-                obj.insert("keep_definition".into(), true.into());
-            }
-            // NOTE: `force` is intentionally NOT mapped for inline.
-            // inline is not forceable — the backend returns UNSUPPORTED.
-            // Silently dropping it here prevents a confusing backend error.
+        "inline" if flag("keep-definition") => {
+            obj.insert("keep_definition".into(), true.into());
         }
+        // NOTE: `force` is intentionally NOT mapped for inline.
+        // inline is not forceable — the backend returns UNSUPPORTED.
+        // Silently dropping it here prevents a confusing backend error.
         _ => {}
     }
 
@@ -206,7 +204,7 @@ mod tests {
             .unwrap_err();
         match err {
             BridgeError::Resolve(m) => {
-                assert!(m.contains("unknown @refactor op"), "got: {m}")
+                assert!(m.contains("unknown @refactor op"), "got: {m}");
             }
             other => panic!("expected Resolve, got: {other:?}"),
         }
@@ -478,7 +476,7 @@ mod tests {
             build_action_and_map(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
         assert_eq!(action, "rename_apply");
         assert_eq!(
-            obj.get("force").and_then(|v| v.as_bool()),
+            obj.get("force").and_then(serde_json::Value::as_bool),
             Some(true),
             "rename apply with force flag must set force=true"
         );
@@ -498,7 +496,10 @@ mod tests {
         let (action, obj, _) =
             build_action_and_map(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
         assert_eq!(action, "move_apply");
-        assert_eq!(obj.get("force").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            obj.get("force").and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
     }
 
     /// `force` is mapped for safe-delete.
@@ -515,7 +516,10 @@ mod tests {
         let (action, obj, _) =
             build_action_and_map(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
         assert_eq!(action, "safe_delete_apply");
-        assert_eq!(obj.get("force").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            obj.get("force").and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
     }
 
     /// `propagate` is only mapped for safe-delete.
@@ -531,7 +535,10 @@ mod tests {
         );
         let (_, obj, _) =
             build_action_and_map(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
-        assert_eq!(obj.get("propagate").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            obj.get("propagate").and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
     }
 
     /// CRITICAL: `force` is NOT mapped for inline — even with plan_hash= + force flag.
@@ -615,7 +622,7 @@ mod tests {
         let path_str = f.to_str().unwrap();
         ctx.cache.borrow_mut().store(path_str, "cached-content");
 
-        let input = format!("rename path={} line=1 new=other", path_str);
+        let input = format!("rename path={path_str} line=1 new=other");
         let _out = RefactorBridge
             .execute(&ctx, &DirectiveArgs::parse(&input))
             .unwrap();
@@ -646,7 +653,7 @@ mod tests {
             )),
             dir.to_str().unwrap(),
         )
-            .unwrap();
+        .unwrap();
         assert!(
             action_no_hash.ends_with("_preview"),
             "no plan_hash → must be _preview"
@@ -660,7 +667,7 @@ mod tests {
             )),
             dir.to_str().unwrap(),
         )
-            .unwrap();
+        .unwrap();
         assert!(
             action_with_hash.ends_with("_apply"),
             "plan_hash → must be _apply"

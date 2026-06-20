@@ -3,7 +3,9 @@
 pub mod block;
 pub mod inline;
 
-use rushdown::parser::*;
+use rushdown::parser::{
+    NoParserOptions, PRIORITY_ATX_HEADING, PRIORITY_EMPHASIS, ParserExtension, parser_extension,
+};
 
 use block::LmdBlockParser;
 use inline::LmdInlineParser;

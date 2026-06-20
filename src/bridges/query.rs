@@ -87,14 +87,14 @@ mod tests {
         // the user's config (default ships a NON-empty deny-by-default allowlist).
         // `git` is representative of @query's real purpose — a shell-only tool with
         // no native lmd directive. nextest = process-per-test, so the env override is isolated.
-        std::env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git");
+        crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git");
         let out = QueryBridge
             .execute(
                 &ctx_with_shell(ShellMode::Allow),
                 &DirectiveArgs::parse("git --version"),
             )
             .unwrap();
-        std::env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+        crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
         assert!(out.contains("git version"), "got: {out}");
     }
 
@@ -102,14 +102,14 @@ mod tests {
     fn inherits_allowlist_deny_by_default() {
         // §7: a non-allowlisted base command is hard-blocked — @query inherits the
         // deny-by-default gate via check_shell_allowlist, it does not reinvent it.
-        std::env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git");
+        crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git");
         let err = QueryBridge
             .execute(
                 &ctx_with_shell(ShellMode::Allow),
                 &DirectiveArgs::parse("ls -la"),
             )
             .unwrap_err();
-        std::env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+        crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
         assert!(matches!(err, BridgeError::ShellRejected(_)));
     }
 

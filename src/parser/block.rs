@@ -1,9 +1,9 @@
 //! Block parser: claims `@<name> [args]` lines into an `LmdDirective` node.
 //! Stateless (like the Phase-0 spike); bridge dispatch happens at render time.
 
-use rushdown::ast::*;
+use rushdown::ast::{Arena, NodeRef};
 use rushdown::parser;
-use rushdown::parser::*;
+use rushdown::parser::{AnyBlockParser, BlockParser, State};
 use rushdown::text;
 use rushdown::text::Reader;
 

@@ -159,11 +159,7 @@ fn extract_impl_type(line: &str) -> Option<String> {
         .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':')
         .collect();
     let name = name.trim_end_matches(':').to_string();
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
+    if name.is_empty() { None } else { Some(name) }
 }
 
 /// If `s` starts with a `<…>` generic param block, return the remainder after
@@ -494,7 +490,7 @@ mod tests {
             &f,
             "struct Bar;\ntrait Foo {}\nimpl Foo for Bar {\n    fn m(&self) {}\n}\n",
         )
-            .unwrap();
+        .unwrap();
         let ctx = ctx_at(dir.clone());
 
         // Location line points at the `impl Foo for Bar` line (1-based L3).

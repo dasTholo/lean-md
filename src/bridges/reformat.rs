@@ -76,7 +76,10 @@ mod tests {
         let err = ReformatBridge
             .execute(&ctx, &DirectiveArgs::parse(""))
             .unwrap_err();
-        assert!(matches!(err, BridgeError::MissingArg("path")), "got: {err:?}");
+        assert!(
+            matches!(err, BridgeError::MissingArg("path")),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -92,7 +95,10 @@ mod tests {
 
         let args = DirectiveArgs::parse(&format!("path={}", f.to_str().unwrap()));
         let out = ReformatBridge.execute(&ctx, &args).unwrap();
-        assert!(!out.contains("MissingArg"), "path-only must dispatch: {out}");
+        assert!(
+            !out.contains("MissingArg"),
+            "path-only must dispatch: {out}"
+        );
         assert!(!out.trim().is_empty(), "empty reformat output");
     }
 
@@ -136,7 +142,8 @@ mod tests {
             obj.insert("optimize_imports".into(), true.into());
         }
         assert_eq!(
-            obj.get("optimize_imports").and_then(|v| v.as_bool()),
+            obj.get("optimize_imports")
+                .and_then(serde_json::Value::as_bool),
             Some(true),
             "optimize-imports flag must map to optimize_imports=true"
         );
@@ -145,9 +152,18 @@ mod tests {
     #[test]
     fn reformat_succeeded_predicate() {
         // Drive the production predicate — not an inline copy.
-        assert!(super::reformat_succeeded("Reformatted 1 file"), "success → clear");
-        assert!(!super::reformat_succeeded("ERROR: BACKEND_REQUIRED: …"), "error → no clear");
-        assert!(!super::reformat_succeeded("ERROR: UNSUPPORTED_LANGUAGE: …"), "error → no clear");
+        assert!(
+            super::reformat_succeeded("Reformatted 1 file"),
+            "success → clear"
+        );
+        assert!(
+            !super::reformat_succeeded("ERROR: BACKEND_REQUIRED: …"),
+            "error → no clear"
+        );
+        assert!(
+            !super::reformat_succeeded("ERROR: UNSUPPORTED_LANGUAGE: …"),
+            "error → no clear"
+        );
     }
 
     #[test]
@@ -164,7 +180,7 @@ mod tests {
         let path_str = f.to_str().unwrap();
         ctx.cache.borrow_mut().store(path_str, "cached-content");
 
-        let args = DirectiveArgs::parse(&format!("path={} line=1", path_str));
+        let args = DirectiveArgs::parse(&format!("path={path_str} line=1"));
         let _out = ReformatBridge.execute(&ctx, &args).unwrap();
 
         assert!(

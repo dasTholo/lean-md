@@ -41,11 +41,15 @@ impl DirectiveBridge for GraphBridge {
                 Ok(fmt_related(&ctx.index(), &key, depth_arg(args)))
             }
             "callers" => {
-                let sym = args.positional(1).ok_or(BridgeError::MissingArg("symbol"))?;
+                let sym = args
+                    .positional(1)
+                    .ok_or(BridgeError::MissingArg("symbol"))?;
                 Ok(fmt_callers(&ctx.call_graph(), sym))
             }
             "callees" => {
-                let sym = args.positional(1).ok_or(BridgeError::MissingArg("symbol"))?;
+                let sym = args
+                    .positional(1)
+                    .ok_or(BridgeError::MissingArg("symbol"))?;
                 Ok(fmt_callees(&ctx.call_graph(), sym))
             }
             "context" => {
@@ -54,9 +58,9 @@ impl DirectiveBridge for GraphBridge {
                 // §7 PathJail: resolve the target inside the jail; an absolute
                 // arg makes `join` ignore `root`, so `jail_path` is what actually
                 // refuses out-of-jail and `..`-traversal paths before any read.
-                let abs = match crate::core::pathjail::jail_path(&jail_root.join(target), jail_root) {
-                    Ok(p) => p,
-                    Err(_) => return Ok(format!("Path '{target}' is outside the jail root")),
+                let Ok(abs) = crate::core::pathjail::jail_path(&jail_root.join(target), jail_root)
+                else {
+                    return Ok(format!("Path '{target}' is outside the jail root"));
                 };
                 let abs = abs.to_str().unwrap_or(target);
                 match graph_context::build_graph_context(abs, root, None) {

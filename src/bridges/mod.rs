@@ -12,8 +12,8 @@ pub mod include;
 pub mod list;
 pub mod query;
 pub mod read;
-pub mod reformat;
 pub mod refactor;
+pub mod reformat;
 pub mod search;
 pub mod symbol;
 
@@ -39,7 +39,7 @@ pub enum BridgeError {
 pub trait DirectiveBridge {
     fn name(&self) -> &'static str;
     fn execute(&self, ctx: &Rc<EngineContext>, args: &DirectiveArgs)
-               -> Result<String, BridgeError>;
+    -> Result<String, BridgeError>;
 }
 
 /// Name-keyed registry of directive bridges.
@@ -58,7 +58,7 @@ impl BridgeRegistry {
         self.map.insert(bridge.name(), bridge);
     }
     pub fn get(&self, name: &str) -> Option<&dyn DirectiveBridge> {
-        self.map.get(name).map(|b| b.as_ref())
+        self.map.get(name).map(std::convert::AsRef::as_ref)
     }
 }
 

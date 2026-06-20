@@ -40,7 +40,7 @@ mod tests {
 
     #[test]
     fn expands_set_var() {
-        std::env::set_var("LMD_ENV_TEST_KEY", "env_marker_7");
+        crate::test_env::set_var("LMD_ENV_TEST_KEY", "env_marker_7");
         let out = EnvBridge
             .execute(&ctx(), &DirectiveArgs::parse("LMD_ENV_TEST_KEY"))
             .unwrap();

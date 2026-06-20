@@ -71,15 +71,17 @@ mod tests {
 
     #[test]
     fn name_addressing_inserts_name_path() {
-        let (obj, abs) =
-            build_target(&DirectiveArgs::parse("rename name=MyStruct"), ".").unwrap();
+        let (obj, abs) = build_target(&DirectiveArgs::parse("rename name=MyStruct"), ".").unwrap();
         assert_eq!(
             obj.get("name_path").and_then(|v| v.as_str()),
             Some("MyStruct")
         );
         assert!(obj.get("line").is_none(), "no line when name= used");
         assert!(obj.get("column").is_none(), "no column when name= used");
-        assert!(abs.is_empty(), "abs_path must be empty for name= addressing");
+        assert!(
+            abs.is_empty(),
+            "abs_path must be empty for name= addressing"
+        );
     }
 
     #[test]
@@ -93,8 +95,11 @@ mod tests {
         let (obj, abs) =
             build_target(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
 
-        assert_eq!(obj.get("line").and_then(|v| v.as_u64()), Some(1));
-        assert_eq!(obj.get("column").and_then(|v| v.as_u64()), Some(3));
+        assert_eq!(obj.get("line").and_then(serde_json::Value::as_u64), Some(1));
+        assert_eq!(
+            obj.get("column").and_then(serde_json::Value::as_u64),
+            Some(3)
+        );
         assert!(obj.get("name_path").is_none());
         assert!(!abs.is_empty(), "abs_path must be set for path= addressing");
     }
@@ -107,10 +112,12 @@ mod tests {
         std::fs::write(&f, "fn bar() {}\n").unwrap();
 
         let input = format!("rename path={} line=1", f.to_str().unwrap());
-        let (obj, _) =
-            build_target(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
+        let (obj, _) = build_target(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap();
 
-        assert_eq!(obj.get("column").and_then(|v| v.as_u64()), Some(0));
+        assert_eq!(
+            obj.get("column").and_then(serde_json::Value::as_u64),
+            Some(0)
+        );
     }
 
     #[test]
@@ -121,9 +128,11 @@ mod tests {
         std::fs::write(&f, "fn baz() {}\n").unwrap();
 
         let input = format!("rename path={}", f.to_str().unwrap());
-        let err =
-            build_target(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap_err();
-        assert!(matches!(err, BridgeError::MissingArg("line")), "got: {err:?}");
+        let err = build_target(&DirectiveArgs::parse(&input), dir.to_str().unwrap()).unwrap_err();
+        assert!(
+            matches!(err, BridgeError::MissingArg("line")),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -137,8 +146,7 @@ mod tests {
 
         let input = format!("path={}", f.to_str().unwrap());
         let (obj, abs) =
-            build_target_with(&DirectiveArgs::parse(&input), dir.to_str().unwrap(), false)
-                .unwrap();
+            build_target_with(&DirectiveArgs::parse(&input), dir.to_str().unwrap(), false).unwrap();
         assert!(obj.get("line").is_none(), "no line key for path-only");
         assert!(obj.get("column").is_none(), "no column key for path-only");
         assert!(!abs.is_empty(), "abs_path must be set for path= addressing");
@@ -147,6 +155,9 @@ mod tests {
     #[test]
     fn missing_path_and_name_errors() {
         let err = build_target(&DirectiveArgs::parse("rename"), ".").unwrap_err();
-        assert!(matches!(err, BridgeError::MissingArg("path")), "got: {err:?}");
+        assert!(
+            matches!(err, BridgeError::MissingArg("path")),
+            "got: {err:?}"
+        );
     }
 }

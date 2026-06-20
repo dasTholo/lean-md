@@ -74,12 +74,11 @@ fn tokenize(raw: &str) -> Vec<String> {
                             Some('t') => cur.push('\t'),
                             Some('r') => cur.push('\r'),
                             Some('"') => cur.push('"'),
-                            Some('\\') => cur.push('\\'),
+                            Some('\\') | None => cur.push('\\'),
                             Some(other) => {
                                 cur.push('\\');
                                 cur.push(other);
                             }
-                            None => cur.push('\\'),
                         },
                         _ => cur.push(c2),
                     }
@@ -144,7 +143,7 @@ mod tests {
 
     #[test]
     fn single_quotes_are_literal() {
-        let a = DirectiveArgs::parse(r#"new='a\nb'"#);
+        let a = DirectiveArgs::parse(r"new='a\nb'");
         assert_eq!(a.get("new"), Some(r"a\nb"));
     }
 

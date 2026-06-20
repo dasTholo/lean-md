@@ -7,13 +7,13 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::core::cache::SessionCache;
-use crate::core::call_graph::CallGraph;
+use crate::core::call_graph::{CallGraph, CallGraphInputs};
 use crate::core::graph_index::{self, ProjectIndex};
 use rushdown::new_markdown_to_html;
 
-use super::bridges::{default_registry, BridgeError, BridgeRegistry};
+use super::bridges::{BridgeError, BridgeRegistry, default_registry};
 use super::fragments::FragmentRegistry;
-use super::header::{parse_header, LeanMdHeader};
+use super::header::{LeanMdHeader, parse_header};
 use super::parser::lmd_parser_extension;
 use super::render::lmd_renderer_extension;
 
@@ -81,7 +81,8 @@ impl EngineContext {
         }
         let index = self.index();
         let root = self.jail_root.to_str().unwrap_or(".");
-        let built = Rc::new(CallGraph::load_or_build(root, &index));
+        let inputs = CallGraphInputs::from_project_index(&index);
+        let built = Rc::new(CallGraph::load_or_build(root, &inputs));
         let _ = built.save();
         *self.call_graph.borrow_mut() = Some(built.clone());
         built
@@ -199,9 +200,9 @@ mod tests {
     #[test]
     fn query_runs_with_shell_allow_header() {
         // Hermetic allowlist pin (see bridge unit test). nextest = process-per-test.
-        std::env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git");
+        crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git");
         let out = render("@lean-md\nshell: allow\n\n@query git --version\n");
-        std::env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+        crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
         assert!(out.contains("git version"), "got: {out}");
     }
 

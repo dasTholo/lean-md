@@ -5,7 +5,7 @@
 
 use core::fmt::{self, Write};
 
-use rushdown::ast::*;
+use rushdown::ast::{KindData, NodeKind, NodeType, PrettyPrint, pp_indent};
 
 /// Leaf-block node for an `@name args` directive line.
 #[derive(Debug)]

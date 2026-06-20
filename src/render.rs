@@ -8,15 +8,14 @@ use core::any::TypeId;
 use std::rc::Rc;
 
 use rushdown::{
-    as_extension_data,
-    ast::*,
+    Result, as_extension_data,
+    ast::{Arena, NodeRef, WalkStatus},
     renderer,
     renderer::{
+        BoxRenderNode, NodeRenderer, NodeRendererRegistry, RenderNode, RendererOptions, TextWrite,
         html,
-        html::{renderer_extension, Options, RendererExtension},
-        *,
+        html::{Options, RendererExtension, renderer_extension},
     },
-    Result,
 };
 
 use super::args::DirectiveArgs;

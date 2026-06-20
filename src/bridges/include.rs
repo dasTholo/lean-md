@@ -5,7 +5,7 @@ use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
 use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::{render_body, EngineContext};
+use crate::lmd::engine::{EngineContext, render_body};
 use crate::lmd::fragments::ResolveError;
 
 pub struct IncludeBridge;
