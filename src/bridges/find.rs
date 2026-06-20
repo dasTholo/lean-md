@@ -1,7 +1,8 @@
 //! `@find` bridge → semantic / hybrid search via `ctx_semantic_search` (v1 §4.3).
 //! Headless: complements the regex `@search` with semantic/hybrid retrieval.
-//! `mode` (bm25|dense|hybrid) passes through; omitted → backend default (`bm25`,
-//! instant, no model-load) — "erben, nicht neu erfinden" (§5). Read-only.
+//! `mode` (bm25|dense|hybrid); omitted → `bm25`, the lmd headless default
+//! (spec §4.3: instant, no model-load). NB: a DELIBERATE lmd default — the
+//! `ctx_semantic_search` backend default is `hybrid` (model-load). Read-only.
 
 use std::rc::Rc;
 
@@ -26,16 +27,8 @@ impl DirectiveBridge for FindBridge {
             .or_else(|| args.positional(0))
             .ok_or(BridgeError::MissingArg("query"))?;
 
-        // mode is optional; explicit value is validated, omitted → backend default.
-        let mode = match args.get("mode") {
-            Some(m @ ("bm25" | "dense" | "hybrid")) => Some(m),
-            Some(other) => {
-                return Err(BridgeError::Resolve(format!(
-                    "unknown @find mode '{other}'. Use: bm25|dense|hybrid"
-                )));
-            }
-            None => None,
-        };
+        // mode: explicit value validated; omitted → bm25 (lmd headless default).
+        let mode = resolve_mode(args)?;
 
         let root = ctx.jail_root.to_str().unwrap_or(".");
         let path = args.get("path").unwrap_or(root);
@@ -51,10 +44,25 @@ impl DirectiveBridge for FindBridge {
             crate::tools::CrpMode::Off,
             None, // languages
             None, // path_glob
-            mode,
+            Some(mode),
             None, // workspace
             None, // artifacts
         ))
+    }
+}
+
+/// Resolve the `@find` search mode. An explicit value is validated against
+/// `bm25|dense|hybrid`; an omitted mode defaults to `bm25` — the lmd headless
+/// default (spec §4.3: instant, no model-load). Deliberate lmd default, NOT the
+/// `ctx_semantic_search` backend default (`hybrid`, model-load): passing `None`
+/// through would silently make a bare `@find` lossy/expensive.
+fn resolve_mode(args: &DirectiveArgs) -> Result<&str, BridgeError> {
+    match args.get("mode") {
+        Some(m @ ("bm25" | "dense" | "hybrid")) => Ok(m),
+        Some(other) => Err(BridgeError::Resolve(format!(
+            "unknown @find mode '{other}'. Use: bm25|dense|hybrid"
+        ))),
+        None => Ok("bm25"),
     }
 }
 
@@ -95,6 +103,25 @@ mod tests {
             BridgeError::Resolve(m) => assert!(m.contains("unknown @find mode"), "got: {m}"),
             other => panic!("expected Resolve, got: {other:?}"),
         }
+    }
+
+    #[test]
+    fn omitted_mode_defaults_to_bm25() {
+        // @find without mode= defaults to bm25 (instant, no model-load) — the lmd
+        // headless default per spec §4.3, NOT the backend's hybrid default.
+        assert_eq!(
+            resolve_mode(&DirectiveArgs::parse("query=x")).unwrap(),
+            "bm25"
+        );
+        assert_eq!(
+            resolve_mode(&DirectiveArgs::parse("query=x mode=dense")).unwrap(),
+            "dense"
+        );
+        assert_eq!(
+            resolve_mode(&DirectiveArgs::parse("query=x mode=hybrid")).unwrap(),
+            "hybrid"
+        );
+        assert!(resolve_mode(&DirectiveArgs::parse("query=x mode=bad")).is_err());
     }
 
     #[test]
