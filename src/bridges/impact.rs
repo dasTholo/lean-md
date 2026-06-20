@@ -21,12 +21,16 @@ impl DirectiveBridge for ImpactBridge {
         args: &DirectiveArgs,
     ) -> Result<String, BridgeError> {
         // action is positional-0 or action=; default analyze (= risk-gate default).
-        let action = match args.positional(0).or_else(|| args.get("action")).unwrap_or("analyze") {
+        let action = match args
+            .positional(0)
+            .or_else(|| args.get("action"))
+            .unwrap_or("analyze")
+        {
             a @ ("analyze" | "chain") => a,
             other => {
                 return Err(BridgeError::Resolve(format!(
                     "unknown @impact action '{other}'. Use: analyze|chain"
-                )))
+                )));
             }
         };
 
@@ -81,14 +85,21 @@ mod tests {
         let err = ImpactBridge
             .execute(&ctx, &DirectiveArgs::parse("analyze"))
             .unwrap_err();
-        assert!(matches!(err, BridgeError::MissingArg("path")), "got: {err:?}");
+        assert!(
+            matches!(err, BridgeError::MissingArg("path")),
+            "got: {err:?}"
+        );
     }
 
     #[test]
     fn analyze_dispatches_headless() {
         let dir = std::env::temp_dir().join("lmd_impact_analyze");
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("m.rs"), "fn impacted() {}\nfn caller() { impacted(); }\n").unwrap();
+        std::fs::write(
+            dir.join("m.rs"),
+            "fn impacted() {}\nfn caller() { impacted(); }\n",
+        )
+        .unwrap();
         let ctx = ctx_at(dir.clone());
 
         let args = DirectiveArgs::parse("analyze path=m.rs");
@@ -96,6 +107,9 @@ mod tests {
         // Dispatch must produce output (impact data or a clear "no data" message),
         // never the unknown-action error and never a panic.
         assert!(!out.trim().is_empty(), "empty @impact output");
-        assert!(!out.contains("Unknown action"), "must not hit the backend unknown-action path: {out}");
+        assert!(
+            !out.contains("Unknown action"),
+            "must not hit the backend unknown-action path: {out}"
+        );
     }
 }

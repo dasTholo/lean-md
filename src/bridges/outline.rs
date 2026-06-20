@@ -57,7 +57,10 @@ mod tests {
         let err = OutlineBridge
             .execute(&ctx, &DirectiveArgs::parse(""))
             .unwrap_err();
-        assert!(matches!(err, BridgeError::MissingArg("path")), "got: {err:?}");
+        assert!(
+            matches!(err, BridgeError::MissingArg("path")),
+            "got: {err:?}"
+        );
     }
 
     #[test]
@@ -65,8 +68,11 @@ mod tests {
         let dir = std::env::temp_dir().join("lmd_outline_syms");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("o.rs");
-        std::fs::write(&f, "pub struct OutlineAnchor;\npub fn outline_fn(x: u32) -> u32 { x }\n")
-            .unwrap();
+        std::fs::write(
+            &f,
+            "pub struct OutlineAnchor;\npub fn outline_fn(x: u32) -> u32 { x }\n",
+        )
+        .unwrap();
         let ctx = ctx_at(dir.clone());
 
         let args = DirectiveArgs::parse(&format!("path={}", f.to_str().unwrap()));

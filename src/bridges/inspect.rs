@@ -28,7 +28,7 @@ impl DirectiveBridge for InspectBridge {
             other => {
                 return Err(BridgeError::Resolve(format!(
                     "unknown @inspect mode '{other}'. Use: run|list"
-                )))
+                )));
             }
         };
 
@@ -91,7 +91,10 @@ mod tests {
         let err = InspectBridge
             .execute(&ctx, &DirectiveArgs::parse("run"))
             .unwrap_err();
-        assert!(matches!(err, BridgeError::MissingArg("path")), "got: {err:?}");
+        assert!(
+            matches!(err, BridgeError::MissingArg("path")),
+            "got: {err:?}"
+        );
     }
 
     #[test]

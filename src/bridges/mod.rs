@@ -106,8 +106,24 @@ mod tests {
     fn default_registry_has_all_core_bridges() {
         let reg = default_registry();
         for name in [
-            "read", "include", "search", "list", "env", "date", "count", "query", "graph", "edit",
-            "symbol", "refactor", "reformat", "inspect", "find", "repomap", "impact", "architecture",
+            "read",
+            "include",
+            "search",
+            "list",
+            "env",
+            "date",
+            "count",
+            "query",
+            "graph",
+            "edit",
+            "symbol",
+            "refactor",
+            "reformat",
+            "inspect",
+            "find",
+            "repomap",
+            "impact",
+            "architecture",
             "outline",
         ] {
             assert!(reg.get(name).is_some(), "missing bridge: {name}");

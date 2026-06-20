@@ -32,7 +32,7 @@ impl DirectiveBridge for FindBridge {
             Some(other) => {
                 return Err(BridgeError::Resolve(format!(
                     "unknown @find mode '{other}'. Use: bm25|dense|hybrid"
-                )))
+                )));
             }
             None => None,
         };
@@ -79,7 +79,10 @@ mod tests {
         let err = FindBridge
             .execute(&ctx, &DirectiveArgs::parse(""))
             .unwrap_err();
-        assert!(matches!(err, BridgeError::MissingArg("query")), "got: {err:?}");
+        assert!(
+            matches!(err, BridgeError::MissingArg("query")),
+            "got: {err:?}"
+        );
     }
 
     #[test]

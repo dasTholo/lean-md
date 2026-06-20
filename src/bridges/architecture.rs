@@ -20,12 +20,16 @@ impl DirectiveBridge for ArchitectureBridge {
         ctx: &Rc<EngineContext>,
         args: &DirectiveArgs,
     ) -> Result<String, BridgeError> {
-        let action = match args.positional(0).or_else(|| args.get("action")).unwrap_or("overview") {
+        let action = match args
+            .positional(0)
+            .or_else(|| args.get("action"))
+            .unwrap_or("overview")
+        {
             a @ ("overview" | "clusters" | "layers" | "cycles" | "hotspots") => a,
             other => {
                 return Err(BridgeError::Resolve(format!(
                     "unknown @architecture view '{other}'. Use: overview|clusters|layers|cycles|hotspots"
-                )))
+                )));
             }
         };
 
@@ -33,10 +37,7 @@ impl DirectiveBridge for ArchitectureBridge {
         let path = args.get("path"); // optional sub-scope
 
         Ok(crate::tools::ctx_architecture::handle(
-            action,
-            path,
-            root,
-            None, // format: backend default
+            action, path, root, None, // format: backend default
         ))
     }
 }
@@ -53,7 +54,11 @@ mod tests {
 
     #[test]
     fn architecture_is_registered() {
-        assert!(super::super::default_registry().get("architecture").is_some());
+        assert!(
+            super::super::default_registry()
+                .get("architecture")
+                .is_some()
+        );
     }
 
     #[test]
@@ -63,7 +68,9 @@ mod tests {
             .execute(&ctx, &DirectiveArgs::parse("frobnicate"))
             .unwrap_err();
         match err {
-            BridgeError::Resolve(m) => assert!(m.contains("unknown @architecture view"), "got: {m}"),
+            BridgeError::Resolve(m) => {
+                assert!(m.contains("unknown @architecture view"), "got: {m}")
+            }
             other => panic!("expected Resolve, got: {other:?}"),
         }
     }

@@ -39,7 +39,12 @@ impl DirectiveBridge for RepomapBridge {
             .unwrap_or_default();
 
         // session_files: none threaded from the engine in this phase (YAGNI).
-        Ok(crate::tools::ctx_repomap::handle(root, max_tokens, &focus, &[]))
+        Ok(crate::tools::ctx_repomap::handle(
+            root,
+            max_tokens,
+            &focus,
+            &[],
+        ))
     }
 }
 
@@ -92,6 +97,9 @@ mod tests {
         let out = RepomapBridge
             .execute(&ctx, &DirectiveArgs::parse("focus=[a.rs] max_tokens=500"))
             .unwrap();
-        assert!(!out.trim().is_empty(), "empty @repomap output for focus form");
+        assert!(
+            !out.trim().is_empty(),
+            "empty @repomap output for focus form"
+        );
     }
 }
