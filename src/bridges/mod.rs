@@ -20,6 +20,7 @@ pub mod read;
 pub mod refactor;
 pub mod reformat;
 pub mod repomap;
+pub mod review;
 pub mod search;
 pub mod smells;
 pub mod symbol;
@@ -90,6 +91,7 @@ pub fn default_registry() -> BridgeRegistry {
     reg.register(Box::new(refactor::RefactorBridge));
     reg.register(Box::new(reformat::ReformatBridge));
     reg.register(Box::new(inspect::InspectBridge));
+    reg.register(Box::new(review::ReviewBridge));
     reg.register(Box::new(smells::SmellsBridge));
     reg
 }
@@ -127,6 +129,7 @@ mod tests {
             "impact",
             "architecture",
             "outline",
+            "review",
             "smells",
         ] {
             assert!(reg.get(name).is_some(), "missing bridge: {name}");
