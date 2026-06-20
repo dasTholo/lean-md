@@ -14,6 +14,7 @@ pub mod impact;
 pub mod include;
 pub mod inspect;
 pub mod list;
+pub mod outline;
 pub mod query;
 pub mod read;
 pub mod refactor;
@@ -82,6 +83,7 @@ pub fn default_registry() -> BridgeRegistry {
     reg.register(Box::new(include::IncludeBridge));
     reg.register(Box::new(search::SearchBridge));
     reg.register(Box::new(list::ListBridge));
+    reg.register(Box::new(outline::OutlineBridge));
     reg.register(Box::new(query::QueryBridge));
     reg.register(Box::new(symbol::SymbolBridge));
     reg.register(Box::new(refactor::RefactorBridge));
@@ -106,6 +108,7 @@ mod tests {
         for name in [
             "read", "include", "search", "list", "env", "date", "count", "query", "graph", "edit",
             "symbol", "refactor", "reformat", "inspect", "find", "repomap", "impact", "architecture",
+            "outline",
         ] {
             assert!(reg.get(name).is_some(), "missing bridge: {name}");
         }
