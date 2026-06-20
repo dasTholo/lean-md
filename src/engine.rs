@@ -596,5 +596,9 @@ mod tests {
             out.contains("/api/health"),
             "@routes must surface the route, got: {out}"
         );
+        assert!(
+            !out.contains("No routes matching"),
+            "@routes render must be a real hit, not the filtered-out message: {out}"
+        );
     }
 }
