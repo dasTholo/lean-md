@@ -106,8 +106,8 @@ mod tests {
         let out = InspectBridge.execute(&ctx, &args).unwrap();
         assert!(!out.trim().is_empty(), "empty inspect output");
         assert!(
-            out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR") || !out.is_empty(),
-            "run must dispatch (degradation or diagnostics), got: {out}"
+            out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
+            "run must degrade to BACKEND_REQUIRED or ERROR headless, got: {out}"
         );
     }
 
