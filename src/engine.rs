@@ -457,4 +457,63 @@ mod tests {
         );
         assert!(!out.trim().is_empty(), "empty render");
     }
+
+    // ── Phase 3.5 gate: @find + code-intel directives e2e (headless) ──
+
+    #[test]
+    fn find_renders_results_e2e() {
+        let dir = std::env::temp_dir().join("lmd_gate_find");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("hit.rs"), "fn gate_find_marker() {}\n").unwrap();
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let out = render_body(&ctx, "@find query=gate_find_marker mode=bm25\n");
+        assert!(!out.contains("unknown directive"), "@find must dispatch: {out}");
+        assert!(!out.trim().is_empty(), "empty @find render");
+    }
+
+    #[test]
+    fn repomap_renders_e2e() {
+        let dir = std::env::temp_dir().join("lmd_gate_repomap");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.rs"), "pub fn gate_repo_anchor() {}\n").unwrap();
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let out = render_body(&ctx, "@repomap\n");
+        assert!(!out.contains("unknown directive"), "@repomap must dispatch: {out}");
+        assert!(!out.trim().is_empty(), "empty @repomap render");
+    }
+
+    #[test]
+    fn impact_renders_e2e() {
+        let dir = std::env::temp_dir().join("lmd_gate_impact");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("m.rs"), "fn gate_impacted() {}\nfn c() { gate_impacted(); }\n").unwrap();
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let out = render_body(&ctx, "@impact analyze path=m.rs\n");
+        assert!(!out.contains("unknown directive"), "@impact must dispatch: {out}");
+        assert!(!out.trim().is_empty(), "empty @impact render");
+    }
+
+    #[test]
+    fn architecture_renders_e2e() {
+        let dir = std::env::temp_dir().join("lmd_gate_arch");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.rs"), "pub fn gate_arch_anchor() {}\n").unwrap();
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let out = render_body(&ctx, "@architecture overview\n");
+        assert!(!out.contains("unknown directive"), "@architecture must dispatch: {out}");
+        assert!(!out.trim().is_empty(), "empty @architecture render");
+    }
+
+    #[test]
+    fn outline_renders_e2e() {
+        let dir = std::env::temp_dir().join("lmd_gate_outline");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("o.rs");
+        std::fs::write(&f, "pub fn gate_outline_fn() {}\n").unwrap();
+        let p = f.to_str().unwrap();
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let out = render_body(&ctx, &format!("@outline path={p}\n"));
+        assert!(!out.contains("unknown directive"), "@outline must dispatch: {out}");
+        assert!(out.contains("gate_outline_fn"), "@outline must list the symbol, got: {out}");
+    }
 }
