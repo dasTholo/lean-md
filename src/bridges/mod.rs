@@ -21,6 +21,7 @@ pub mod refactor;
 pub mod reformat;
 pub mod repomap;
 pub mod search;
+pub mod smells;
 pub mod symbol;
 
 use std::collections::HashMap;
@@ -89,6 +90,7 @@ pub fn default_registry() -> BridgeRegistry {
     reg.register(Box::new(refactor::RefactorBridge));
     reg.register(Box::new(reformat::ReformatBridge));
     reg.register(Box::new(inspect::InspectBridge));
+    reg.register(Box::new(smells::SmellsBridge));
     reg
 }
 
@@ -125,6 +127,7 @@ mod tests {
             "impact",
             "architecture",
             "outline",
+            "smells",
         ] {
             assert!(reg.get(name).is_some(), "missing bridge: {name}");
         }
