@@ -538,4 +538,63 @@ mod tests {
             "@outline must list the symbol, got: {out}"
         );
     }
+
+    // ── Phase 3.6 gate: @smells + @review + @routes directives e2e (headless) ──
+
+    #[test]
+    fn smells_renders_e2e() {
+        let dir = std::env::temp_dir().join("lmd_gate_smells");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("s.rs"), "pub fn gate_smell_anchor() {}\n").unwrap();
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let out = render_body(&ctx, "@smells scan\n");
+        assert!(
+            !out.contains("unknown directive"),
+            "@smells must dispatch: {out}"
+        );
+        assert!(!out.trim().is_empty(), "empty @smells render");
+    }
+
+    #[test]
+    fn review_renders_e2e() {
+        // checklist is project-wide (single-line directive, no diff) — the
+        // render-path-safe @review action. (diff-review needs a multi-line diff
+        // → Phase-4 pipe; not render-gated here.)
+        let dir = std::env::temp_dir().join("lmd_gate_review");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("r.rs"), "pub fn gate_review_anchor() {}\n").unwrap();
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let out = render_body(&ctx, "@review checklist\n");
+        assert!(
+            !out.contains("unknown directive"),
+            "@review must dispatch: {out}"
+        );
+        assert!(!out.trim().is_empty(), "empty @review render");
+    }
+
+    #[test]
+    fn routes_renders_e2e() {
+        // ctx_routes needs an indexed file list; the self-repo crate root is not
+        // indexed under nextest, so build a temp fixture with a hand-rolled
+        // match-router and index it (same approach as the @routes unit test).
+        let dir = std::env::temp_dir().join("lmd_gate_routes");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("routes.rs"),
+            "pub fn router(path: &str) {\n    match path {\n        \"/api/health\" => health(),\n        _ => {}\n    }\n}\nfn health() {}\n",
+        )
+        .unwrap();
+        let root = dir.to_str().unwrap();
+        let _ = crate::tools::ctx_impact::handle("build", None, root, None, None);
+        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let out = render_body(&ctx, "@routes path=/api/health\n");
+        assert!(
+            !out.contains("unknown directive"),
+            "@routes must dispatch: {out}"
+        );
+        assert!(
+            out.contains("/api/health"),
+            "@routes must surface the route, got: {out}"
+        );
+    }
 }
