@@ -4,6 +4,7 @@
 
 pub mod addressing;
 pub mod architecture;
+pub mod call;
 pub mod count;
 pub mod date;
 pub mod edit;
@@ -74,6 +75,7 @@ impl BridgeRegistry {
 pub fn default_registry() -> BridgeRegistry {
     let mut reg = BridgeRegistry::new();
     reg.register(Box::new(architecture::ArchitectureBridge));
+    reg.register(Box::new(call::CallBridge));
     reg.register(Box::new(count::CountBridge));
     reg.register(Box::new(date::DateBridge));
     reg.register(Box::new(edit::EditBridge));
@@ -131,6 +133,7 @@ mod tests {
             "impact",
             "architecture",
             "outline",
+            "call",
             "review",
             "routes",
             "smells",
