@@ -3,6 +3,7 @@
 //! bridge can re-enter the engine (e.g. `@include` renders its fragment).
 
 pub mod addressing;
+pub mod architecture;
 pub mod count;
 pub mod date;
 pub mod edit;
@@ -68,6 +69,7 @@ impl BridgeRegistry {
 
 pub fn default_registry() -> BridgeRegistry {
     let mut reg = BridgeRegistry::new();
+    reg.register(Box::new(architecture::ArchitectureBridge));
     reg.register(Box::new(count::CountBridge));
     reg.register(Box::new(date::DateBridge));
     reg.register(Box::new(edit::EditBridge));
@@ -103,7 +105,7 @@ mod tests {
         let reg = default_registry();
         for name in [
             "read", "include", "search", "list", "env", "date", "count", "query", "graph", "edit",
-            "symbol", "refactor", "reformat", "inspect", "find", "repomap", "impact",
+            "symbol", "refactor", "reformat", "inspect", "find", "repomap", "impact", "architecture",
         ] {
             assert!(reg.get(name).is_some(), "missing bridge: {name}");
         }
