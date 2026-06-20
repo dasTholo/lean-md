@@ -137,7 +137,7 @@ mod tests {
         let path_str = f.to_str().unwrap();
         ctx.cache.borrow_mut().store(path_str, "cached-content");
 
-        let args = DirectiveArgs::parse(&format!("run {}", path_str));
+        let args = DirectiveArgs::parse(&format!("run {path_str}"));
         let _out = InspectBridge.execute(&ctx, &args).unwrap();
 
         assert!(

@@ -69,7 +69,7 @@ mod tests {
             .unwrap_err();
         match err {
             BridgeError::Resolve(m) => {
-                assert!(m.contains("unknown @architecture view"), "got: {m}")
+                assert!(m.contains("unknown @architecture view"), "got: {m}");
             }
             other => panic!("expected Resolve, got: {other:?}"),
         }

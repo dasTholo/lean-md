@@ -85,7 +85,7 @@ pub fn parse_call_signature(raw: &str) -> Option<(String, Vec<String>)> {
 pub fn substitute_params(body: &str, params: &[String], args: &[String]) -> String {
     let mut out = body.to_string();
     for (i, p) in params.iter().enumerate() {
-        let val = args.get(i).map(String::as_str).unwrap_or("");
+        let val = args.get(i).map_or("", String::as_str);
         for needle in [
             format!("{{{{ {p} }}}}"),
             format!("{{{{{p}}}}}"),
@@ -274,8 +274,10 @@ mod tests {
 
     #[test]
     fn eval_condition_reads_consumer() {
-        let mut h = LeanMdHeader::default();
-        h.consumer = Consumer::Human;
+        let h = LeanMdHeader {
+            consumer: Consumer::Human,
+            ..Default::default()
+        };
         let ctx = ctx_with(h);
         assert!(eval_condition(&ctx, r#"consumer == "human""#).unwrap());
         assert!(!eval_condition(&ctx, r#"consumer == "ai""#).unwrap());
@@ -339,7 +341,7 @@ mod tests {
             dir.join("lib.lmd.md"),
             "@define libmac()\nFROM_LIB\n@define-end\n",
         )
-        .unwrap();
+            .unwrap();
         let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
         let stripped = extract_definitions(&ctx, "@import lib /\nbody\n");
         assert!(stripped.contains("body"));
