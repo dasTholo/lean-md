@@ -3,6 +3,7 @@
 //! re-entry point used by `@include` for recursive fragment rendering.
 
 use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -14,6 +15,7 @@ use rushdown::new_markdown_to_html;
 use super::bridges::{BridgeError, BridgeRegistry, default_registry};
 use super::fragments::FragmentRegistry;
 use super::header::{LeanMdHeader, parse_header};
+use super::macros::MacroRegistry;
 use super::parser::lmd_parser_extension;
 use super::render::lmd_renderer_extension;
 
@@ -34,6 +36,14 @@ pub struct EngineContext {
     graph_index: RefCell<Option<Rc<ProjectIndex>>>,
     /// Lazy per-render memo of the call graph (built from `graph_index`).
     call_graph: RefCell<Option<Rc<CallGraph>>>,
+    /// Authored macro registry — populated by `macros::extract_definitions`
+    /// during each `render_body` pre-pass (spec §2.2.1).
+    pub macros: RefCell<MacroRegistry>,
+    /// Stack of bound `@call` param scopes (top = current macro expansion).
+    /// `@if` conditions read the top scope as evalexpr variables (spec §4).
+    pub param_scope: RefCell<Vec<HashMap<String, String>>>,
+    /// `@import` dedupe: a library file is loaded at most once per render.
+    imported: RefCell<HashSet<PathBuf>>,
 }
 
 impl EngineContext {
@@ -48,6 +58,9 @@ impl EngineContext {
             depth: Cell::new(0),
             graph_index: RefCell::new(None),
             call_graph: RefCell::new(None),
+            macros: RefCell::new(MacroRegistry::new()),
+            param_scope: RefCell::new(Vec::new()),
+            imported: RefCell::new(HashSet::new()),
         }
     }
     /// Increment the include-chain depth; error past `max_chain_depth` (§7).
@@ -61,6 +74,27 @@ impl EngineContext {
     }
     pub fn leave(&self) {
         self.depth.set(self.depth.get().saturating_sub(1));
+    }
+
+    /// Push a `@call` param scope before re-entering `render_body`.
+    pub fn push_params(&self, map: HashMap<String, String>) {
+        self.param_scope.borrow_mut().push(map);
+    }
+    /// Pop the param scope after a `@call` expansion returns.
+    pub fn pop_params(&self) {
+        self.param_scope.borrow_mut().pop();
+    }
+    /// Look up a bound param in the current (top) scope.
+    pub fn param(&self, name: &str) -> Option<String> {
+        self.param_scope
+            .borrow()
+            .last()
+            .and_then(|m| m.get(name).cloned())
+    }
+    /// Record an `@import` target; returns false if it was already imported
+    /// this render (dedupe — re-entrant `render_body` must not re-load libs).
+    pub fn mark_imported(&self, path: &std::path::Path) -> bool {
+        self.imported.borrow_mut().insert(path.to_path_buf())
     }
 
     /// Lazy-build + memoize the static project index for this render.
@@ -496,7 +530,7 @@ mod tests {
             dir.join("m.rs"),
             "fn gate_impacted() {}\nfn c() { gate_impacted(); }\n",
         )
-        .unwrap();
+            .unwrap();
         let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
         let out = render_body(&ctx, "@impact analyze path=m.rs\n");
         assert!(
@@ -583,7 +617,7 @@ mod tests {
             dir.join("routes.rs"),
             "pub fn router(path: &str) {\n    match path {\n        \"/api/health\" => health(),\n        _ => {}\n    }\n}\nfn health() {}\n",
         )
-        .unwrap();
+            .unwrap();
         let root = dir.to_str().unwrap();
         let _ = crate::tools::ctx_impact::handle("build", None, root, None, None);
         let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));

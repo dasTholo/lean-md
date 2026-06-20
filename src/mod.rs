@@ -10,6 +10,7 @@ pub mod bridges;
 pub mod engine;
 pub mod fragments;
 pub mod header;
+pub mod macros;
 pub mod node;
 pub mod parser;
 pub mod render;
