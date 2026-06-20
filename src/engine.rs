@@ -133,9 +133,10 @@ pub fn render(input: &str) -> String {
 /// Build a fresh rushdown render closure wired with the lmd extensions and
 /// render `body`. Re-entrant: `@include` calls this for fragment content.
 pub fn render_body(ctx: &Rc<EngineContext>, body: &str) -> String {
-    // Pass 1 (spec §2.3): strip the definition space (@define/@import) into the
-    // macro registry — invisible. (Pass 3 container-prune is added in Phase 4B.)
+    // Pass 1 (4A): strip the definition space (@define/@import) → registry.
     let body = super::macros::extract_definitions(ctx, body);
+    // Pass 3 (spec §2.3): prune @if/@consumer containers → winning branch (raw).
+    let body = super::macros::prune_containers(ctx, &body);
     let render = new_markdown_to_html(
         rushdown::parser::Options::default(),
         rushdown::renderer::html::Options::default(),
@@ -646,5 +647,35 @@ mod tests {
             !out.contains("No routes matching"),
             "@routes render must be a real hit, not the filtered-out message: {out}"
         );
+    }
+
+    #[test]
+    fn if_consumer_gates_render() {
+        let out = render("@if consumer == \"human\"\nHUMAN_ONLY\n@else\nAI_PROSE\n@if-end\n");
+        assert!(out.contains("AI_PROSE") && !out.contains("HUMAN_ONLY"), "got: {out}");
+    }
+
+    #[test]
+    fn consumer_sugar_gates_render() {
+        let out = render(
+            "@lean-md\nconsumer: human\n\n@consumer human\nHUMAN_BLOCK\n@consumer-end\n",
+        );
+        assert!(out.contains("HUMAN_BLOCK"), "got: {out}");
+    }
+
+    #[test]
+    fn if_branch_can_contain_a_directive() {
+        // The surviving branch still dispatches its inner directive (pass 3 → 4).
+        let out = render("@if consumer == \"ai\"\n@include hard-rules\n@if-end\n");
+        assert!(out.contains("lean-ctx"), "gated @include must fire: {out}");
+    }
+
+    #[test]
+    fn gated_call_macro_renders_only_in_matching_branch() {
+        // Combines 4A (@call) with 4B (@if): the macro expands only for ai.
+        let out = render(
+            "@define note()\nGATED_NOTE\n@define-end\n\n@if consumer == \"ai\"\n@call note() /\n@if-end\n",
+        );
+        assert!(out.contains("GATED_NOTE"), "ai branch must expand @call: {out}");
     }
 }

@@ -213,6 +213,98 @@ pub fn extract_definitions(ctx: &Rc<EngineContext>, input: &str) -> String {
     out
 }
 
+/// Pass 3 (spec §2.3/§4): line-scan `input`, replacing each `@if … @if-end` /
+/// `@consumer … @consumer-end` container with the body of its first matching
+/// branch (raw — re-rendered downstream by rushdown). Branches evaluate
+/// top-to-bottom; first `cond == true` wins; else the `@else` body; else empty.
+/// `@consumer X` is sugar for `@if consumer == "X"`. An eval error skips the
+/// container (no branch) and emits a visible comment; an unterminated block
+/// emits a comment and stops (spec §7 — render never aborts).
+pub fn prune_containers(ctx: &Rc<EngineContext>, input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut lines = input.lines();
+
+    while let Some(line) = lines.next() {
+        let trimmed = line.trim_start();
+
+        let opener = if let Some(rest) = trimmed.strip_prefix("@if") {
+            // Skip `@if-end`/`@ifdef`-ish strays at top level (no open container).
+            if rest.starts_with("-end") {
+                None
+            } else {
+                Some(rest.trim().to_string())
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("@consumer") {
+            if rest.starts_with("-end") {
+                None
+            } else {
+                Some(format!("consumer == \"{}\"", rest.trim()))
+            }
+        } else {
+            None
+        };
+
+        let Some(first_cond) = opener else {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        };
+
+        let is_consumer = trimmed.starts_with("@consumer");
+        let end_marker = if is_consumer { "@consumer-end" } else { "@if-end" };
+
+        // Collect branches: (Option<cond_expr>, body). `@else` → None cond.
+        let mut branches: Vec<(Option<String>, String)> = vec![(Some(first_cond), String::new())];
+        let mut closed = false;
+        for inner in lines.by_ref() {
+            let it = inner.trim_start();
+            if it.starts_with(end_marker) {
+                closed = true;
+                break;
+            }
+            if !is_consumer && it.starts_with("@elseif") {
+                let cond = it.trim_start_matches("@elseif").trim().to_string();
+                branches.push((Some(cond), String::new()));
+                continue;
+            }
+            if !is_consumer && it.starts_with("@else") {
+                branches.push((None, String::new()));
+                continue;
+            }
+            let last = branches.last_mut().unwrap();
+            last.1.push_str(inner);
+            last.1.push('\n');
+        }
+
+        if !closed {
+            out.push_str("<!-- lmd: unterminated @if -->\n");
+            continue;
+        }
+
+        for (cond, body) in &branches {
+            match cond {
+                Some(expr) => match eval_condition(ctx, expr) {
+                    Ok(true) => {
+                        out.push_str(body);
+                        break;
+                    }
+                    Ok(false) => {}
+                    Err(e) => {
+                        out.push_str(&format!("<!-- lmd:@if eval err: {e} -->\n"));
+                        break; // container handled (skipped)
+                    }
+                },
+                None => {
+                    out.push_str(body); // @else — no prior cond matched
+                    break;
+                }
+            }
+        }
+        // No-match-no-else → nothing emitted, by design.
+    }
+    out
+}
+
 /// Load `<target>.lmd.md` (built-in-first via the fragment registry, jailed),
 /// recurse `extract_definitions` over it to register its macros, emit nothing.
 /// Deduped: a library is loaded at most once per render.
@@ -350,5 +442,62 @@ mod tests {
             ctx.macros.borrow().get("libmac").is_some(),
             "imported macro must register"
         );
+    }
+
+    #[test]
+    fn prune_keeps_matching_if_branch() {
+        let mut h = LeanMdHeader::default();
+        h.consumer = Consumer::Human;
+        let ctx = ctx_with(h);
+        let input = "@if consumer == \"human\"\nHUMAN_TEXT\n@elseif consumer == \"ai\"\nAI_TEXT\n@else\nOTHER\n@if-end\n";
+        let out = prune_containers(&ctx, input);
+        assert!(out.contains("HUMAN_TEXT"), "got: {out}");
+        assert!(!out.contains("AI_TEXT") && !out.contains("OTHER"), "got: {out}");
+        assert!(!out.contains("@if"), "container markers must be stripped: {out}");
+    }
+
+    #[test]
+    fn prune_falls_through_to_else() {
+        let ctx = ctx_with(LeanMdHeader::default()); // consumer = ai (default)
+        let input = "@if consumer == \"human\"\nH\n@else\nE\n@if-end\n";
+        let out = prune_containers(&ctx, input);
+        assert!(out.contains('E') && !out.contains('H'), "got: {out}");
+    }
+
+    #[test]
+    fn prune_no_match_no_else_is_empty() {
+        let ctx = ctx_with(LeanMdHeader::default());
+        let input = "@if consumer == \"human\"\nH\n@if-end\n";
+        let out = prune_containers(&ctx, input);
+        assert!(!out.contains('H'), "no branch must render: {out}");
+    }
+
+    #[test]
+    fn consumer_sugar_equals_if_consumer() {
+        let mut h = LeanMdHeader::default();
+        h.consumer = Consumer::Human;
+        let ctx = ctx_with(h);
+        let out = prune_containers(&ctx, "@consumer human\nONLY_HUMAN\n@consumer-end\n");
+        assert!(out.contains("ONLY_HUMAN"), "got: {out}");
+        let ctx_ai = ctx_with(LeanMdHeader::default());
+        let out_ai = prune_containers(&ctx_ai, "@consumer human\nONLY_HUMAN\n@consumer-end\n");
+        assert!(!out_ai.contains("ONLY_HUMAN"), "ai must drop human block: {out_ai}");
+    }
+
+    #[test]
+    fn prune_eval_error_skips_container_and_continues() {
+        let ctx = ctx_with(LeanMdHeader::default());
+        let input = "@if undefined_bareword\nX\n@if-end\nAFTER\n";
+        let out = prune_containers(&ctx, input);
+        assert!(out.contains("AFTER"), "render must continue past a bad @if: {out}");
+        assert!(out.contains("@if eval err"), "must surface the eval error: {out}");
+        assert!(!out.contains("\nX\n"), "errored container body must not render: {out}");
+    }
+
+    #[test]
+    fn unterminated_if_emits_comment() {
+        let ctx = ctx_with(LeanMdHeader::default());
+        let out = prune_containers(&ctx, "@if consumer == \"ai\"\nbody\n");
+        assert!(out.contains("unterminated @if"), "got: {out}");
     }
 }
