@@ -22,7 +22,7 @@ fn is_valid_directive_name(name: &str) -> bool {
     }
     bytes
         .iter()
-        .all(|b| b.is_ascii_alphanumeric() || *b == b'-')
+        .all(|b| b.is_ascii_alphanumeric() || *b == b'-' || *b == b'.' || *b == b'_')
 }
 
 /// Pure recognizer for the body between `{{ ` and ` }}`: first token is the
@@ -129,5 +129,21 @@ mod tests {
         // valid names still parse
         assert_eq!(parse_inline_body("read").unwrap().0, "read");
         assert_eq!(parse_inline_body("hard-rules x").unwrap().0, "hard-rules");
+    }
+
+    #[test]
+    fn parses_var_only_body() {
+        let r = parse_inline_body("version").unwrap();
+        assert_eq!(r.0, "version");
+        assert_eq!(r.1, "");
+    }
+
+    #[test]
+    fn parses_expr_body_into_name_and_rest() {
+        // env.CI is the "name"; the comparison is the args tail. resolve_value
+        // rejoins them into one expression.
+        let r = parse_inline_body("env.CI == \"true\"").unwrap();
+        assert_eq!(r.0, "env.CI");
+        assert_eq!(r.1, "== \"true\"");
     }
 }

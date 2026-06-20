@@ -222,8 +222,15 @@ mod tests {
     }
     #[test]
     fn unknown_directive_renders_comment() {
+        // Unregistered names fall through to the value/expr tier (Phase 4B).
+        // `@frobnicate x` → resolve_value("frobnicate","x") → eval_string("frobnicate x")
+        // → evalexpr error → inline error comment of the form:
+        //   <!-- lmd:{{ }} eval err: Variable identifier is not bound … -->
         let out = render("@frobnicate x\n");
-        assert!(out.contains("unknown directive @frobnicate"), "got: {out}");
+        assert!(
+            out.contains("<!-- lmd:") && out.contains("eval err:"),
+            "unknown directive must produce an eval-err comment; got: {out}"
+        );
     }
     #[test]
     fn inline_include_dispatches() {
@@ -677,5 +684,26 @@ mod tests {
             "@define note()\nGATED_NOTE\n@define-end\n\n@if consumer == \"ai\"\n@call note() /\n@if-end\n",
         );
         assert!(out.contains("GATED_NOTE"), "ai branch must expand @call: {out}");
+    }
+
+    #[test]
+    fn inline_var_resolves_header_value() {
+        let out = render("@lean-md 0.4\nconsumer: ai\n\nver: {{ version }}\n");
+        assert!(out.contains("ver: 0.4"), "got: {out}");
+    }
+
+    #[test]
+    fn inline_expr_resolves_bool() {
+        crate::test_env::set_var("LMD_INLINE_FLAG", "yes");
+        let out = render("flag: {{ env.LMD_INLINE_FLAG == \"yes\" }}\n");
+        crate::test_env::remove_var("LMD_INLINE_FLAG");
+        assert!(out.contains("flag: true"), "got: {out}");
+    }
+
+    #[test]
+    fn inline_known_directive_still_dispatches() {
+        // The value tier must NOT shadow a registered inline directive.
+        let out = render("rules: {{ include hard-rules }}\n");
+        assert!(out.contains("lean-ctx"), "got: {out}");
     }
 }

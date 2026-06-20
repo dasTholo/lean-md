@@ -50,11 +50,26 @@ fn dispatch(ctx: &Rc<EngineContext>, name: &str, raw_args: &str) -> String {
                 sanitize_comment(&format!("{e:?}"))
             ),
         },
-        None => format!(
-            "<!-- lmd: unknown directive @{} -->",
-            sanitize_comment(name)
-        ),
+        None => resolve_value(ctx, name, raw_args),
     }
+}
+
+/// Inline `{{ … }}` value tier (spec §3.1): a non-directive name resolves as a
+/// bound macro-param, then a header var / evalexpr expression. The full
+/// `{{ name args }}` text is reconstructed so multi-token exprs
+/// (`{{ env.CI == "true" }}`) evaluate as one expression.
+fn resolve_value(ctx: &Rc<EngineContext>, name: &str, raw_args: &str) -> String {
+    if raw_args.is_empty() {
+        if let Some(v) = ctx.param(name) {
+            return v;
+        }
+    }
+    let expr = if raw_args.is_empty() {
+        name.to_string()
+    } else {
+        format!("{name} {raw_args}")
+    };
+    crate::lmd::macros::eval_string(ctx, &expr)
 }
 
 pub struct LmdDirectiveRenderer<W: TextWrite> {

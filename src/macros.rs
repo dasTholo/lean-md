@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use evalexpr::{
     ContextWithMutableVariables, DefaultNumericTypes, HashMapContext, Value,
-    eval_boolean_with_context,
+    eval_boolean_with_context, eval_with_context,
 };
 
 use super::engine::EngineContext;
@@ -152,6 +152,52 @@ pub(super) fn scan_env_refs(expr: &str) -> Vec<String> {
         i = j.max(start + 4);
     }
     out
+}
+
+/// Evaluate an inline `{{ expr }}` to a DISPLAY string (spec §3.1 third tier).
+/// Tries boolean first (so `{{ a == "b" }}` → "true"/"false"), then a general
+/// evalexpr eval (numbers/strings). On error returns an inline error comment so
+/// the render stays visible (never aborts).
+pub fn eval_string(ctx: &Rc<EngineContext>, expr: &str) -> String {
+    if let Ok(b) = eval_condition(ctx, expr) {
+        return b.to_string();
+    }
+    match eval_value(ctx, expr) {
+        Ok(v) => value_to_string(&v),
+        Err(e) => format!("<!-- lmd:{{{{ }}}} eval err: {e} -->"),
+    }
+}
+
+fn eval_value(ctx: &Rc<EngineContext>, expr: &str) -> Result<Value, String> {
+    let mut context = HashMapContext::new();
+    let header = &ctx.header;
+    let consumer = match header.consumer {
+        Consumer::Ai => "ai",
+        Consumer::Human => "human",
+    };
+    let _ = context.set_value("consumer".into(), Value::from(consumer));
+    let _ = context.set_value(
+        "version".into(),
+        Value::from(header.version.clone().unwrap_or_default()),
+    );
+    for (k, v) in ctx.param_scope.borrow().last().cloned().unwrap_or_default() {
+        let _ = context.set_value(k, Value::from(v));
+    }
+    for name in scan_env_refs(expr) {
+        let val = std::env::var(&name[4..]).unwrap_or_default();
+        let _ = context.set_value(name, Value::from(val));
+    }
+    eval_with_context(expr, &context).map_err(|e| e.to_string())
+}
+
+fn value_to_string(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Boolean(b) => b.to_string(),
+        Value::Int(i) => i.to_string(),
+        Value::Float(f) => f.to_string(),
+        other => format!("{other:?}"),
+    }
 }
 
 /// Pass 1 (spec §2.3): line-scan `input`, pulling `@define name(params) …
@@ -499,5 +545,14 @@ mod tests {
         let ctx = ctx_with(LeanMdHeader::default());
         let out = prune_containers(&ctx, "@if consumer == \"ai\"\nbody\n");
         assert!(out.contains("unterminated @if"), "got: {out}");
+    }
+
+    #[test]
+    fn eval_string_renders_bool_and_var() {
+        let mut h = LeanMdHeader::default();
+        h.version = Some("0.4".to_string());
+        let ctx = ctx_with(h);
+        assert_eq!(eval_string(&ctx, "version"), "0.4");
+        assert_eq!(eval_string(&ctx, r#"consumer == "ai""#), "true");
     }
 }
