@@ -20,7 +20,7 @@ use rushdown::{
 
 use super::args::DirectiveArgs;
 use super::engine::EngineContext;
-use super::node::{LmdDirective, LmdInline};
+use super::node::{LmdDirective, LmdInline, LmdPipe};
 
 /// Carries the engine context into the render hook.
 pub struct LmdRendererOptions {
@@ -70,6 +70,41 @@ fn resolve_value(ctx: &Rc<EngineContext>, name: &str, raw_args: &str) -> String 
         format!("{name} {raw_args}")
     };
     crate::lmd::macros::eval_string(ctx, &expr)
+}
+
+/// Dispatch a single pipe: run left (no piped input), inject its output as the
+/// right side's `piped_input`, then run right. Only the right output is
+/// returned (spec §5: the raw left intermediate is consumed, not rendered).
+/// Piping into a bridge that does not `accepts_pipe()` is a visible error.
+fn dispatch_pipe(
+    ctx: &Rc<EngineContext>,
+    left_name: &str,
+    left_args: &str,
+    right_name: &str,
+    right_args: &str,
+) -> String {
+    let left_out = dispatch(ctx, left_name, left_args);
+    match ctx.registry.get(right_name) {
+        Some(bridge) if bridge.accepts_pipe() => {
+            let args = DirectiveArgs::parse(right_args).with_piped_input(left_out);
+            match bridge.execute(ctx, &args) {
+                Ok(out) => out,
+                Err(e) => format!(
+                    "<!-- lmd:@{} err: {} -->",
+                    sanitize_comment(right_name),
+                    sanitize_comment(&format!("{e:?}"))
+                ),
+            }
+        }
+        Some(_) => format!(
+            "<!-- lmd: @{} does not accept piped input -->",
+            sanitize_comment(right_name)
+        ),
+        None => format!(
+            "<!-- lmd: unknown directive @{} -->",
+            sanitize_comment(right_name)
+        ),
+    }
 }
 
 pub struct LmdDirectiveRenderer<W: TextWrite> {
@@ -168,6 +203,56 @@ where
     }
 }
 
+pub struct LmdPipeRenderer<W: TextWrite> {
+    _phantom: core::marker::PhantomData<W>,
+    writer: html::Writer,
+    ctx: Rc<EngineContext>,
+}
+
+impl<W: TextWrite> LmdPipeRenderer<W> {
+    fn with_options(html_opts: Options, options: LmdRendererOptions) -> Self {
+        Self {
+            _phantom: core::marker::PhantomData,
+            writer: html::Writer::with_options(html_opts),
+            ctx: options.ctx,
+        }
+    }
+}
+
+impl<W: TextWrite> RenderNode<W> for LmdPipeRenderer<W> {
+    fn render_node<'a>(
+        &self,
+        w: &mut W,
+        _source: &'a str,
+        arena: &'a Arena,
+        node_ref: NodeRef,
+        entering: bool,
+        _context: &mut renderer::Context,
+    ) -> Result<WalkStatus> {
+        if entering {
+            let p = as_extension_data!(arena, node_ref, LmdPipe);
+            let out = dispatch_pipe(
+                &self.ctx,
+                &p.left_name,
+                &p.left_args,
+                &p.right_name,
+                &p.right_args,
+            );
+            self.writer.write_html(w, &out)?;
+        }
+        Ok(WalkStatus::Continue)
+    }
+}
+
+impl<'cb, W> NodeRenderer<'cb, W> for LmdPipeRenderer<W>
+where
+    W: TextWrite + 'cb,
+{
+    fn register_node_renderer_fn(self, nrr: &mut impl NodeRendererRegistry<'cb, W>) {
+        nrr.register_node_renderer_fn(TypeId::of::<LmdPipe>(), BoxRenderNode::new(self));
+    }
+}
+
 /// Registers both lmd node renderers, each carrying a clone of the engine ctx.
 pub fn lmd_renderer_extension<'cb, W>(ctx: Rc<EngineContext>) -> impl RendererExtension<'cb, W>
 where
@@ -180,6 +265,10 @@ where
         );
         r.add_node_renderer(
             LmdInlineRenderer::with_options,
+            LmdRendererOptions { ctx: ctx.clone() },
+        );
+        r.add_node_renderer(
+            LmdPipeRenderer::with_options,
             LmdRendererOptions { ctx: ctx.clone() },
         );
     })

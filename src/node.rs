@@ -87,6 +87,60 @@ impl From<LmdInline> for KindData {
     }
 }
 
+/// Leaf-block node for a single pipe `@A args | @B args` (spec §5, single pipe).
+#[derive(Debug)]
+pub struct LmdPipe {
+    pub left_name: String,
+    pub left_args: String,
+    pub right_name: String,
+    pub right_args: String,
+}
+
+impl LmdPipe {
+    pub fn new(
+        left_name: String,
+        left_args: String,
+        right_name: String,
+        right_args: String,
+    ) -> Self {
+        Self {
+            left_name,
+            left_args,
+            right_name,
+            right_args,
+        }
+    }
+}
+
+impl NodeKind for LmdPipe {
+    fn typ(&self) -> NodeType {
+        NodeType::LeafBlock
+    }
+    fn kind_name(&self) -> &'static str {
+        "LmdPipe"
+    }
+}
+
+impl PrettyPrint for LmdPipe {
+    fn pretty_print(&self, w: &mut dyn Write, _source: &str, level: usize) -> fmt::Result {
+        writeln!(
+            w,
+            "{}LmdPipe: @{} {} | @{} {}",
+            pp_indent(level),
+            self.left_name,
+            self.left_args,
+            self.right_name,
+            self.right_args
+        )
+    }
+}
+
+impl From<LmdPipe> for KindData {
+    fn from(e: LmdPipe) -> Self {
+        KindData::Extension(Box::new(e))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,5 +159,17 @@ mod tests {
         let n = LmdInline::new("include".to_string(), "hard-rules".to_string());
         assert_eq!(n.typ(), NodeType::Inline);
         assert_eq!(n.kind_name(), "LmdInline");
+    }
+
+    #[test]
+    fn pipe_node_reports_leaf_block() {
+        let n = super::LmdPipe::new(
+            "query".into(),
+            "git diff".into(),
+            "review".into(),
+            "diff-review".into(),
+        );
+        assert_eq!(n.typ(), NodeType::LeafBlock);
+        assert_eq!(n.kind_name(), "LmdPipe");
     }
 }

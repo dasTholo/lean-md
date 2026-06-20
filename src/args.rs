@@ -8,6 +8,7 @@ pub struct DirectiveArgs {
     positional: Vec<String>,
     named: Vec<(String, String)>,
     raw: String,
+    piped_input: Option<String>,
 }
 
 impl DirectiveArgs {
@@ -24,7 +25,18 @@ impl DirectiveArgs {
             positional,
             named,
             raw: raw.trim().to_string(),
+            piped_input: None,
         }
+    }
+
+    /// Attach an upstream pipe's output as this directive's input (spec §5).
+    pub fn with_piped_input(mut self, s: String) -> Self {
+        self.piped_input = Some(s);
+        self
+    }
+    /// The piped input injected by an `LmdPipe` left side, if any.
+    pub fn piped_input(&self) -> Option<&str> {
+        self.piped_input.as_deref()
     }
 
     pub fn positional(&self, i: usize) -> Option<&str> {
@@ -166,5 +178,12 @@ mod tests {
         let cmd = r#"echo "hello world""#;
         let a = DirectiveArgs::parse(cmd);
         assert_eq!(a.raw(), cmd);
+    }
+
+    #[test]
+    fn piped_input_round_trips() {
+        let a = DirectiveArgs::parse("diff-review").with_piped_input("RAW DIFF".into());
+        assert_eq!(a.piped_input(), Some("RAW DIFF"));
+        assert_eq!(DirectiveArgs::parse("x").piped_input(), None);
     }
 }

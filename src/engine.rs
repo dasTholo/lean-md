@@ -657,16 +657,39 @@ mod tests {
     }
 
     #[test]
+    fn pipe_injects_left_output_into_render() {
+        // @date emits a deterministic-ish string; pipe it into @render list and
+        // assert only the right (bulleted) output is visible, not a raw @date line.
+        let out = render("@date | @render type=list\n");
+        assert!(
+            out.trim_start().starts_with("- "),
+            "right side must format: {out}"
+        );
+        assert!(
+            !out.contains(" | @render"),
+            "pipe syntax must not leak: {out}"
+        );
+    }
+
+    #[test]
+    fn pipe_into_non_accepting_bridge_is_visible_error() {
+        let out = render("@date | @read x.rs\n");
+        assert!(out.contains("does not accept piped input"), "got: {out}");
+    }
+
+    #[test]
     fn if_consumer_gates_render() {
         let out = render("@if consumer == \"human\"\nHUMAN_ONLY\n@else\nAI_PROSE\n@if-end\n");
-        assert!(out.contains("AI_PROSE") && !out.contains("HUMAN_ONLY"), "got: {out}");
+        assert!(
+            out.contains("AI_PROSE") && !out.contains("HUMAN_ONLY"),
+            "got: {out}"
+        );
     }
 
     #[test]
     fn consumer_sugar_gates_render() {
-        let out = render(
-            "@lean-md\nconsumer: human\n\n@consumer human\nHUMAN_BLOCK\n@consumer-end\n",
-        );
+        let out =
+            render("@lean-md\nconsumer: human\n\n@consumer human\nHUMAN_BLOCK\n@consumer-end\n");
         assert!(out.contains("HUMAN_BLOCK"), "got: {out}");
     }
 
@@ -683,7 +706,10 @@ mod tests {
         let out = render(
             "@define note()\nGATED_NOTE\n@define-end\n\n@if consumer == \"ai\"\n@call note() /\n@if-end\n",
         );
-        assert!(out.contains("GATED_NOTE"), "ai branch must expand @call: {out}");
+        assert!(
+            out.contains("GATED_NOTE"),
+            "ai branch must expand @call: {out}"
+        );
     }
 
     #[test]

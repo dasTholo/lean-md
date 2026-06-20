@@ -7,7 +7,7 @@ use rushdown::parser::{AnyBlockParser, BlockParser, State};
 use rushdown::text;
 use rushdown::text::Reader;
 
-use super::super::node::LmdDirective;
+use super::super::node::{LmdDirective, LmdPipe};
 
 /// Pure syntax recognizer: `@<ident> [args]\n` -> (name, args).
 /// `ident` = ascii-alpha start, then `[a-z0-9-]`. Returns None for non-matches
@@ -33,6 +33,23 @@ pub fn parse_directive_line(line: &[u8]) -> Option<(String, String)> {
     Some((name, args))
 }
 
+/// Recognize a single-pipe directive line `@A args | @B args\n` →
+/// (left_name, left_args, right_name, right_args). Requires BOTH sides to be
+/// valid `@`-directives and EXACTLY ONE ` | @` separator (spec §10: no pipe
+/// chains). Returns None otherwise so the line falls back to a plain directive.
+pub fn parse_pipe_line(line: &[u8]) -> Option<(String, String, String, String)> {
+    let s = String::from_utf8_lossy(line);
+    let s = s.trim_end_matches(['\n', '\r']);
+    let parts: Vec<&str> = s.split(" | @").collect();
+    if parts.len() != 2 {
+        return None;
+    }
+    let (lname, largs) = parse_directive_line(parts[0].as_bytes())?;
+    let right = format!("@{}", parts[1]); // re-add the `@` the split consumed
+    let (rname, rargs) = parse_directive_line(right.as_bytes())?;
+    Some((lname, largs, rname, rargs))
+}
+
 #[derive(Debug, Default)]
 pub struct LmdBlockParser {}
 
@@ -55,6 +72,13 @@ impl BlockParser for LmdBlockParser {
         _ctx: &mut parser::Context,
     ) -> Option<(NodeRef, State)> {
         let (line, _seg) = reader.peek_line_bytes()?;
+        if let Some((ln, la, rn, ra)) = parse_pipe_line(line.as_ref()) {
+            reader.advance_to_eol();
+            return Some((
+                arena.new_node(LmdPipe::new(ln, la, rn, ra)),
+                State::NO_CHILDREN,
+            ));
+        }
         let (name, args) = parse_directive_line(line.as_ref())?;
         reader.advance_to_eol();
         Some((
@@ -107,5 +131,18 @@ mod tests {
         assert!(parse_directive_line(b"plain text\n").is_none());
         assert!(parse_directive_line(b"@\n").is_none());
         assert!(parse_directive_line(b"@1bad name\n").is_none());
+    }
+
+    #[test]
+    fn parses_single_pipe() {
+        let (ln, la, rn, ra) = parse_pipe_line(b"@query git diff | @review diff-review\n").unwrap();
+        assert_eq!((ln.as_str(), la.as_str()), ("query", "git diff"));
+        assert_eq!((rn.as_str(), ra.as_str()), ("review", "diff-review"));
+    }
+
+    #[test]
+    fn rejects_pipe_chain_and_plain_line() {
+        assert!(parse_pipe_line(b"@a x | @b y | @c z\n").is_none());
+        assert!(parse_pipe_line(b"@read x.rs\n").is_none());
     }
 }

@@ -20,6 +20,7 @@ pub mod query;
 pub mod read;
 pub mod refactor;
 pub mod reformat;
+pub mod render;
 pub mod repomap;
 pub mod review;
 pub mod routes;
@@ -50,6 +51,11 @@ pub trait DirectiveBridge {
     fn name(&self) -> &'static str;
     fn execute(&self, ctx: &Rc<EngineContext>, args: &DirectiveArgs)
     -> Result<String, BridgeError>;
+    /// Whether this bridge consumes an upstream pipe's output (spec §5).
+    /// Default `false`: piping into it is a visible error.
+    fn accepts_pipe(&self) -> bool {
+        false
+    }
 }
 
 /// Name-keyed registry of directive bridges.
@@ -97,6 +103,7 @@ pub fn default_registry() -> BridgeRegistry {
     reg.register(Box::new(review::ReviewBridge));
     reg.register(Box::new(routes::RoutesBridge));
     reg.register(Box::new(smells::SmellsBridge));
+    reg.register(Box::new(render::RenderBridge));
     reg
 }
 
@@ -137,6 +144,7 @@ mod tests {
             "review",
             "routes",
             "smells",
+            "render",
         ] {
             assert!(reg.get(name).is_some(), "missing bridge: {name}");
         }
