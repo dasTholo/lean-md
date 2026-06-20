@@ -81,7 +81,13 @@ mod tests {
             .execute(&ctx, &DirectiveArgs::parse("frobnicate"))
             .unwrap_err();
         match err {
-            BridgeError::Resolve(m) => assert!(m.contains("unknown @smells action"), "got: {m}"),
+            BridgeError::Resolve(m) => {
+                assert!(m.contains("unknown @smells action"), "got: {m}");
+                assert!(
+                    m.contains("Use: scan|summary|rules|file"),
+                    "missing hint: {m}"
+                );
+            }
             other => panic!("expected Resolve, got: {other:?}"),
         }
     }
