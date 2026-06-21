@@ -110,8 +110,38 @@ fn fire_action(ctx: &Rc<EngineContext>, _scope: &PhaseScope, action: &OnComplete
                 ctx, category, &key, &value, confidence,
             );
         }
+        "post" => fire_agent(ctx, "post", &value, attr(&action.attrs, "category")),
+        "diary" => fire_agent(ctx, "diary", &value, attr(&action.attrs, "category")),
         _ => {} // other sinks land in later tasks
     }
+}
+
+/// Team-bus / diary sink. Degrades to no-op when no agent is registered (§4.4).
+fn fire_agent(ctx: &Rc<EngineContext>, action: &str, message: &str, category: Option<&str>) {
+    let Some(sinks) = ctx.sinks.as_ref() else {
+        return;
+    };
+    let Some(agent_id) = sinks.agent_id.as_deref() else {
+        return;
+    }; // no agent → no-op
+    let root = ctx.jail_root.to_str().unwrap_or(".");
+    let _ = crate::tools::ctx_agent::handle(
+        action,
+        None,
+        None,
+        root,
+        Some(agent_id),
+        Some(message),
+        category,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        None,
+    );
 }
 
 fn session_set_task(ctx: &Rc<EngineContext>, value: &str) {
@@ -550,6 +580,33 @@ mod tests {
             "value must contain the written content; got: {:?}",
             fact.value
         );
+    }
+
+    #[test]
+    fn post_without_agent_degrades_to_noop() {
+        use crate::lmd::engine::{EngineContext, SinkHandles};
+        use crate::lmd::header::LeanMdHeader;
+        use std::rc::Rc;
+
+        // sinks present but no agent_id → post/diary degrade, no panic, no error envelope.
+        let ctx = Rc::new(EngineContext::with_sinks(
+            LeanMdHeader::default(),
+            std::env::temp_dir(),
+            SinkHandles {
+                session_id: "s4".into(),
+                session: None,
+                agent_id: None,
+            },
+        ));
+        let out = crate::lmd::engine::render_body(
+            &ctx,
+            "@phase \"P\"\nwork\n@on complete post=\"hi\" category=status\n@phase-end\n",
+        );
+        assert!(
+            !out.contains("PHASE_ABORTED"),
+            "team sink degradation is not an abort: {out}"
+        );
+        assert!(!out.contains("panic"), "must not panic: {out}");
     }
 
     #[test]
