@@ -22,7 +22,7 @@ impl DirectiveBridge for RenderBridge {
     }
     fn execute(
         &self,
-        _ctx: &Rc<EngineContext>,
+        ctx: &Rc<EngineContext>,
         args: &DirectiveArgs,
     ) -> Result<String, BridgeError> {
         let input = args
@@ -35,9 +35,24 @@ impl DirectiveBridge for RenderBridge {
         match kind {
             "list" => Ok(render_list(input)),
             "table" => Ok(render_table(input)),
-            other => Err(BridgeError::Resolve(format!(
-                "unknown @render type '{other}'. Use: table|list"
-            ))),
+            other => {
+                // Phase 5: before the error, try a registered RenderTransform.
+                // WASM transforms are self-contained (empty-linker sandbox) — no
+                // header gate. `hint` carries the @consumer audience (ai 0/human 1).
+                let hint = ctx.consumer_hint();
+                if let Some(t) = crate::core::extension_registry::global()
+                    .read()
+                    .ok()
+                    .and_then(|r| r.render_transform(other))
+                {
+                    return Ok(t.render(input, hint));
+                }
+                Err(BridgeError::Resolve(format!(
+                    "unknown @render type '{other}'. Use: table|list (or a \
+                     registered render transform; custom types require the \
+                     `wasm` feature)"
+                )))
+            }
         }
     }
 }
@@ -125,5 +140,45 @@ mod tests {
         assert!(out.contains("| name | age |"), "got: {out}");
         assert!(out.contains("| --- | --- |"), "got: {out}");
         assert!(out.contains("| alice | 30 |"), "got: {out}");
+    }
+    #[test]
+    fn unknown_type_degrades_to_clear_message_not_panic() {
+        let args = DirectiveArgs::parse("type=mermaid").with_piped_input("a\nb".into());
+        let err = RenderBridge.execute(&ctx(), &args).unwrap_err();
+        match err {
+            BridgeError::Resolve(m) => {
+                assert!(m.contains("unknown @render type 'mermaid'"), "got: {m}");
+                assert!(
+                    m.contains("registered render transform"),
+                    "must mention the extension path: {m}"
+                );
+            }
+            other => panic!("expected Resolve, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn registered_render_transform_resolves_before_error() {
+        use crate::core::extension_registry::{RenderTransform, global};
+        use std::sync::Arc;
+
+        struct Shout;
+        impl RenderTransform for Shout {
+            fn name(&self) -> &str {
+                "shout_test"
+            }
+            fn render(&self, input: &str, hint: i32) -> String {
+                format!("{}!{hint}", input.trim().to_uppercase())
+            }
+        }
+        global()
+            .write()
+            .unwrap()
+            .register_render_transform(Arc::new(Shout));
+
+        let args = DirectiveArgs::parse("type=shout_test").with_piped_input("hi".into());
+        // Default ctx() => consumer ai => hint 0.
+        let out = RenderBridge.execute(&ctx(), &args).unwrap();
+        assert_eq!(out, "HI!0");
     }
 }

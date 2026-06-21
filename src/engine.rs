@@ -14,7 +14,7 @@ use rushdown::new_markdown_to_html;
 
 use super::bridges::{BridgeError, BridgeRegistry, default_registry};
 use super::fragments::FragmentRegistry;
-use super::header::{LeanMdHeader, parse_header};
+use super::header::{Consumer, LeanMdHeader, parse_header};
 use super::macros::MacroRegistry;
 use super::parser::lmd_parser_extension;
 use super::render::lmd_renderer_extension;
@@ -74,6 +74,13 @@ impl EngineContext {
     }
     pub fn leave(&self) {
         self.depth.set(self.depth.get().saturating_sub(1));
+    }
+    /// Audience hint forwarded to a `RenderTransform`: ai → 0, human → 1.
+    pub fn consumer_hint(&self) -> i32 {
+        match self.header.consumer {
+            Consumer::Ai => 0,
+            Consumer::Human => 1,
+        }
     }
 
     /// Push a `@call` param scope before re-entering `render_body`.
@@ -815,5 +822,19 @@ flag is {{ env.LMD_P4_GOLDEN == \"on\" }}
         // pipe: only the formatted right side.
         assert!(out.contains("- "), "pipe→render list: {out}");
         assert!(!out.contains(" | @render"), "pipe syntax leaked: {out}");
+    }
+    #[test]
+    fn consumer_hint_maps_audience() {
+        use crate::lmd::header::Consumer;
+        let ai = EngineContext::new(LeanMdHeader::default(), PathBuf::from("."));
+        assert_eq!(ai.consumer_hint(), 0, "ai must be 0");
+        let human = EngineContext::new(
+            LeanMdHeader {
+                consumer: Consumer::Human,
+                ..Default::default()
+            },
+            PathBuf::from("."),
+        );
+        assert_eq!(human.consumer_hint(), 1, "human must be 1");
     }
 }
