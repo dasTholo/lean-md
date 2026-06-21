@@ -775,4 +775,46 @@ mod tests {
             "review must see the piped diff: {out}"
         );
     }
+
+    #[test]
+    fn phase4_combined_golden_render() {
+        crate::test_env::set_var("LMD_P4_GOLDEN", "on");
+        let doc = "\
+@lean-md 0.4
+consumer: ai
+
+@define banner(tag)
+## {{ tag }} build
+@define-end
+
+@call banner(release) /
+
+@if consumer == \"ai\"
+agent-facing line
+@else
+human-facing line
+@if-end
+
+flag is {{ env.LMD_P4_GOLDEN == \"on\" }}
+
+@date | @render type=list
+";
+        let out = render(doc);
+        crate::test_env::remove_var("LMD_P4_GOLDEN");
+
+        // define invisible; call expanded with param.
+        assert!(out.contains("release build"), "call/param: {out}");
+        assert!(
+            !out.contains("@define") && !out.contains("{{ tag }}"),
+            "def leaked: {out}"
+        );
+        // consumer gating: ai branch only.
+        assert!(out.contains("agent-facing line"), "if-branch: {out}");
+        assert!(!out.contains("human-facing line"), "wrong branch: {out}");
+        // inline expr.
+        assert!(out.contains("flag is true"), "inline expr: {out}");
+        // pipe: only the formatted right side.
+        assert!(out.contains("- "), "pipe→render list: {out}");
+        assert!(!out.contains(" | @render"), "pipe syntax leaked: {out}");
+    }
 }
