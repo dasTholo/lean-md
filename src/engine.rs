@@ -732,4 +732,47 @@ mod tests {
         let out = render("rules: {{ include hard-rules }}\n");
         assert!(out.contains("lean-ctx"), "got: {out}");
     }
+
+    #[test]
+    fn query_diff_pipe_review_dispatches_e2e() {
+        // Flagship Phase-4 pipe (spec §5): @query git diff | @review diff-review.
+        // Hermetic: a temp git repo with one staged change → `git diff --cached`.
+        let dir = std::env::temp_dir().join("lmd_pipe_review_e2e");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let run = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .unwrap();
+        };
+        run(&["init", "-q"]);
+        run(&["config", "user.email", "t@t.t"]);
+        run(&["config", "user.name", "t"]);
+        std::fs::write(dir.join("f.rs"), "fn a() {}\nfn b() {}\n").unwrap();
+        run(&["add", "f.rs"]);
+
+        crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git");
+        let ctx = Rc::new(EngineContext::new(
+            {
+                let mut h = LeanMdHeader::default();
+                h.shell = crate::lmd::header::ShellMode::Allow;
+                h
+            },
+            dir.clone(),
+        ));
+        let out = render_body(&ctx, "@query git diff --cached | @review diff-review\n");
+        crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
+
+        assert!(
+            !out.contains("unknown directive"),
+            "pipe must dispatch: {out}"
+        );
+        assert!(!out.contains("does not accept piped input"), "got: {out}");
+        assert!(
+            out.contains("f.rs"),
+            "review must see the piped diff: {out}"
+        );
+    }
 }

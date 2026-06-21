@@ -9,7 +9,8 @@
 //!                     parses `+++ b/`/`diff --git a/`).
 //! `depth=` passes through (backend default 3). A multi-line diff cannot ride a
 //! single-line directive arg → standalone diff-review is for the Phase-4 pipe
-//! (`@query git diff | @review diff-review`); in 3.6 it is a faithful pass-through.
+//! (`@query git diff | @review diff-review`); Phase 4 wires the pipe:
+//! `piped_input()` carries the diff; the standalone `diff=` arg remains a fallback.
 
 use std::rc::Rc;
 
@@ -22,6 +23,10 @@ pub struct ReviewBridge;
 impl DirectiveBridge for ReviewBridge {
     fn name(&self) -> &'static str {
         "review"
+    }
+
+    fn accepts_pipe(&self) -> bool {
+        true
     }
 
     fn execute(
@@ -49,7 +54,8 @@ impl DirectiveBridge for ReviewBridge {
         // review/checklist: FS path → jail-resolve when present.
         let path_arg: Option<String> = match action {
             "diff-review" => args
-                .get("diff")
+                .piped_input()
+                .or_else(|| args.get("diff"))
                 .or_else(|| args.positional(1))
                 .map(str::to_string),
             _ => match args.get("path") {
@@ -156,6 +162,32 @@ mod tests {
             "diff-review verdict ({} tok) must be denser than the raw diff ({} tok)",
             count_tokens(&out),
             count_tokens(raw_diff)
+        );
+    }
+
+    #[test]
+    fn review_accepts_pipe() {
+        assert!(
+            ReviewBridge.accepts_pipe(),
+            "@review must accept piped diff"
+        );
+    }
+
+    #[test]
+    fn diff_review_reads_piped_input() {
+        // The pipe supplies the diff text; no `diff=` arg present.
+        let ctx = ctx_at(std::env::temp_dir().join("lmd_review_pipe"));
+        let mut diff = String::from("diff --git a/src/p.rs b/src/p.rs\n");
+        diff.push_str("--- a/src/p.rs\n+++ b/src/p.rs\n@@ -1,1 +1,3 @@\n");
+        for i in 0..6 {
+            diff.push_str(&format!("+fn piped_added_{i}() {{}}\n"));
+        }
+        let args = DirectiveArgs::parse("diff-review").with_piped_input(diff);
+        let out = ReviewBridge.execute(&ctx, &args).unwrap();
+        assert!(!out.trim().is_empty(), "empty piped diff-review output");
+        assert!(
+            out.contains("p.rs"),
+            "must surface the changed file, got: {out}"
         );
     }
 }
