@@ -181,10 +181,65 @@ fn finalize_phase(ctx: &Rc<EngineContext>, out: &mut String, scope: PhaseScope) 
         out.push_str(&err.envelope());
         out.push('\n');
         session_decision(ctx, &err.decision_summary());
+        report_phase_gotcha(ctx, err); // third abort sink (spec §3.5, D-10)
         return; // skip accumulated @on complete (spec §3.2 step 2)
     }
     // clean close: fire accumulated @on complete (Task 7)
     let _ = (ctx, scope);
+}
+
+/// Third abort sink (spec §3.5, D-10): feed the PhaseError into the bug-memory
+/// store. Load-by-root, gated by sinks. `report_gotcha` sets source=AgentReported
+/// (0.9) — justified: the engine is an authoritative reporter, not a heuristic.
+fn report_phase_gotcha(ctx: &Rc<EngineContext>, err: &PhaseError) {
+    let Some(sinks) = ctx.sinks.as_ref() else {
+        return;
+    };
+    let root = ctx.jail_root.to_str().unwrap_or(".");
+    let mut store = crate::core::gotcha_tracker::GotchaStore::load(root);
+    let trigger = normalize_trigger(err);
+    let resolution = format!(
+        "resolve @{} failure in phase {}: {}",
+        err.directive, err.phase, err.cause
+    );
+    store.report_gotcha(
+        &trigger,
+        &resolution,
+        map_cause_category(&err.cause),
+        "warning",
+        &sinks.session_id,
+    );
+    let _ = store.save(root);
+}
+
+/// Merge-stable, greppable trigger: paths stripped, cause reduced to its head.
+fn normalize_trigger(err: &PhaseError) -> String {
+    let head = err
+        .cause
+        .split([':', '('])
+        .next()
+        .unwrap_or(&err.cause)
+        .trim();
+    format!(
+        "@phase \"{}\" aborted at @{}: {}",
+        err.phase, err.directive, head
+    )
+}
+
+/// Deterministic cause → GotchaCategory loose-name mapping (spec §3.5).
+fn map_cause_category(cause: &str) -> &'static str {
+    if cause.contains("error[E") || cause.contains("mismatched") {
+        "build"
+    } else if cause.starts_with("Io")
+        || cause.starts_with("MissingArg")
+        || cause.starts_with("Resolve")
+        || cause.contains("FILE_NOT_FOUND")
+        || cause.contains("BACKEND_REQUIRED")
+    {
+        "config"
+    } else {
+        "other"
+    }
 }
 
 /// `@phase "Parser"` / `@phase Parser` → `Parser` (quotes optional, trimmed).
@@ -283,5 +338,56 @@ mod tests {
             !out.contains("PHASE_ABORTED"),
             "clean phase must not abort: {out}"
         );
+    }
+
+    #[test]
+    fn abort_reports_gotcha_with_normalized_trigger() {
+        use crate::lmd::engine::{EngineContext, SinkHandles};
+        use crate::lmd::header::LeanMdHeader;
+        use std::rc::Rc;
+
+        let root = std::env::temp_dir().join("lmd_phase_gotcha");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let sinks = SinkHandles {
+            session_id: "s-gotcha".to_string(),
+            session: None,
+            agent_id: None,
+        };
+        let ctx = Rc::new(EngineContext::with_sinks(
+            LeanMdHeader::default(),
+            root.clone(),
+            sinks,
+        ));
+        let out = crate::lmd::engine::render_body(
+            &ctx,
+            "@phase \"Parser\"\n@read /no/such/file_abc.rs\n@phase-end\n",
+        );
+        assert!(
+            out.contains("PHASE_ABORTED"),
+            "envelope still emitted: {out}"
+        );
+
+        // The gotcha was persisted load-by-root and merges on repeat.
+        let store = crate::core::gotcha_tracker::GotchaStore::load(root.to_str().unwrap());
+        let listing = store.format_list();
+        assert!(
+            listing.contains("Parser"),
+            "gotcha trigger must name the phase: {listing}"
+        );
+        assert!(
+            !listing.contains("/no/such/"),
+            "paths must be stripped from trigger: {listing}"
+        );
+    }
+
+    #[test]
+    fn cause_category_mapping_is_deterministic() {
+        use super::map_cause_category;
+        assert_eq!(map_cause_category("Io(\"no file\")"), "config");
+        assert_eq!(map_cause_category("MissingArg(\"path\")"), "config");
+        assert_eq!(map_cause_category("error[E0433] mismatched"), "build");
+        assert_eq!(map_cause_category("something else"), "other");
     }
 }
