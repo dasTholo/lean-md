@@ -49,7 +49,9 @@ pub(crate) struct OnComplete {
 pub(crate) struct PhaseScope {
     pub name: String,
     pub actions: Vec<OnComplete>,
-    pub outputs: Vec<(String, String)>, // (directive name, output) for capture=auto
+    /// `(directive name, raw args string, output)` — args preserved so
+    /// `capture=auto` can reconstruct the search pattern for `auto_findings`.
+    pub outputs: Vec<(String, String, String)>,
     pub aborted: Option<PhaseError>,
 }
 
@@ -68,7 +70,26 @@ impl PhaseScope {
 /// [`crate::lmd::args::DirectiveArgs`] for quote-aware tokenization. The first
 /// named pair's key is the sink; its value is the payload; remaining pairs are
 /// attrs (e.g. `category=`, `key=`, `confidence=`).
+///
+/// Valueless sinks (`capture=auto`, `checkpoint`) are detected first — they
+/// carry their payload inline as `key=value` tokens rather than quoted strings,
+/// so the generic pair-parser would split them incorrectly.
 fn parse_on_complete(rest: &str) -> Option<OnComplete> {
+    let head = rest.split_whitespace().next().unwrap_or("");
+    if head == "capture=auto" {
+        return Some(OnComplete {
+            sink: "capture".into(),
+            value: "auto".into(),
+            attrs: vec![],
+        });
+    }
+    if head == "checkpoint" {
+        return Some(OnComplete {
+            sink: "checkpoint".into(),
+            value: String::new(),
+            attrs: vec![],
+        });
+    }
     let args = crate::lmd::args::DirectiveArgs::parse(rest);
     let pairs = args.named_pairs();
     let (sink, value) = pairs.first()?.clone();
@@ -87,7 +108,7 @@ fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
 /// Fire one accumulated action against the appropriate sink. Session sinks
 /// (task/finding/decision) handled here; knowledge sink (Task 8) wired.
 /// Team (Task 9), capture/checkpoint (Task 10) extend this match in later tasks.
-fn fire_action(ctx: &Rc<EngineContext>, _scope: &PhaseScope, action: &OnComplete) {
+fn fire_action(ctx: &Rc<EngineContext>, scope: &PhaseScope, action: &OnComplete) {
     let value = if action.value.contains("{{") {
         crate::lmd::macros::eval_string(ctx, &action.value)
     } else {
@@ -112,6 +133,44 @@ fn fire_action(ctx: &Rc<EngineContext>, _scope: &PhaseScope, action: &OnComplete
         }
         "post" => fire_agent(ctx, "post", &value, attr(&action.attrs, "category")),
         "diary" => fire_agent(ctx, "diary", &value, attr(&action.attrs, "category")),
+        "capture" => {
+            // value == "auto": scan body tool outputs → session findings.
+            // Determinism #498: no output written to the render body.
+            let Some(sinks) = ctx.sinks.as_ref() else {
+                return;
+            };
+            let Some(session) = sinks.session.as_ref() else {
+                return;
+            };
+            for (name, args, output) in &scope.outputs {
+                let tool = format!("ctx_{name}");
+                // ctx_search output has no `pattern:` header (the tool omits it in its text
+                // output); inject a synthetic header from the directive's raw args string so
+                // `extract_ctx_search` can identify the pattern and skip the low-signal guard.
+                let annotated;
+                let effective = if name == "search" {
+                    let pattern = args.split_whitespace().next().unwrap_or(name.as_str());
+                    annotated = format!("pattern: \"{pattern}\"\n{output}");
+                    &annotated
+                } else {
+                    output
+                };
+                if let Some(f) = crate::core::auto_findings::extract(&tool, effective) {
+                    session.blocking_write().add_finding(None, None, &f.summary);
+                }
+            }
+        }
+        "checkpoint" => {
+            // Compress over the session cache as a side-effect/log (#498: output discarded).
+            if ctx.sinks.is_none() {
+                return;
+            }
+            let _ = crate::tools::ctx_compress::handle(
+                &ctx.cache.borrow(),
+                false,
+                crate::core::protocol::CrpMode::Off,
+            );
+        }
         _ => {} // other sinks land in later tasks
     }
 }
@@ -248,7 +307,7 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
             {
                 match crate::lmd::render::dispatch_result(ctx, &name, &args) {
                     Ok(rendered) => {
-                        sc.outputs.push((name, rendered.clone()));
+                        sc.outputs.push((name, args.clone(), rendered.clone()));
                         out.push_str(&rendered);
                         out.push('\n');
                     }
@@ -635,6 +694,46 @@ mod tests {
         assert!(
             session.blocking_read().task.is_none(),
             "aborted phase must NOT fire its @on complete task"
+        );
+    }
+
+    #[test]
+    fn capture_auto_emits_findings_from_body_outputs() {
+        use crate::core::session::SessionState;
+        use crate::lmd::engine::{EngineContext, SinkHandles};
+        use crate::lmd::header::LeanMdHeader;
+        use std::rc::Rc;
+        use std::sync::Arc;
+        use tokio::sync::RwLock;
+
+        // A @search in the body produces output that auto_findings::extract turns
+        // into a finding; capture=auto routes it to the session.
+        let dir = std::env::temp_dir().join("lmd_capture_auto");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("hit.rs"), "fn capture_marker_77() {}\n").unwrap();
+
+        let session = Arc::new(RwLock::new(SessionState::new()));
+        let ctx = Rc::new(EngineContext::with_sinks(
+            LeanMdHeader::default(),
+            dir.clone(),
+            SinkHandles {
+                session_id: "s5".into(),
+                session: Some(session.clone()),
+                agent_id: None,
+            },
+        ));
+        let pat = "capture_marker_77";
+        let _ = crate::lmd::engine::render_body(
+            &ctx,
+            &format!(
+                "@phase \"Scan\"\n@search {pat} {}\n@on complete capture=auto\n@phase-end\n",
+                dir.to_str().unwrap()
+            ),
+        );
+        assert!(
+            !session.blocking_read().findings.is_empty(),
+            "capture=auto must turn body tool output into session findings"
         );
     }
 }
