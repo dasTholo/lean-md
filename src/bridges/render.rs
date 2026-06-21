@@ -163,6 +163,7 @@ mod tests {
         use std::sync::Arc;
 
         struct Shout;
+        #[allow(clippy::unnecessary_literal_bound)]
         impl RenderTransform for Shout {
             fn name(&self) -> &str {
                 "shout_test"
