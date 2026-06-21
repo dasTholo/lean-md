@@ -237,34 +237,56 @@ pub(crate) fn session_decision(ctx: &Rc<EngineContext>, summary: &str) {
 
 /// Pass 4: execute phase blocks. Phase-free body → fast pass-through.
 pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
-    if !body.lines().any(|l| {
+    // Fast path: no `@phase` or `@on complete` in this body → plain render.
+    // Even when an outer phase is open on ctx.phase_scope (nested `@call`
+    // expansion), a body with no phase directives contributes nothing to the
+    // outer scope — skip the line scanner entirely.
+    let has_phase_directives = body.lines().any(|l| {
         let t = l.trim_start();
         t.starts_with("@phase") || is_on_complete(t)
-    }) {
-        return render_markdown(ctx, body); // fast path, no phases or @on directives
+    });
+    if !has_phase_directives {
+        return render_markdown(ctx, body); // fast path, nothing to do
     }
+
+    // Nested call (e.g. from @call body): outer phase is open on the stack.
+    // This body may contain `@on complete` lines that belong to the outer
+    // phase — the line scanner collects them without opening a new scope.
+    let outer_phase_open = !ctx.phase_scope.borrow().is_empty();
+    let nested_passthrough = outer_phase_open;
 
     let mut out = String::new();
     let mut buf = String::new(); // accumulating non-phase segment
-    let mut scope: Option<PhaseScope> = None;
+    // Track whether THIS call opened a scope entry (so we know to pop on our
+    // @phase-end, not a stray one from an outer caller).
+    let mut opened_here = false;
 
     for (idx, line) in body.lines().enumerate() {
         let src_line = idx + 1; // 1-based; @phase line = 1, first body line = 2
         let trimmed = line.trim_start();
 
-        // @phase-end (close)
+        // @phase-end (close) — only meaningful when we opened a scope here.
         if trimmed.starts_with("@phase-end") {
-            match scope.take() {
-                Some(sc) => finalize_phase(ctx, &mut out, &sc),
-                None => out.push_str("<!-- lmd: stray @phase-end -->\n"),
+            if opened_here {
+                let sc = ctx.phase_scope.borrow_mut().pop();
+                match sc {
+                    Some(sc) => finalize_phase(ctx, &mut out, &sc),
+                    None => out.push_str("<!-- lmd: stray @phase-end -->\n"),
+                }
+                opened_here = false;
+            } else if !nested_passthrough {
+                out.push_str("<!-- lmd: stray @phase-end -->\n");
             }
+            // In nested_passthrough mode, @phase-end belongs to the outer
+            // caller — don't consume it here; but since we're line-scanning
+            // the already-expanded body, it won't appear here anyway.
             continue;
         }
 
         // @phase "name" (open)
         if let Some(rest) = trimmed.strip_prefix("@phase") {
             // (rest may start with a space; `@phase-end` already handled above)
-            if scope.is_some() {
+            if opened_here || outer_phase_open {
                 out.push_str("<!-- lmd: nested @phase -->\n");
                 continue;
             }
@@ -275,31 +297,47 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
             }
             let name = parse_phase_name(rest);
             session_decision(ctx, &format!("Phase: {name}"));
-            scope = Some(PhaseScope::new(name));
+            ctx.phase_scope.borrow_mut().push(PhaseScope::new(name));
+            opened_here = true;
             continue;
         }
 
         // @on complete (only valid inside an open phase — D-8).
         if is_on_complete(trimmed) {
-            match scope.as_mut() {
-                None => out.push_str("<!-- lmd: @on complete outside @phase -->\n"),
-                Some(sc) if sc.aborted.is_none() => {
+            let has_open = !ctx.phase_scope.borrow().is_empty();
+            if has_open {
+                let aborted = ctx
+                    .phase_scope
+                    .borrow()
+                    .last()
+                    .is_some_and(|sc| sc.aborted.is_some());
+                if !aborted {
                     let rest = trimmed.strip_prefix("@on").unwrap().trim_start();
                     let rest = rest.strip_prefix("complete").unwrap_or(rest).trim();
                     if let Some(action) = parse_on_complete(rest) {
-                        sc.actions.push(action);
+                        if let Some(sc) = ctx.phase_scope.borrow_mut().last_mut() {
+                            sc.actions.push(action);
+                        }
                     } else {
                         out.push_str("<!-- lmd: malformed @on complete -->\n");
                     }
                 }
-                Some(_) => {} // aborted: ignore further @on complete
+                // aborted: ignore further @on complete
+            } else {
+                out.push_str("<!-- lmd: @on complete outside @phase -->\n");
             }
             continue;
         }
 
         // ordinary line: phase body or non-phase region
-        if let Some(sc) = scope.as_mut() {
-            if sc.aborted.is_some() {
+        let in_phase = !ctx.phase_scope.borrow().is_empty();
+        if in_phase {
+            let aborted = ctx
+                .phase_scope
+                .borrow()
+                .last()
+                .is_some_and(|sc| sc.aborted.is_some());
+            if aborted {
                 continue; // skip remaining body after abort
             }
             if let Some((name, args)) =
@@ -307,17 +345,26 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
             {
                 match crate::lmd::render::dispatch_result(ctx, &name, &args) {
                     Ok(rendered) => {
-                        sc.outputs.push((name, args.clone(), rendered.clone()));
+                        if let Some(sc) = ctx.phase_scope.borrow_mut().last_mut() {
+                            sc.outputs.push((name, args.clone(), rendered.clone()));
+                        }
                         out.push_str(&rendered);
                         out.push('\n');
                     }
                     Err(e) => {
-                        sc.aborted = Some(PhaseError {
-                            phase: sc.name.clone(),
-                            directive: name,
-                            line: src_line,
-                            cause: format!("{e:?}"),
-                        });
+                        let phase_name = ctx
+                            .phase_scope
+                            .borrow()
+                            .last()
+                            .map_or_else(String::new, |sc| sc.name.clone());
+                        if let Some(sc) = ctx.phase_scope.borrow_mut().last_mut() {
+                            sc.aborted = Some(PhaseError {
+                                phase: phase_name,
+                                directive: name,
+                                line: src_line,
+                                cause: format!("{e:?}"),
+                            });
+                        }
                     }
                 }
             } else {
@@ -331,7 +378,9 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
     }
 
     // trailing flushes
-    if let Some(sc) = scope.take() {
+    if opened_here {
+        // Phase was opened here but not closed — unterminated.
+        let sc = ctx.phase_scope.borrow_mut().pop();
         out.push_str("<!-- lmd: unterminated @phase -->\n");
         let _ = sc;
     }
@@ -735,5 +784,54 @@ mod tests {
             !session.blocking_read().findings.is_empty(),
             "capture=auto must turn body tool output into session findings"
         );
+    }
+
+    #[test]
+    fn on_complete_substitutes_call_params() {
+        use crate::core::session::SessionState;
+        use crate::lmd::engine::{EngineContext, SinkHandles};
+        use crate::lmd::header::LeanMdHeader;
+        use std::rc::Rc;
+        use std::sync::Arc;
+        use tokio::sync::RwLock;
+
+        let session = Arc::new(RwLock::new(SessionState::new()));
+        let ctx = Rc::new(EngineContext::with_sinks(
+            LeanMdHeader::default(),
+            std::env::temp_dir(),
+            SinkHandles {
+                session_id: "s6".into(),
+                session: Some(session.clone()),
+                agent_id: None,
+            },
+        ));
+        // A macro that closes a phase with parameterized task progress.
+        let doc = "@define close(pct, note)\n\
+                   @on complete task=\"{{ note }} [{{ pct }}%]\"\n\
+                   @define-end\n\n\
+                   @phase \"Parser\"\n\
+                   work\n\
+                   @call close(100, parser fertig) /\n\
+                   @phase-end\n";
+        let _ = crate::lmd::engine::render_body(&ctx, doc);
+        let st = session.blocking_read();
+        assert_eq!(
+            st.task.as_ref().unwrap().description,
+            "parser fertig [100%]",
+            "@on complete inside @call must substitute params (D-5 composition)"
+        );
+    }
+
+    #[test]
+    fn phase_aborted_envelope_is_byte_stable() {
+        use crate::lmd::engine::render;
+        let doc = "@phase \"X\"\n@read /no/such/qq.rs\n@phase-end\n";
+        let a = render(doc);
+        let b = render(doc);
+        assert_eq!(
+            a, b,
+            "render output must be a deterministic function of input (#498)"
+        );
+        assert!(a.contains("PHASE_ABORTED \"X\" at @read"));
     }
 }

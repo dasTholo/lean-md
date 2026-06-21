@@ -22,6 +22,7 @@ use super::fragments::FragmentRegistry;
 use super::header::{Consumer, LeanMdHeader, parse_header};
 use super::macros::MacroRegistry;
 use super::parser::lmd_parser_extension;
+use super::phases::PhaseScope;
 use super::render::lmd_renderer_extension;
 
 /// Optional handles into the process-global memory stores (spec §7). Present
@@ -63,6 +64,12 @@ pub struct EngineContext {
     /// Stack of bound `@call` param scopes (top = current macro expansion).
     /// `@if` conditions read the top scope as evalexpr variables (spec §4).
     pub param_scope: RefCell<Vec<HashMap<String, String>>>,
+    /// Open phase scope stack — shared across re-entrant `render_with_phases`
+    /// calls (e.g. `@call` bodies). v1 phases are flat so at most one entry is
+    /// active; the stack shape lets nested re-entry see the outer open phase.
+    /// Spec §3.4: "renderer knows a current phase scope" — EngineContext is the
+    /// correct home (not a local in render_with_phases, which Task 4 did first).
+    pub(crate) phase_scope: RefCell<Vec<PhaseScope>>,
     /// `@import` dedupe: a library file is loaded at most once per render.
     imported: RefCell<HashSet<PathBuf>>,
     /// Memory-store sink handles (spec §7). `None` ⇒ no-op degradation.
@@ -83,6 +90,7 @@ impl EngineContext {
             call_graph: RefCell::new(None),
             macros: RefCell::new(MacroRegistry::new()),
             param_scope: RefCell::new(Vec::new()),
+            phase_scope: RefCell::new(Vec::new()),
             imported: RefCell::new(HashSet::new()),
             sinks: None,
         }
