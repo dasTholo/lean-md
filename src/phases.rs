@@ -536,6 +536,20 @@ mod tests {
             !hits.is_empty(),
             "remember sink must persist a knowledge fact"
         );
+        // Verify attrs were persisted correctly (guards against attr-lookup bugs).
+        let fact = hits
+            .iter()
+            .find(|f| f.key == "parser_uses_pratt")
+            .expect("fact key must be slug of content: 'parser_uses_pratt'");
+        assert_eq!(
+            fact.category, "decision",
+            "category attr must be 'decision'"
+        );
+        assert!(
+            fact.value.contains("parser uses pratt"),
+            "value must contain the written content; got: {:?}",
+            fact.value
+        );
     }
 
     #[test]
