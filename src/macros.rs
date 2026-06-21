@@ -332,8 +332,8 @@ pub fn prune_containers(ctx: &Rc<EngineContext>, input: &str) -> String {
         }
 
         for (cond, body) in &branches {
-            match cond {
-                Some(expr) => match eval_condition(ctx, expr) {
+            if let Some(expr) = cond {
+                match eval_condition(ctx, expr) {
                     Ok(true) => {
                         out.push_str(body);
                         break;
@@ -343,11 +343,10 @@ pub fn prune_containers(ctx: &Rc<EngineContext>, input: &str) -> String {
                         out.push_str(&format!("<!-- lmd:@if eval err: {e} -->\n"));
                         break; // container handled (skipped)
                     }
-                },
-                None => {
-                    out.push_str(body); // @else — no prior cond matched
-                    break;
                 }
+            } else {
+                out.push_str(body); // @else — no prior cond matched
+                break;
             }
         }
         // No-match-no-else → nothing emitted, by design.
@@ -496,9 +495,10 @@ mod tests {
 
     #[test]
     fn prune_keeps_matching_if_branch() {
-        let mut h = LeanMdHeader::default();
-        h.consumer = Consumer::Human;
-        let ctx = ctx_with(h);
+        let ctx = ctx_with(LeanMdHeader {
+            consumer: Consumer::Human,
+            ..Default::default()
+        });
         let input = "@if consumer == \"human\"\nHUMAN_TEXT\n@elseif consumer == \"ai\"\nAI_TEXT\n@else\nOTHER\n@if-end\n";
         let out = prune_containers(&ctx, input);
         assert!(out.contains("HUMAN_TEXT"), "got: {out}");
@@ -530,9 +530,10 @@ mod tests {
 
     #[test]
     fn consumer_sugar_equals_if_consumer() {
-        let mut h = LeanMdHeader::default();
-        h.consumer = Consumer::Human;
-        let ctx = ctx_with(h);
+        let ctx = ctx_with(LeanMdHeader {
+            consumer: Consumer::Human,
+            ..Default::default()
+        });
         let out = prune_containers(&ctx, "@consumer human\nONLY_HUMAN\n@consumer-end\n");
         assert!(out.contains("ONLY_HUMAN"), "got: {out}");
         let ctx_ai = ctx_with(LeanMdHeader::default());
@@ -571,9 +572,10 @@ mod tests {
 
     #[test]
     fn eval_string_renders_bool_and_var() {
-        let mut h = LeanMdHeader::default();
-        h.version = Some("0.4".to_string());
-        let ctx = ctx_with(h);
+        let ctx = ctx_with(LeanMdHeader {
+            version: Some("0.4".to_string()),
+            ..Default::default()
+        });
         assert_eq!(eval_string(&ctx, "version"), "0.4");
         assert_eq!(eval_string(&ctx, r#"consumer == "ai""#), "true");
     }

@@ -59,10 +59,10 @@ fn dispatch(ctx: &Rc<EngineContext>, name: &str, raw_args: &str) -> String {
 /// `{{ name args }}` text is reconstructed so multi-token exprs
 /// (`{{ env.CI == "true" }}`) evaluate as one expression.
 fn resolve_value(ctx: &Rc<EngineContext>, name: &str, raw_args: &str) -> String {
-    if raw_args.is_empty() {
-        if let Some(v) = ctx.param(name) {
-            return v;
-        }
+    if raw_args.is_empty()
+        && let Some(v) = ctx.param(name)
+    {
+        return v;
     }
     let expr = if raw_args.is_empty() {
         name.to_string()

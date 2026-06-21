@@ -755,10 +755,9 @@ mod tests {
 
         crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git");
         let ctx = Rc::new(EngineContext::new(
-            {
-                let mut h = LeanMdHeader::default();
-                h.shell = crate::lmd::header::ShellMode::Allow;
-                h
+            LeanMdHeader {
+                shell: crate::lmd::header::ShellMode::Allow,
+                ..Default::default()
             },
             dir.clone(),
         ));
