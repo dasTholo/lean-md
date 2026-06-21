@@ -297,7 +297,11 @@ pub fn prune_containers(ctx: &Rc<EngineContext>, input: &str) -> String {
         };
 
         let is_consumer = trimmed.starts_with("@consumer");
-        let end_marker = if is_consumer { "@consumer-end" } else { "@if-end" };
+        let end_marker = if is_consumer {
+            "@consumer-end"
+        } else {
+            "@if-end"
+        };
 
         // Collect branches: (Option<cond_expr>, body). `@else` → None cond.
         let mut branches: Vec<(Option<String>, String)> = vec![(Some(first_cond), String::new())];
@@ -479,7 +483,7 @@ mod tests {
             dir.join("lib.lmd.md"),
             "@define libmac()\nFROM_LIB\n@define-end\n",
         )
-            .unwrap();
+        .unwrap();
         let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
         let stripped = extract_definitions(&ctx, "@import lib /\nbody\n");
         assert!(stripped.contains("body"));
@@ -498,8 +502,14 @@ mod tests {
         let input = "@if consumer == \"human\"\nHUMAN_TEXT\n@elseif consumer == \"ai\"\nAI_TEXT\n@else\nOTHER\n@if-end\n";
         let out = prune_containers(&ctx, input);
         assert!(out.contains("HUMAN_TEXT"), "got: {out}");
-        assert!(!out.contains("AI_TEXT") && !out.contains("OTHER"), "got: {out}");
-        assert!(!out.contains("@if"), "container markers must be stripped: {out}");
+        assert!(
+            !out.contains("AI_TEXT") && !out.contains("OTHER"),
+            "got: {out}"
+        );
+        assert!(
+            !out.contains("@if"),
+            "container markers must be stripped: {out}"
+        );
     }
 
     #[test]
@@ -527,7 +537,10 @@ mod tests {
         assert!(out.contains("ONLY_HUMAN"), "got: {out}");
         let ctx_ai = ctx_with(LeanMdHeader::default());
         let out_ai = prune_containers(&ctx_ai, "@consumer human\nONLY_HUMAN\n@consumer-end\n");
-        assert!(!out_ai.contains("ONLY_HUMAN"), "ai must drop human block: {out_ai}");
+        assert!(
+            !out_ai.contains("ONLY_HUMAN"),
+            "ai must drop human block: {out_ai}"
+        );
     }
 
     #[test]
@@ -535,9 +548,18 @@ mod tests {
         let ctx = ctx_with(LeanMdHeader::default());
         let input = "@if undefined_bareword\nX\n@if-end\nAFTER\n";
         let out = prune_containers(&ctx, input);
-        assert!(out.contains("AFTER"), "render must continue past a bad @if: {out}");
-        assert!(out.contains("@if eval err"), "must surface the eval error: {out}");
-        assert!(!out.contains("\nX\n"), "errored container body must not render: {out}");
+        assert!(
+            out.contains("AFTER"),
+            "render must continue past a bad @if: {out}"
+        );
+        assert!(
+            out.contains("@if eval err"),
+            "must surface the eval error: {out}"
+        );
+        assert!(
+            !out.contains("\nX\n"),
+            "errored container body must not render: {out}"
+        );
     }
 
     #[test]
