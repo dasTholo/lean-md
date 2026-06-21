@@ -29,8 +29,7 @@ impl DirectiveBridge for RememberBridge {
         let category = args.get("category").unwrap_or("decision");
         let key = args
             .get("key")
-            .map(str::to_string)
-            .unwrap_or_else(|| slug(content));
+            .map_or_else(|| slug(content), str::to_string);
         let confidence = args
             .get("confidence")
             .and_then(|s| s.parse::<f32>().ok())

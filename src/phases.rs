@@ -71,9 +71,9 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
     let mut out = String::new();
     let mut buf = String::new(); // accumulating non-phase segment
     let mut scope: Option<PhaseScope> = None;
-    let mut lines = body.lines();
+    let lines = body.lines();
 
-    while let Some(line) = lines.next() {
+    for line in lines {
         let trimmed = line.trim_start();
 
         // @phase-end (close)
@@ -113,19 +113,16 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
         }
 
         // ordinary line: phase body or non-phase region
-        match scope.as_mut() {
-            Some(sc) => {
-                // Task 4: render the phase body as plain markdown (per-directive
-                // dispatch + abort arrives in Task 5). Accumulate into the scope's
-                // body buffer reusing `outputs` is premature; render inline.
-                sc.outputs.push((String::new(), String::new())); // placeholder removed in Task 5
-                out.push_str(&render_markdown(ctx, line));
-                out.push('\n');
-            }
-            None => {
-                buf.push_str(line);
-                buf.push('\n');
-            }
+        if let Some(sc) = scope.as_mut() {
+            // Task 4: render the phase body as plain markdown (per-directive
+            // dispatch + abort arrives in Task 5). Accumulate into the scope's
+            // body buffer reusing `outputs` is premature; render inline.
+            sc.outputs.push((String::new(), String::new())); // placeholder removed in Task 5
+            out.push_str(&render_markdown(ctx, line));
+            out.push('\n');
+        } else {
+            buf.push_str(line);
+            buf.push('\n');
         }
     }
 
