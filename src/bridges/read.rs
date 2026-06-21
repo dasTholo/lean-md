@@ -28,12 +28,17 @@ impl DirectiveBridge for ReadBridge {
         // Cold cache => always-full reads, never the ~13-tok re-read / auto-delta.
         // Re-reads stay cheap WITHOUT fresh/raw (spec §4.2a Read→Delta guarantee).
         let mut cache = ctx.cache.borrow_mut();
-        Ok(crate::tools::ctx_read::handle(
+        let out = crate::tools::ctx_read::handle_with_task_resolved(
             &mut cache,
             path,
             mode,
             crate::tools::CrpMode::Off,
-        ))
+            None,
+        );
+        if out.resolved_mode == "error" {
+            return Err(BridgeError::Io(out.content));
+        }
+        Ok(out.content)
     }
 }
 

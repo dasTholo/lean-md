@@ -20,6 +20,23 @@ pub struct PhaseError {
     pub cause: String,
 }
 
+impl PhaseError {
+    /// Byte-stable render envelope (spec §3.3, #498 — no timestamp/counter).
+    pub fn envelope(&self) -> String {
+        format!(
+            "PHASE_ABORTED \"{}\" at @{} (line {}): {}",
+            self.phase, self.directive, self.line, self.cause
+        )
+    }
+    /// Session-decision narrative derived from the same source.
+    pub fn decision_summary(&self) -> String {
+        format!(
+            "Phase aborted: {} — @{} (line {}) failed: {}",
+            self.phase, self.directive, self.line, self.cause
+        )
+    }
+}
+
 /// One accumulated `@on complete` action (populated in Task 7).
 #[derive(Debug, Clone)]
 pub(crate) struct OnComplete {
@@ -71,9 +88,9 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
     let mut out = String::new();
     let mut buf = String::new(); // accumulating non-phase segment
     let mut scope: Option<PhaseScope> = None;
-    let lines = body.lines();
 
-    for line in lines {
+    for (idx, line) in body.lines().enumerate() {
+        let src_line = idx + 1; // 1-based; @phase line = 1, first body line = 2
         let trimmed = line.trim_start();
 
         // @phase-end (close)
@@ -114,12 +131,31 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
 
         // ordinary line: phase body or non-phase region
         if let Some(sc) = scope.as_mut() {
-            // Task 4: render the phase body as plain markdown (per-directive
-            // dispatch + abort arrives in Task 5). Accumulate into the scope's
-            // body buffer reusing `outputs` is premature; render inline.
-            sc.outputs.push((String::new(), String::new())); // placeholder removed in Task 5
-            out.push_str(&render_markdown(ctx, line));
-            out.push('\n');
+            if sc.aborted.is_some() {
+                continue; // skip remaining body after abort
+            }
+            if let Some((name, args)) =
+                crate::lmd::parser::block::parse_directive_line(line.as_bytes())
+            {
+                match crate::lmd::render::dispatch_result(ctx, &name, &args) {
+                    Ok(rendered) => {
+                        sc.outputs.push((name, rendered.clone()));
+                        out.push_str(&rendered);
+                        out.push('\n');
+                    }
+                    Err(e) => {
+                        sc.aborted = Some(PhaseError {
+                            phase: sc.name.clone(),
+                            directive: name,
+                            line: src_line,
+                            cause: format!("{e:?}"),
+                        });
+                    }
+                }
+            } else {
+                out.push_str(&render_markdown(ctx, line));
+                out.push('\n');
+            }
         } else {
             buf.push_str(line);
             buf.push('\n');
@@ -137,9 +173,19 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
     out
 }
 
-/// Clean phase close. Task 4: no accumulated sinks yet (fires in Task 7);
-/// aborted phases are handled in Task 5.
-fn finalize_phase(_ctx: &Rc<EngineContext>, _out: &mut String, _scope: PhaseScope) {}
+/// Close a phase: if aborted emit the `PHASE_ABORTED` envelope + session
+/// decision and skip accumulated `@on complete` (spec §3.2 step 2).
+/// Clean close fires accumulated `@on complete` (Task 7).
+fn finalize_phase(ctx: &Rc<EngineContext>, out: &mut String, scope: PhaseScope) {
+    if let Some(err) = scope.aborted.as_ref() {
+        out.push_str(&err.envelope());
+        out.push('\n');
+        session_decision(ctx, &err.decision_summary());
+        return; // skip accumulated @on complete (spec §3.2 step 2)
+    }
+    // clean close: fire accumulated @on complete (Task 7)
+    let _ = (ctx, scope);
+}
 
 /// `@phase "Parser"` / `@phase Parser` → `Parser` (quotes optional, trimmed).
 fn parse_phase_name(rest: &str) -> String {
@@ -196,5 +242,46 @@ mod tests {
     fn phase_free_body_is_unaffected() {
         let out = render("plain text\n");
         assert!(out.contains("plain text"));
+    }
+
+    #[test]
+    fn body_error_aborts_phase_with_stable_envelope() {
+        // @read of a missing file errors → phase aborts, PHASE_ABORTED envelope.
+        let out =
+            render("@phase \"Parser\"\n@read /no/such/file_xyz.rs\nAFTER\n@phase-end\nNEXT\n");
+        assert!(
+            out.contains("PHASE_ABORTED \"Parser\" at @read"),
+            "envelope missing: {out}"
+        );
+        assert!(
+            out.contains("(line 2)"),
+            "1-based source line of failing directive: {out}"
+        );
+        assert!(
+            !out.contains("AFTER"),
+            "post-error body must be skipped: {out}"
+        );
+        assert!(
+            out.contains("NEXT"),
+            "render continues after the phase: {out}"
+        );
+    }
+
+    #[test]
+    fn clean_phase_dispatches_body_directives() {
+        // A successful directive in the body renders its output (no abort).
+        let dir = std::env::temp_dir().join("lmd_phase_clean");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.cnt"), "x").unwrap();
+        let pat = format!("{}/*.cnt", dir.to_str().unwrap());
+        let out = render(&format!("@phase \"Count\"\n@count {pat}\n@phase-end\n"));
+        assert!(
+            out.contains('1'),
+            "body directive output must render: {out}"
+        );
+        assert!(
+            !out.contains("PHASE_ABORTED"),
+            "clean phase must not abort: {out}"
+        );
     }
 }

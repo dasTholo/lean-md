@@ -37,20 +37,31 @@ fn sanitize_comment(s: &str) -> String {
     s.replace("-->", "--&gt;").replace("<!--", "&lt;!--")
 }
 
+/// Result-returning dispatch sibling: the phase executor needs the `Err` to
+/// drive abort (spec §3.2). A non-directive name falls back to the value tier
+/// (always `Ok`). Bridges that error surface the `BridgeError` verbatim.
+pub(crate) fn dispatch_result(
+    ctx: &Rc<EngineContext>,
+    name: &str,
+    raw_args: &str,
+) -> std::result::Result<String, super::bridges::BridgeError> {
+    let args = DirectiveArgs::parse(raw_args);
+    match ctx.registry.get(name) {
+        Some(bridge) => bridge.execute(ctx, &args),
+        None => Ok(resolve_value(ctx, name, raw_args)),
+    }
+}
+
 /// Look up `name` in the registry and run the bridge; on miss/error emit a
 /// visible comment instead of failing the whole render.
 fn dispatch(ctx: &Rc<EngineContext>, name: &str, raw_args: &str) -> String {
-    let args = DirectiveArgs::parse(raw_args);
-    match ctx.registry.get(name) {
-        Some(bridge) => match bridge.execute(ctx, &args) {
-            Ok(out) => out,
-            Err(e) => format!(
-                "<!-- lmd:@{} err: {} -->",
-                sanitize_comment(name),
-                sanitize_comment(&format!("{e:?}"))
-            ),
-        },
-        None => resolve_value(ctx, name, raw_args),
+    match dispatch_result(ctx, name, raw_args) {
+        Ok(out) => out,
+        Err(e) => format!(
+            "<!-- lmd:@{} err: {} -->",
+            sanitize_comment(name),
+            sanitize_comment(&format!("{e:?}"))
+        ),
     }
 }
 
