@@ -18,6 +18,7 @@ pub mod list;
 pub mod outline;
 pub mod query;
 pub mod read;
+pub mod recall;
 pub mod refactor;
 pub mod reformat;
 pub mod remember;
@@ -101,6 +102,7 @@ pub fn default_registry() -> BridgeRegistry {
     reg.register(Box::new(refactor::RefactorBridge));
     reg.register(Box::new(reformat::ReformatBridge));
     reg.register(Box::new(remember::RememberBridge));
+    reg.register(Box::new(recall::RecallBridge));
     reg.register(Box::new(inspect::InspectBridge));
     reg.register(Box::new(review::ReviewBridge));
     reg.register(Box::new(routes::RoutesBridge));
@@ -147,6 +149,7 @@ mod tests {
             "routes",
             "smells",
             "remember",
+            "recall",
             "render",
         ] {
             assert!(reg.get(name).is_some(), "missing bridge: {name}");
