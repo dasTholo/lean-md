@@ -174,6 +174,14 @@ pub fn render_body(ctx: &Rc<EngineContext>, body: &str) -> String {
     let body = super::macros::extract_definitions(ctx, body);
     // Pass 3 (spec §2.3): prune @if/@consumer containers → winning branch (raw).
     let body = super::macros::prune_containers(ctx, &body);
+    // Pass 4 (Phase 6): execute @phase blocks; phase-free input is a fast pass-through.
+    super::phases::render_with_phases(ctx, &body)
+}
+
+/// Render one markdown segment through the rushdown closure wired with the lmd
+/// extensions. Single render of a segment — reused by `render_body`'s phase-free
+/// fast path and by the phase executor for non-phase regions / intra-phase prose.
+pub(crate) fn render_markdown(ctx: &Rc<EngineContext>, segment: &str) -> String {
     let render = new_markdown_to_html(
         rushdown::parser::Options::default(),
         rushdown::renderer::html::Options::default(),
@@ -181,7 +189,7 @@ pub fn render_body(ctx: &Rc<EngineContext>, body: &str) -> String {
         lmd_renderer_extension(ctx.clone()),
     );
     let mut out = String::new();
-    let _ = render(&mut out, &body);
+    let _ = render(&mut out, segment);
     out
 }
 

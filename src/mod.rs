@@ -13,4 +13,5 @@ pub mod header;
 pub mod macros;
 pub mod node;
 pub mod parser;
+pub mod phases;
 pub mod render;
