@@ -26,30 +26,36 @@ impl DirectiveBridge for RememberBridge {
             .get("content")
             .or_else(|| args.positional(0))
             .ok_or(BridgeError::MissingArg("content"))?;
-        let category = args.get("category").unwrap_or("decision");
+        let category = args.get("category");
         let key = args
             .get("key")
             .map_or_else(|| slug(content), str::to_string);
-        let confidence = args
-            .get("confidence")
-            .and_then(|s| s.parse::<f32>().ok())
-            .unwrap_or(0.8);
+        let confidence = args.get("confidence").and_then(|s| s.parse::<f32>().ok());
         knowledge_remember(ctx, category, &key, content, confidence)?;
         // No visible render body: the write is a side effect (determinism #498).
         Ok(String::new())
     }
 }
 
-/// Shared knowledge-write sink (also used by `@on complete remember`, Task 8).
+/// lmd-layer defaults: `ProjectKnowledge::remember` has no backend default for
+/// category/confidence (both required), so the lmd sink supplies them once here.
+pub(crate) const DEFAULT_KNOWLEDGE_CATEGORY: &str = "decision";
+pub(crate) const DEFAULT_KNOWLEDGE_CONFIDENCE: f32 = 0.8;
+
+/// Shared knowledge-write sink (also used by `@on complete remember`).
+/// `category` and `confidence` accept `None` to apply lmd-layer defaults
+/// (`DEFAULT_KNOWLEDGE_CATEGORY` / `DEFAULT_KNOWLEDGE_CONFIDENCE`).
 /// Gated: no sinks ⇒ no-op. Loads-by-root, merges, persists. Contradiction
 /// handling is delegated to `remember` (spec §5: passed through, not duplicated).
 pub(crate) fn knowledge_remember(
     ctx: &Rc<EngineContext>,
-    category: &str,
+    category: Option<&str>,
     key: &str,
     value: &str,
-    confidence: f32,
+    confidence: Option<f32>,
 ) -> Result<(), BridgeError> {
+    let category = category.unwrap_or(DEFAULT_KNOWLEDGE_CATEGORY);
+    let confidence = confidence.unwrap_or(DEFAULT_KNOWLEDGE_CONFIDENCE);
     let Some(sinks) = ctx.sinks.as_ref() else {
         return Ok(()); // headless: no-op degradation (spec §7)
     };

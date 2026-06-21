@@ -119,14 +119,12 @@ fn fire_action(ctx: &Rc<EngineContext>, scope: &PhaseScope, action: &OnComplete)
         "finding" => session_add_finding(ctx, &value),
         "decision" => session_decision(ctx, &value),
         "remember" => {
-            let category = attr(&action.attrs, "category").unwrap_or("decision");
+            let category = attr(&action.attrs, "category");
             let key = attr(&action.attrs, "key").map_or_else(
                 || crate::lmd::bridges::remember::slug(&value),
                 str::to_string,
             );
-            let confidence = attr(&action.attrs, "confidence")
-                .and_then(|s| s.parse::<f32>().ok())
-                .unwrap_or(0.8);
+            let confidence = attr(&action.attrs, "confidence").and_then(|s| s.parse::<f32>().ok());
             let _ = crate::lmd::bridges::remember::knowledge_remember(
                 ctx, category, &key, &value, confidence,
             );
@@ -144,12 +142,20 @@ fn fire_action(ctx: &Rc<EngineContext>, scope: &PhaseScope, action: &OnComplete)
             };
             for (name, args, output) in &scope.outputs {
                 let tool = format!("ctx_{name}");
-                // ctx_search output has no `pattern:` header (the tool omits it in its text
-                // output); inject a synthetic header from the directive's raw args string so
-                // `extract_ctx_search` can identify the pattern and skip the low-signal guard.
+                // ctx_search output has no `pattern:` header (the tool omits it in its
+                // text output); inject a synthetic header so `extract_search_pattern`
+                // (in `core/auto_findings.rs`) finds a non-empty pattern and the
+                // noise-guard doesn't fall back to "?" and discard the finding.
+                // Parse via DirectiveArgs — identical to SearchBridge — so quoted
+                // patterns (`@search "foo bar"`) and attr form (`@search pattern=foo`)
+                // produce the correct label, not a malformed `"\"foo` or `pattern=foo`.
                 let annotated;
                 let effective = if name == "search" {
-                    let pattern = args.split_whitespace().next().unwrap_or(name.as_str());
+                    let parsed = crate::lmd::args::DirectiveArgs::parse(args);
+                    let pattern = parsed
+                        .positional(0)
+                        .or_else(|| parsed.get("pattern"))
+                        .unwrap_or(name.as_str());
                     annotated = format!("pattern: \"{pattern}\"\n{output}");
                     &annotated
                 } else {

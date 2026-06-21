@@ -42,7 +42,7 @@ impl DirectiveBridge for RecallBridge {
         let limit = top_k.unwrap_or(hits.len());
         let mut out = String::new();
         for f in hits.iter().take(limit) {
-            out.push_str(&format!("- {}\n", f.value)); // adapt field per Step 1
+            out.push_str(&format!("- {}\n", f.value));
         }
         Ok(out)
     }
