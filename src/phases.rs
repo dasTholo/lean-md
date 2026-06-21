@@ -76,9 +76,17 @@ fn parse_on_complete(rest: &str) -> Option<OnComplete> {
     Some(OnComplete { sink, value, attrs })
 }
 
+/// Look up an attribute value by key from a `Vec<(String, String)>` attrs list.
+fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
+    attrs
+        .iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v.as_str())
+}
+
 /// Fire one accumulated action against the appropriate sink. Session sinks
-/// (task/finding/decision) handled here; knowledge (Task 8), team (Task 9),
-/// capture/checkpoint (Task 10) extend this match in later tasks.
+/// (task/finding/decision) handled here; knowledge sink (Task 8) wired.
+/// Team (Task 9), capture/checkpoint (Task 10) extend this match in later tasks.
 fn fire_action(ctx: &Rc<EngineContext>, _scope: &PhaseScope, action: &OnComplete) {
     let value = if action.value.contains("{{") {
         crate::lmd::macros::eval_string(ctx, &action.value)
@@ -89,6 +97,19 @@ fn fire_action(ctx: &Rc<EngineContext>, _scope: &PhaseScope, action: &OnComplete
         "task" => session_set_task(ctx, &value),
         "finding" => session_add_finding(ctx, &value),
         "decision" => session_decision(ctx, &value),
+        "remember" => {
+            let category = attr(&action.attrs, "category").unwrap_or("decision");
+            let key = attr(&action.attrs, "key").map_or_else(
+                || crate::lmd::bridges::remember::slug(&value),
+                str::to_string,
+            );
+            let confidence = attr(&action.attrs, "confidence")
+                .and_then(|s| s.parse::<f32>().ok())
+                .unwrap_or(0.8);
+            let _ = crate::lmd::bridges::remember::knowledge_remember(
+                ctx, category, &key, &value, confidence,
+            );
+        }
         _ => {} // other sinks land in later tasks
     }
 }
@@ -484,6 +505,36 @@ mod tests {
         assert!(
             st.decisions.iter().any(|d| d.summary.contains("shipped")),
             "decision sink must fire"
+        );
+    }
+
+    #[test]
+    fn on_complete_remember_writes_knowledge() {
+        use crate::lmd::engine::{EngineContext, SinkHandles};
+        use crate::lmd::header::LeanMdHeader;
+        use std::rc::Rc;
+
+        let root = std::env::temp_dir().join("lmd_oc_remember");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let ctx = Rc::new(EngineContext::with_sinks(
+            LeanMdHeader::default(),
+            root.clone(),
+            SinkHandles {
+                session_id: "s3".into(),
+                session: None,
+                agent_id: None,
+            },
+        ));
+        let _ = crate::lmd::engine::render_body(
+            &ctx,
+            "@phase \"P\"\nwork\n@on complete remember=\"parser uses pratt\" category=decision\n@phase-end\n",
+        );
+        let k = crate::core::knowledge::ProjectKnowledge::load(root.to_str().unwrap()).unwrap();
+        let hits = k.recall("pratt");
+        assert!(
+            !hits.is_empty(),
+            "remember sink must persist a knowledge fact"
         );
     }
 
