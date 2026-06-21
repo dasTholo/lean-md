@@ -33,6 +33,21 @@ impl ShellMode {
         }
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ExtensionsMode {
+    #[default]
+    Deny,
+    Allow,
+}
+
+impl ExtensionsMode {
+    fn parse(s: &str) -> Self {
+        match s.trim() {
+            "allow" => ExtensionsMode::Allow,
+            _ => ExtensionsMode::Deny,
+        }
+    }
+}
 
 /// Parsed `@lean-md` header config (Phase 1 minimal set).
 #[derive(Debug, Clone, Default)]
@@ -40,6 +55,15 @@ pub struct LeanMdHeader {
     pub version: Option<String>,
     pub consumer: Consumer,
     pub shell: ShellMode,
+    pub extensions: ExtensionsMode,
+}
+
+impl LeanMdHeader {
+    /// `@call <plugin_tool>` is gated: plugin tools only run with
+    /// `@lean-md extensions=allow` (deny-by-default). WASM `@render` is exempt.
+    pub fn extensions_allowed(&self) -> bool {
+        self.extensions == ExtensionsMode::Allow
+    }
 }
 
 /// Line-based pre-scan. If the first non-blank line starts with `@lean-md`,
@@ -72,6 +96,7 @@ pub fn parse_header(input: &str) -> (LeanMdHeader, &str) {
             match k.trim() {
                 "consumer" => header.consumer = Consumer::parse(v),
                 "shell" => header.shell = ShellMode::parse(v),
+                "extensions" => header.extensions = ExtensionsMode::parse(v),
                 _ => {}
             }
         }
@@ -107,5 +132,19 @@ mod tests {
         let (h, _) = parse_header("@lean-md\nconsumer: human\nshell: allow\n\nx\n");
         assert_eq!(h.consumer, Consumer::Human);
         assert_eq!(h.shell, ShellMode::Allow);
+    }
+
+    #[test]
+    fn extensions_allow_parses_and_defaults_deny() {
+        let (h, _) = parse_header("@lean-md\nextensions: allow\n\nx\n");
+        assert_eq!(h.extensions, ExtensionsMode::Allow);
+        assert!(h.extensions_allowed());
+
+        let (d, _) = parse_header("@lean-md\nconsumer: ai\n\nx\n");
+        assert_eq!(d.extensions, ExtensionsMode::Deny);
+        assert!(
+            !d.extensions_allowed(),
+            "extensions must be deny-by-default"
+        );
     }
 }
