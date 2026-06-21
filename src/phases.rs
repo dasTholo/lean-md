@@ -64,6 +64,55 @@ impl PhaseScope {
     }
 }
 
+/// Parse `<sink>="<value>" [attr=v …]` into an [`OnComplete`]. Reuses
+/// [`crate::lmd::args::DirectiveArgs`] for quote-aware tokenization. The first
+/// named pair's key is the sink; its value is the payload; remaining pairs are
+/// attrs (e.g. `category=`, `key=`, `confidence=`).
+fn parse_on_complete(rest: &str) -> Option<OnComplete> {
+    let args = crate::lmd::args::DirectiveArgs::parse(rest);
+    let pairs = args.named_pairs();
+    let (sink, value) = pairs.first()?.clone();
+    let attrs = pairs[1..].to_vec();
+    Some(OnComplete { sink, value, attrs })
+}
+
+/// Fire one accumulated action against the appropriate sink. Session sinks
+/// (task/finding/decision) handled here; knowledge (Task 8), team (Task 9),
+/// capture/checkpoint (Task 10) extend this match in later tasks.
+fn fire_action(ctx: &Rc<EngineContext>, _scope: &PhaseScope, action: &OnComplete) {
+    let value = if action.value.contains("{{") {
+        crate::lmd::macros::eval_string(ctx, &action.value)
+    } else {
+        action.value.clone()
+    };
+    match action.sink.as_str() {
+        "task" => session_set_task(ctx, &value),
+        "finding" => session_add_finding(ctx, &value),
+        "decision" => session_decision(ctx, &value),
+        _ => {} // other sinks land in later tasks
+    }
+}
+
+fn session_set_task(ctx: &Rc<EngineContext>, value: &str) {
+    let Some(sinks) = ctx.sinks.as_ref() else {
+        return;
+    };
+    let Some(session) = sinks.session.as_ref() else {
+        return;
+    };
+    session.blocking_write().set_task(value, None);
+}
+
+fn session_add_finding(ctx: &Rc<EngineContext>, value: &str) {
+    let Some(sinks) = ctx.sinks.as_ref() else {
+        return;
+    };
+    let Some(session) = sinks.session.as_ref() else {
+        return;
+    };
+    session.blocking_write().add_finding(None, None, value);
+}
+
 /// Session `decision` sink (open + abort narrative). Gated by sinks; headless
 /// no-op. Uses `blocking_write()` — the MCP handler runs render under spawn_blocking.
 pub(crate) fn session_decision(ctx: &Rc<EngineContext>, summary: &str) {
@@ -96,7 +145,7 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
         // @phase-end (close)
         if trimmed.starts_with("@phase-end") {
             match scope.take() {
-                Some(sc) => finalize_phase(ctx, &mut out, sc),
+                Some(sc) => finalize_phase(ctx, &mut out, &sc),
                 None => out.push_str("<!-- lmd: stray @phase-end -->\n"),
             }
             continue;
@@ -120,12 +169,21 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
             continue;
         }
 
-        // @on complete (only valid inside an open phase — D-8). Accumulation in Task 7.
+        // @on complete (only valid inside an open phase — D-8).
         if is_on_complete(trimmed) {
-            if scope.is_none() {
-                out.push_str("<!-- lmd: @on complete outside @phase -->\n");
+            match scope.as_mut() {
+                None => out.push_str("<!-- lmd: @on complete outside @phase -->\n"),
+                Some(sc) if sc.aborted.is_none() => {
+                    let rest = trimmed.strip_prefix("@on").unwrap().trim_start();
+                    let rest = rest.strip_prefix("complete").unwrap_or(rest).trim();
+                    if let Some(action) = parse_on_complete(rest) {
+                        sc.actions.push(action);
+                    } else {
+                        out.push_str("<!-- lmd: malformed @on complete -->\n");
+                    }
+                }
+                Some(_) => {} // aborted: ignore further @on complete
             }
-            // inside a phase: accumulated in Task 7; for now consumed (no render)
             continue;
         }
 
@@ -176,7 +234,7 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
 /// Close a phase: if aborted emit the `PHASE_ABORTED` envelope + session
 /// decision and skip accumulated `@on complete` (spec §3.2 step 2).
 /// Clean close fires accumulated `@on complete` (Task 7).
-fn finalize_phase(ctx: &Rc<EngineContext>, out: &mut String, scope: PhaseScope) {
+fn finalize_phase(ctx: &Rc<EngineContext>, out: &mut String, scope: &PhaseScope) {
     if let Some(err) = scope.aborted.as_ref() {
         out.push_str(&err.envelope());
         out.push('\n');
@@ -184,8 +242,10 @@ fn finalize_phase(ctx: &Rc<EngineContext>, out: &mut String, scope: PhaseScope) 
         report_phase_gotcha(ctx, err); // third abort sink (spec §3.5, D-10)
         return; // skip accumulated @on complete (spec §3.2 step 2)
     }
-    // clean close: fire accumulated @on complete (Task 7)
-    let _ = (ctx, scope);
+    // clean close: fire accumulated @on complete in source order
+    for action in &scope.actions {
+        fire_action(ctx, scope, action);
+    }
 }
 
 /// Third abort sink (spec §3.5, D-10): feed the PhaseError into the bug-memory
@@ -389,5 +449,70 @@ mod tests {
         assert_eq!(map_cause_category("MissingArg(\"path\")"), "config");
         assert_eq!(map_cause_category("error[E0433] mismatched"), "build");
         assert_eq!(map_cause_category("something else"), "other");
+    }
+
+    #[test]
+    fn on_complete_fires_session_sinks_in_order_on_clean_end() {
+        use crate::core::session::SessionState;
+        use crate::lmd::engine::{EngineContext, SinkHandles};
+        use crate::lmd::header::LeanMdHeader;
+        use std::rc::Rc;
+        use std::sync::Arc;
+        use tokio::sync::RwLock;
+
+        let session = Arc::new(RwLock::new(SessionState::new()));
+        let sinks = SinkHandles {
+            session_id: "s1".to_string(),
+            session: Some(session.clone()),
+            agent_id: None,
+        };
+        let ctx = Rc::new(EngineContext::with_sinks(
+            LeanMdHeader::default(),
+            std::env::temp_dir(),
+            sinks,
+        ));
+        let _ = crate::lmd::engine::render_body(
+            &ctx,
+            "@phase \"Build\"\nbody\n@on complete task=\"build done [100%]\"\n@on complete decision=\"shipped\"\n@phase-end\n",
+        );
+        let st = session.blocking_read();
+        assert_eq!(
+            st.task.as_ref().unwrap().description,
+            "build done [100%]",
+            "task sink must fire"
+        );
+        assert!(
+            st.decisions.iter().any(|d| d.summary.contains("shipped")),
+            "decision sink must fire"
+        );
+    }
+
+    #[test]
+    fn aborted_phase_skips_on_complete() {
+        use crate::core::session::SessionState;
+        use crate::lmd::engine::{EngineContext, SinkHandles};
+        use crate::lmd::header::LeanMdHeader;
+        use std::rc::Rc;
+        use std::sync::Arc;
+        use tokio::sync::RwLock;
+
+        let session = Arc::new(RwLock::new(SessionState::new()));
+        let ctx = Rc::new(EngineContext::with_sinks(
+            LeanMdHeader::default(),
+            std::env::temp_dir(),
+            SinkHandles {
+                session_id: "s2".into(),
+                session: Some(session.clone()),
+                agent_id: None,
+            },
+        ));
+        let _ = crate::lmd::engine::render_body(
+            &ctx,
+            "@phase \"P\"\n@read /no/such/zzz.rs\n@on complete task=\"done [100%]\"\n@phase-end\n",
+        );
+        assert!(
+            session.blocking_read().task.is_none(),
+            "aborted phase must NOT fire its @on complete task"
+        );
     }
 }

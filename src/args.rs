@@ -55,6 +55,12 @@ impl DirectiveArgs {
     pub fn raw(&self) -> &str {
         &self.raw
     }
+
+    /// All named pairs in parse order. The first pair's key is the sink name;
+    /// remaining pairs are per-sink attrs (e.g. `category=`, `key=`).
+    pub fn named_pairs(&self) -> &[(String, String)] {
+        &self.named
+    }
 }
 
 /// Whitespace-split that honors `"double"` and `'single'` quotes. A token may
