@@ -6,6 +6,11 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
+
+use tokio::sync::RwLock;
+
+use crate::core::session::SessionState;
 
 use crate::core::cache::SessionCache;
 use crate::core::call_graph::{CallGraph, CallGraphInputs};
@@ -18,6 +23,22 @@ use super::header::{Consumer, LeanMdHeader, parse_header};
 use super::macros::MacroRegistry;
 use super::parser::lmd_parser_extension;
 use super::render::lmd_renderer_extension;
+
+/// Optional handles into the process-global memory stores (spec §7). Present
+/// only on the MCP `ctx_md_*` path (Phase 9); absent in headless `render()` and
+/// golden tests. Absence ⇒ every memory-writing sink degrades to a no-op, so
+/// render output stays a pure deterministic function of (content, mode, task).
+///
+/// Knowledge + Gotcha stores are project-bound and load-by-root via
+/// `ctx.jail_root`, so they need no live handle here — only the
+/// `sinks.is_some()` gate. The Session store is behind an async `RwLock`, so its
+/// live handle is carried; sink writes use `blocking_write()` (the MCP handler
+/// runs the sync render under `spawn_blocking`).
+pub struct SinkHandles {
+    pub session_id: String,
+    pub session: Option<Arc<RwLock<SessionState>>>,
+    pub agent_id: Option<String>,
+}
 
 /// Per-render engine state shared (via `Rc`) with the renderer hook and bridges.
 pub struct EngineContext {
@@ -44,6 +65,8 @@ pub struct EngineContext {
     pub param_scope: RefCell<Vec<HashMap<String, String>>>,
     /// `@import` dedupe: a library file is loaded at most once per render.
     imported: RefCell<HashSet<PathBuf>>,
+    /// Memory-store sink handles (spec §7). `None` ⇒ no-op degradation.
+    pub sinks: Option<SinkHandles>,
 }
 
 impl EngineContext {
@@ -61,7 +84,14 @@ impl EngineContext {
             macros: RefCell::new(MacroRegistry::new()),
             param_scope: RefCell::new(Vec::new()),
             imported: RefCell::new(HashSet::new()),
+            sinks: None,
         }
+    }
+    /// Construct with memory sinks wired (MCP `ctx_md_*` path, Phase 9).
+    pub fn with_sinks(header: LeanMdHeader, jail_root: PathBuf, sinks: SinkHandles) -> Self {
+        let mut ctx = Self::new(header, jail_root);
+        ctx.sinks = Some(sinks);
+        ctx
     }
     /// Increment the include-chain depth; error past `max_chain_depth` (§7).
     pub fn enter(&self) -> Result<(), BridgeError> {
@@ -823,6 +853,35 @@ flag is {{ env.LMD_P4_GOLDEN == \"on\" }}
         assert!(out.contains("- "), "pipe→render list: {out}");
         assert!(!out.contains(" | @render"), "pipe syntax leaked: {out}");
     }
+    #[test]
+    fn headless_render_has_no_sinks() {
+        let ctx = Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            std::path::PathBuf::from("."),
+        ));
+        assert!(
+            ctx.sinks.is_none(),
+            "headless ctx must degrade memory sinks to no-op"
+        );
+    }
+
+    #[test]
+    fn with_sinks_enables_the_gate() {
+        use crate::lmd::engine::SinkHandles;
+        let sinks = SinkHandles {
+            session_id: "s-test".to_string(),
+            session: None,
+            agent_id: None,
+        };
+        let ctx = EngineContext::with_sinks(
+            LeanMdHeader::default(),
+            std::path::PathBuf::from("."),
+            sinks,
+        );
+        assert!(ctx.sinks.is_some());
+        assert_eq!(ctx.sinks.as_ref().unwrap().session_id, "s-test");
+    }
+
     #[test]
     fn consumer_hint_maps_audience() {
         use crate::lmd::header::Consumer;
