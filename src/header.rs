@@ -2,6 +2,8 @@
 //! The header is consumed by a line-based scan BEFORE rushdown sees the body,
 //! so config feeds `EngineContext` and never appears in rendered output.
 
+use crate::core::protocol::CrpMode;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Consumer {
     #[default]
@@ -49,13 +51,28 @@ impl ExtensionsMode {
     }
 }
 
-/// Parsed `@lean-md` header config (Phase 1 minimal set).
-#[derive(Debug, Clone, Default)]
+/// Parsed `@lean-md` header config (Phase 1 minimal set + Phase 8 `crp`).
+#[derive(Debug, Clone)]
 pub struct LeanMdHeader {
     pub version: Option<String>,
     pub consumer: Consumer,
     pub shell: ShellMode,
     pub extensions: ExtensionsMode,
+    pub crp: CrpMode,
+}
+
+// Core CrpMode default = Tdd; the lmd header default MUST be Off (E-3) so a
+// document without `crp=` renders byte-identically to the pre-Phase-8 output.
+impl Default for LeanMdHeader {
+    fn default() -> Self {
+        Self {
+            version: None,
+            consumer: Consumer::default(),
+            shell: ShellMode::default(),
+            extensions: ExtensionsMode::default(),
+            crp: CrpMode::Off,
+        }
+    }
 }
 
 impl LeanMdHeader {
@@ -63,6 +80,16 @@ impl LeanMdHeader {
     /// `@lean-md extensions=allow` (deny-by-default). WASM `@render` is exempt.
     pub fn extensions_allowed(&self) -> bool {
         self.extensions == ExtensionsMode::Allow
+    }
+}
+
+/// Lenient value parse for the `crp`/`tdd`/`output` header keys. Mirrors the
+/// existing `*::parse` style: unknown → Off (renders never abort, §3.2).
+fn parse_crp_value(s: &str) -> CrpMode {
+    match s.trim().to_lowercase().as_str() {
+        "tdd" | "on" | "max" => CrpMode::Tdd,
+        "compact" | "standard" => CrpMode::Compact,
+        _ => CrpMode::Off, // off | none | unknown
     }
 }
 
@@ -97,6 +124,7 @@ pub fn parse_header(input: &str) -> (LeanMdHeader, &str) {
                 "consumer" => header.consumer = Consumer::parse(v),
                 "shell" => header.shell = ShellMode::parse(v),
                 "extensions" => header.extensions = ExtensionsMode::parse(v),
+                "crp" | "tdd" | "output" => header.crp = parse_crp_value(v),
                 _ => {}
             }
         }
@@ -146,5 +174,32 @@ mod tests {
             !d.extensions_allowed(),
             "extensions must be deny-by-default"
         );
+    }
+
+    #[test]
+    fn parses_crp_canonical_and_aliases() {
+        use crate::core::protocol::CrpMode;
+        let (h, _) = parse_header("@lean-md\ncrp: tdd\n\nx\n");
+        assert_eq!(h.crp, CrpMode::Tdd);
+        let (h, _) = parse_header("@lean-md\ncrp: compact\n\nx\n");
+        assert_eq!(h.crp, CrpMode::Compact);
+        let (h, _) = parse_header("@lean-md\ncrp: off\n\nx\n");
+        assert_eq!(h.crp, CrpMode::Off);
+        // Aliases: key `tdd` / `output`, value aliases on/max/standard.
+        let (h, _) = parse_header("@lean-md\ntdd: on\n\nx\n");
+        assert_eq!(h.crp, CrpMode::Tdd);
+        let (h, _) = parse_header("@lean-md\noutput: standard\n\nx\n");
+        assert_eq!(h.crp, CrpMode::Compact);
+    }
+
+    #[test]
+    fn crp_unknown_is_lenient_off_and_default_is_off() {
+        use crate::core::protocol::CrpMode;
+        let (h, _) = parse_header("@lean-md\ncrp: bogus\n\nx\n");
+        assert_eq!(h.crp, CrpMode::Off, "unknown crp must fall back to Off");
+        // E-3 default guarantee: no crp key → Off.
+        let (h, _) = parse_header("@lean-md\nconsumer: ai\n\nx\n");
+        assert_eq!(h.crp, CrpMode::Off);
+        assert_eq!(LeanMdHeader::default().crp, CrpMode::Off);
     }
 }
