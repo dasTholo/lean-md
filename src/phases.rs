@@ -480,9 +480,75 @@ fn is_on_complete(trimmed: &str) -> bool {
     false
 }
 
+/// Pre-pass (Spec D-4): erfasst jeden `@phase "name" … @phase-end`-Block ROH in
+/// `ctx.phase_bodies`, damit `@dispatch phase="name"` ihn per Name nachschlagen
+/// kann. Render-FREI und lifecycle-FREI (kein `session_decision`, kein
+/// `@on complete`-Feuern) — die Work-Bridges bleiben verbatim (D-3). Flache v1-
+/// Phasen: nicht verschachtelt; ein zweites `@phase` vor `@phase-end` schließt
+/// implizit nicht — defensiv wird nur der erste vollständige Block je Name erfasst.
+pub(crate) fn capture_phase_bodies(ctx: &Rc<EngineContext>, body: &str) {
+    let mut open: Option<(String, Vec<&str>)> = None;
+    for line in body.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("@phase-end") {
+            if let Some((name, lines)) = open.take() {
+                ctx.phase_bodies
+                    .borrow_mut()
+                    .entry(name)
+                    .or_insert_with(|| lines.join("\n"));
+            }
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("@phase") {
+            // `@phase-end` ist oben behandelt; hier nur echte Öffner.
+            if open.is_none() {
+                open = Some((parse_phase_name(rest), Vec::new()));
+            }
+            continue;
+        }
+        if let Some((_, lines)) = open.as_mut() {
+            lines.push(line);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::lmd::engine::render;
+    use std::path::PathBuf;
+    use std::rc::Rc;
+
+    use crate::lmd::engine::{EngineContext, render};
+    use crate::lmd::header::LeanMdHeader;
+
+    #[test]
+    fn capture_phase_bodies_extracts_raw_body_without_lifecycle() {
+        let ctx = Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            PathBuf::from("."),
+        ));
+        let body = "\
+intro prose
+@phase \"A3-parser\"
+@read src/parser/block.rs
+@query \"cargo nextest run\"
+@phase-end
+trailing prose
+";
+        super::capture_phase_bodies(&ctx, body);
+        let got = ctx
+            .phase_body("A3-parser")
+            .expect("named phase body captured");
+        // Roh, work-bridges verbatim, ohne @phase/@phase-end-Marker:
+        assert!(got.contains("@read src/parser/block.rs"), "got: {got}");
+        assert!(got.contains("@query \"cargo nextest run\""), "got: {got}");
+        assert!(!got.contains("@phase"), "markers must be stripped: {got}");
+        assert!(
+            !got.contains("intro prose"),
+            "must not leak outside the phase: {got}"
+        );
+        // Render-/lifecycle-frei: keine session-decision-Seiteneffekte (kein Sink ⇒ trivially none).
+        assert!(ctx.phase_body("does-not-exist").is_none());
+    }
 
     #[test]
     fn open_phase_renders_body() {

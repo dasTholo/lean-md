@@ -68,6 +68,11 @@ pub struct EngineContext {
     /// Spec §3.4: "renderer knows a current phase scope" — EngineContext is the
     /// correct home (not a local in render_with_phases, which Task 4 did first).
     pub(crate) phase_scope: RefCell<Vec<PhaseScope>>,
+    /// Roh erfasste `@phase "name"`-Bodies (Pre-Pass `capture_phase_bodies`), per
+    /// Name nachschlagbar für `@dispatch` (Spec D-4). Render-/lifecycle-frei — die
+    /// Work-Bridges bleiben verbatim (D-3 Work-lazy). Getrennt von `phase_scope`
+    /// (das den Inline-Render-Lifecycle trägt).
+    pub(crate) phase_bodies: RefCell<HashMap<String, String>>,
     /// `@import` dedupe: a library file is loaded at most once per render.
     imported: RefCell<HashSet<PathBuf>>,
     /// Memory-store sink handles (spec §7). `None` ⇒ no-op degradation.
@@ -89,6 +94,7 @@ impl EngineContext {
             macros: RefCell::new(MacroRegistry::new()),
             param_scope: RefCell::new(Vec::new()),
             phase_scope: RefCell::new(Vec::new()),
+            phase_bodies: RefCell::new(HashMap::new()),
             imported: RefCell::new(HashSet::new()),
             sinks: None,
         }
@@ -134,6 +140,11 @@ impl EngineContext {
             .last()
             .and_then(|m| m.get(name).cloned())
     }
+    /// Roh-Body einer benannten `@phase` (vom `capture_phase_bodies`-Pre-Pass).
+    pub fn phase_body(&self, name: &str) -> Option<String> {
+        self.phase_bodies.borrow().get(name).cloned()
+    }
+
     /// Record an `@import` target; returns false if it was already imported
     /// this render (dedupe — re-entrant `render_body` must not re-load libs).
     pub fn mark_imported(&self, path: &std::path::Path) -> bool {
@@ -180,6 +191,8 @@ pub fn render_body(ctx: &Rc<EngineContext>, body: &str) -> String {
     let body = super::macros::extract_definitions(ctx, body);
     // Pass 3 (spec §2.3): prune @if/@consumer containers → winning branch (raw).
     let body = super::macros::prune_containers(ctx, &body);
+    // Phase 7C: capture raw @phase bodies for name-lookup by @dispatch (D-4).
+    super::phases::capture_phase_bodies(ctx, &body);
     // Pass 4 (Phase 6): execute @phase blocks; phase-free input is a fast pass-through.
     super::phases::render_with_phases(ctx, &body)
 }
