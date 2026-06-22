@@ -12,11 +12,15 @@ use rushdown::ast::{KindData, NodeKind, NodeType, PrettyPrint, pp_indent};
 pub struct LmdDirective {
     pub name: String,
     pub args: String,
+    /// `(start, end)` byte offset of the directive text in the parsed segment
+    /// source — inclusive start, exclusive end (spec D-4). Block: line span
+    /// without the trailing newline. Set by the parser; used by the splice walker.
+    pub span: (usize, usize),
 }
 
 impl LmdDirective {
-    pub fn new(name: String, args: String) -> Self {
-        Self { name, args }
+    pub fn new(name: String, args: String, span: (usize, usize)) -> Self {
+        Self { name, args, span }
     }
 }
 
@@ -52,11 +56,14 @@ impl From<LmdDirective> for KindData {
 pub struct LmdInline {
     pub name: String,
     pub args: String,
+    /// `(start, end)` byte offset of the `{{ … }}` span in the parsed segment
+    /// source — inclusive start, exclusive end (spec D-4). Set by the parser.
+    pub span: (usize, usize),
 }
 
 impl LmdInline {
-    pub fn new(name: String, args: String) -> Self {
-        Self { name, args }
+    pub fn new(name: String, args: String, span: (usize, usize)) -> Self {
+        Self { name, args, span }
     }
 }
 
@@ -94,6 +101,10 @@ pub struct LmdPipe {
     pub left_args: String,
     pub right_name: String,
     pub right_args: String,
+    /// `(start, end)` byte offset of the full pipe line in the parsed segment
+    /// source — inclusive start, exclusive end (spec D-4). Line span without
+    /// the trailing newline. Set by the parser; used by the splice walker.
+    pub span: (usize, usize),
 }
 
 impl LmdPipe {
@@ -102,12 +113,14 @@ impl LmdPipe {
         left_args: String,
         right_name: String,
         right_args: String,
+        span: (usize, usize),
     ) -> Self {
         Self {
             left_name,
             left_args,
             right_name,
             right_args,
+            span,
         }
     }
 }
@@ -148,17 +161,31 @@ mod tests {
 
     #[test]
     fn directive_node_reports_leaf_block() {
-        let n = LmdDirective::new("read".to_string(), "x.rs mode=full".to_string());
+        let n = LmdDirective::new("read".to_string(), "x.rs mode=full".to_string(), (0, 0));
         assert_eq!(n.typ(), NodeType::LeafBlock);
         assert_eq!(n.kind_name(), "LmdDirective");
         assert_eq!(n.name, "read");
     }
 
     #[test]
+    fn directive_node_carries_span() {
+        let n = LmdDirective::new("read".to_string(), "x.rs".to_string(), (3, 14));
+        assert_eq!(n.span, (3, 14));
+        assert_eq!(n.name, "read");
+    }
+
+    #[test]
     fn inline_node_reports_inline() {
-        let n = LmdInline::new("include".to_string(), "hard-rules".to_string());
+        let n = LmdInline::new("include".to_string(), "hard-rules".to_string(), (0, 0));
         assert_eq!(n.typ(), NodeType::Inline);
         assert_eq!(n.kind_name(), "LmdInline");
+    }
+
+    #[test]
+    fn inline_node_carries_span() {
+        let n = LmdInline::new("env.CI".to_string(), String::new(), (5, 18));
+        assert_eq!(n.span, (5, 18));
+        assert_eq!(n.name, "env.CI");
     }
 
     #[test]
@@ -168,8 +195,21 @@ mod tests {
             "git diff".into(),
             "review".into(),
             "diff-review".into(),
+            (0, 0),
         );
         assert_eq!(n.typ(), NodeType::LeafBlock);
         assert_eq!(n.kind_name(), "LmdPipe");
+    }
+
+    #[test]
+    fn pipe_node_carries_span() {
+        let n = super::LmdPipe::new(
+            "query".into(),
+            "git diff".into(),
+            "review".into(),
+            "diff-review".into(),
+            (7, 42),
+        );
+        assert_eq!(n.span, (7, 42));
     }
 }

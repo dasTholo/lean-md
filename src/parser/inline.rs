@@ -65,7 +65,7 @@ impl InlineParser for LmdInlineParser {
         reader: &mut text::BlockReader,
         _ctx: &mut parser::Context,
     ) -> Option<NodeRef> {
-        let (line, _seg) = reader.peek_line_bytes()?;
+        let (line, seg) = reader.peek_line_bytes()?;
         const OPEN: &[u8] = b"{{ ";
         const CLOSE: &[u8] = b" }}";
         if !line.starts_with(OPEN) {
@@ -85,8 +85,10 @@ impl InlineParser for LmdInlineParser {
         let body = String::from_utf8_lossy(&line[body_start..close_at]).to_string();
         let (name, args) = parse_inline_body(&body)?;
         let consumed = close_at + CLOSE.len();
+        // span covers exactly the `{{ … }}` region in the source
+        let span = (seg.start(), seg.start() + consumed);
         reader.advance(consumed);
-        Some(arena.new_node(LmdInline::new(name, args)))
+        Some(arena.new_node(LmdInline::new(name, args, span)))
     }
 }
 
@@ -99,6 +101,51 @@ impl From<LmdInlineParser> for AnyInlineParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt;
+
+    #[derive(Debug)]
+    struct WalkError(String);
+
+    impl fmt::Display for WalkError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str(&self.0)
+        }
+    }
+
+    impl std::error::Error for WalkError {}
+
+    #[test]
+    fn inline_span_covers_double_brace_region() {
+        use crate::lmd::node::LmdInline;
+        use crate::lmd::parser::lmd_parser_extension;
+        use rushdown::ast::{self, WalkStatus};
+        use rushdown::parser::{Options as ParserOptions, Parser};
+        use rushdown::text::BasicReader;
+        use rushdown::{as_extension_data, matches_extension_kind};
+
+        // "Lies: {{ env.CI }}.\n"
+        //  0123456789...
+        // "{{ env.CI }}" starts at byte 6, length 13 → (6, 19)
+        let source = "Lies: {{ env.CI }}.\n";
+        let parser = Parser::with_extensions(ParserOptions::default(), lmd_parser_extension());
+        let mut reader = BasicReader::new(source);
+        let (arena, root) = parser.parse(&mut reader);
+        let mut span: Option<(usize, usize)> = None;
+        ast::walk::<WalkError>(
+            &arena,
+            root,
+            &mut |a: &ast::Arena, nref: ast::NodeRef, entering: bool| {
+                if entering && matches_extension_kind!(a, nref, LmdInline) {
+                    span = Some(as_extension_data!(a, nref, LmdInline).span);
+                }
+                Ok(WalkStatus::Continue)
+            },
+        )
+        .unwrap();
+        let expected_start = source.find("{{ env.CI }}").unwrap();
+        let expected_end = expected_start + "{{ env.CI }}".len();
+        assert_eq!(span, Some((expected_start, expected_end)));
+    }
 
     #[test]
     fn parses_inline_name_and_args() {

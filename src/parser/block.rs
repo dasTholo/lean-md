@@ -71,18 +71,24 @@ impl BlockParser for LmdBlockParser {
         reader: &mut text::BasicReader,
         _ctx: &mut parser::Context,
     ) -> Option<(NodeRef, State)> {
-        let (line, _seg) = reader.peek_line_bytes()?;
-        if let Some((ln, la, rn, ra)) = parse_pipe_line(line.as_ref()) {
+        let (line, seg) = reader.peek_line_bytes()?;
+        let line_bytes: &[u8] = line.as_ref();
+        // Compute span: seg includes the trailing newline; strip it so
+        // span.1 points at the last content byte (exclusive), not the '\n'.
+        let nl =
+            usize::from(line_bytes.ends_with(b"\n")) + usize::from(line_bytes.ends_with(b"\r\n"));
+        let span = (seg.start(), seg.stop() - nl);
+        if let Some((ln, la, rn, ra)) = parse_pipe_line(line_bytes) {
             reader.advance_to_eol();
             return Some((
-                arena.new_node(LmdPipe::new(ln, la, rn, ra)),
+                arena.new_node(LmdPipe::new(ln, la, rn, ra, span)),
                 State::NO_CHILDREN,
             ));
         }
-        let (name, args) = parse_directive_line(line.as_ref())?;
+        let (name, args) = parse_directive_line(line_bytes)?;
         reader.advance_to_eol();
         Some((
-            arena.new_node(LmdDirective::new(name, args)),
+            arena.new_node(LmdDirective::new(name, args, span)),
             State::NO_CHILDREN,
         ))
     }
@@ -111,6 +117,76 @@ impl From<LmdBlockParser> for AnyBlockParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt;
+
+    #[derive(Debug)]
+    struct WalkError(String);
+
+    impl fmt::Display for WalkError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str(&self.0)
+        }
+    }
+
+    impl std::error::Error for WalkError {}
+
+    #[test]
+    fn block_directive_span_covers_line_without_newline() {
+        use crate::lmd::node::LmdDirective;
+        use crate::lmd::parser::lmd_parser_extension;
+        use rushdown::ast::{self, WalkStatus};
+        use rushdown::parser::{Options as ParserOptions, Parser};
+        use rushdown::text::BasicReader;
+        use rushdown::{as_extension_data, matches_extension_kind};
+
+        let source = "@read x.rs\n";
+        let parser = Parser::with_extensions(ParserOptions::default(), lmd_parser_extension());
+        let mut reader = BasicReader::new(source);
+        let (arena, root) = parser.parse(&mut reader);
+        let mut span: Option<(usize, usize)> = None;
+        ast::walk::<WalkError>(
+            &arena,
+            root,
+            &mut |a: &ast::Arena, nref: ast::NodeRef, entering: bool| {
+                if entering && matches_extension_kind!(a, nref, LmdDirective) {
+                    span = Some(as_extension_data!(a, nref, LmdDirective).span);
+                }
+                Ok(WalkStatus::Continue)
+            },
+        )
+        .unwrap();
+        // "@read x.rs" = 10 bytes, newline excluded → (0, 10)
+        assert_eq!(span, Some((0, 10)));
+    }
+
+    #[test]
+    fn block_pipe_span_covers_line_without_newline() {
+        use crate::lmd::node::LmdPipe;
+        use crate::lmd::parser::lmd_parser_extension;
+        use rushdown::ast::{self, WalkStatus};
+        use rushdown::parser::{Options as ParserOptions, Parser};
+        use rushdown::text::BasicReader;
+        use rushdown::{as_extension_data, matches_extension_kind};
+
+        // "@a x | @b y" = 11 bytes, newline excluded → (0, 11)
+        let source = "@a x | @b y\n";
+        let parser = Parser::with_extensions(ParserOptions::default(), lmd_parser_extension());
+        let mut reader = BasicReader::new(source);
+        let (arena, root) = parser.parse(&mut reader);
+        let mut span: Option<(usize, usize)> = None;
+        ast::walk::<WalkError>(
+            &arena,
+            root,
+            &mut |a: &ast::Arena, nref: ast::NodeRef, entering: bool| {
+                if entering && matches_extension_kind!(a, nref, LmdPipe) {
+                    span = Some(as_extension_data!(a, nref, LmdPipe).span);
+                }
+                Ok(WalkStatus::Continue)
+            },
+        )
+        .unwrap();
+        assert_eq!(span, Some((0, 11)));
+    }
 
     #[test]
     fn parses_name_and_args() {
