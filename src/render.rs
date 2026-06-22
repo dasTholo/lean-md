@@ -36,6 +36,10 @@ pub(crate) fn dispatch_result(
 /// Look up `name` in the registry and run the bridge; on miss/error emit a
 /// visible comment instead of failing the whole render.
 fn dispatch(ctx: &Rc<EngineContext>, name: &str, raw_args: &str) -> String {
+    // Phase 9: consumer=human renders Work-directives as prose, not output.
+    if ctx.consumer_hint() == 1 && WORK_DIRECTIVES.contains(&name) {
+        return super::gloss::gloss(name, raw_args);
+    }
     match dispatch_result(ctx, name, raw_args) {
         Ok(out) => out,
         Err(e) => format!(
@@ -127,10 +131,10 @@ pub(crate) fn splice_directives(
     let _ = ast::walk::<WalkError>(arena, root, &mut |a: &ast::Arena,
                                                       nref: ast::NodeRef,
                                                       entering: bool|
-     -> std::result::Result<
-        WalkStatus,
-        WalkError,
-    > {
+                                                      -> std::result::Result<
+                                                          WalkStatus,
+                                                          WalkError,
+                                                      > {
         if entering {
             if matches_extension_kind!(a, nref, LmdDirective) {
                 let d = as_extension_data!(a, nref, LmdDirective);
@@ -235,10 +239,10 @@ pub(crate) fn splice_template_only(ctx: &Rc<EngineContext>, segment: &str) -> St
     let _ = ast::walk::<WalkError>(&arena, root, &mut |a: &ast::Arena,
                                                        nref: ast::NodeRef,
                                                        entering: bool|
-     -> std::result::Result<
-        WalkStatus,
-        WalkError,
-    > {
+                                                       -> std::result::Result<
+                                                           WalkStatus,
+                                                           WalkError,
+                                                       > {
         if entering {
             if matches_extension_kind!(a, nref, LmdDirective) {
                 let d = as_extension_data!(a, nref, LmdDirective);
@@ -557,5 +561,23 @@ mod crp_hook_tests {
             out.contains("<!-- crp:tdd -->"),
             "guidance still present: {out}"
         );
+    }
+
+    #[test]
+    fn human_consumer_glosses_work_directives() {
+        use crate::lmd::engine::render;
+        let doc = "@lean-md\nconsumer: human\n\n@read src/foo.rs\n";
+        let out = render(doc);
+        assert!(out.contains("Datei `src/foo.rs` lesen"), "glossed: {out}");
+        assert!(!out.contains("@read"), "directive not left raw: {out}");
+    }
+
+    #[test]
+    fn ai_consumer_still_executes_work_directives() {
+        use crate::lmd::engine::render;
+        // consumer=ai (default): @read is dispatched, not glossed.
+        let doc = "@lean-md\nconsumer: ai\n\n@read Cargo.toml\n";
+        let out = render(doc);
+        assert!(!out.contains("Datei `Cargo.toml` lesen"), "ai must not gloss: {out}");
     }
 }
