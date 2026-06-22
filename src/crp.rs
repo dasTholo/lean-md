@@ -47,7 +47,6 @@ pub fn crp_guidance_block(mode: CrpMode) -> String {
 /// caller can extend `EngineContext.crp_sigs` for legend aggregation. Only
 /// called for `Compact`/`Tdd` — `Off` keeps delegating to the core handler for
 /// byte-identity. An optional `kind` filter matches `Signature.kind` exactly.
-#[allow(dead_code)]
 pub fn render_file_signatures(
     content: &str,
     ext: &str,
