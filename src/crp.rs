@@ -146,7 +146,10 @@ mod tests {
         let refs: Vec<&Signature> = vec![&s];
         let legend = human_legend(&refs);
         assert!(legend.contains("Funktion"), "fn → Funktion: {legend}");
-        assert!(!legend.contains('λ'), "no dense glyphs in human legend: {legend}");
+        assert!(
+            !legend.contains('λ'),
+            "no dense glyphs in human legend: {legend}"
+        );
 
         // is_exported bucket
         let mut se = Signature::no_span();
@@ -158,7 +161,10 @@ mod tests {
             legend_e.contains("öffentlich"),
             "is_exported → öffentlich: {legend_e}"
         );
-        assert!(!legend_e.contains('+'), "no dense glyph + in human legend: {legend_e}");
+        assert!(
+            !legend_e.contains('+'),
+            "no dense glyph + in human legend: {legend_e}"
+        );
 
         // is_async bucket
         let mut sa = Signature::no_span();
@@ -170,7 +176,10 @@ mod tests {
             legend_a.contains("asynchron"),
             "is_async → asynchron: {legend_a}"
         );
-        assert!(!legend_a.contains('~'), "no dense glyph ~ in human legend: {legend_a}");
+        assert!(
+            !legend_a.contains('~'),
+            "no dense glyph ~ in human legend: {legend_a}"
+        );
     }
 
     #[test]

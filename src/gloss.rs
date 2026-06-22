@@ -47,7 +47,11 @@ fn render_template(name: &str, args: &DirectiveArgs) -> String {
     let op_key = args
         .positional(0)
         .map(|p| format!("{name}:{p}"))
-        .or_else(|| args.named_pairs().first().map(|(k, _)| format!("{name}:{k}")));
+        .or_else(|| {
+            args.named_pairs()
+                .first()
+                .map(|(k, _)| format!("{name}:{k}"))
+        });
     let tmpl = op_key
         .as_deref()
         .and_then(|k| table().get(k))
@@ -101,10 +105,22 @@ mod tests {
 
     #[test]
     fn glosses_common_work_directives() {
-        assert_eq!(gloss("read", "src/parser/block.rs"), "Datei `src/parser/block.rs` lesen");
-        assert_eq!(gloss("query", "\"cargo nextest run\""), "Ausführen: `cargo nextest run`");
-        assert_eq!(gloss("graph", "dependents=parse_block"), "Abhängige von `parse_block` ermitteln");
-        assert_eq!(gloss("symbol", "refs parse_block"), "Referenzen von `parse_block` ermitteln");
+        assert_eq!(
+            gloss("read", "src/parser/block.rs"),
+            "Datei `src/parser/block.rs` lesen"
+        );
+        assert_eq!(
+            gloss("query", "\"cargo nextest run\""),
+            "Ausführen: `cargo nextest run`"
+        );
+        assert_eq!(
+            gloss("graph", "dependents=parse_block"),
+            "Abhängige von `parse_block` ermitteln"
+        );
+        assert_eq!(
+            gloss("symbol", "refs parse_block"),
+            "Referenzen von `parse_block` ermitteln"
+        );
     }
 
     #[test]
@@ -123,10 +139,13 @@ mod tests {
     fn embedded_table_matches_on_disk_file() {
         // include_str! identity (Spec §6.4): the embedded bytes are the file.
         let on_disk = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../lean-md/gloss/directives.lmd.md"
+            env!("CARGO_MANIFEST_DIR"),
+            "/../lean-md/gloss/directives.lmd.md"
         ))
-            .expect("gloss file readable");
-        assert_eq!(GLOSS_TABLE_SRC, on_disk, "embedded gloss drifted from on-disk file");
+        .expect("gloss file readable");
+        assert_eq!(
+            GLOSS_TABLE_SRC, on_disk,
+            "embedded gloss drifted from on-disk file"
+        );
     }
 }

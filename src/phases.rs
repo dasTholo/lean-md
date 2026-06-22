@@ -924,10 +924,14 @@ trailing prose
     #[test]
     fn human_phase_emits_heading() {
         use crate::lmd::engine::render;
-        let doc = "@lean-md\nconsumer: human\n\n@phase \"A3-parser\"\n@read src/foo.rs\n@phase-end\n";
+        let doc =
+            "@lean-md\nconsumer: human\n\n@phase \"A3-parser\"\n@read src/foo.rs\n@phase-end\n";
         let out = render(doc);
         assert!(out.contains("## Phase: A3-parser"), "heading: {out}");
-        assert!(out.contains("Datei `src/foo.rs` lesen"), "body glossed: {out}");
+        assert!(
+            out.contains("Datei `src/foo.rs` lesen"),
+            "body glossed: {out}"
+        );
     }
 
     #[test]
@@ -935,6 +939,9 @@ trailing prose
         use crate::lmd::engine::render;
         let doc = "@lean-md\nconsumer: ai\n\n@phase \"A3-parser\"\nplain line\n@phase-end\n";
         let out = render(doc);
-        assert!(!out.contains("## Phase: A3-parser"), "ai: no heading: {out}");
+        assert!(
+            !out.contains("## Phase: A3-parser"),
+            "ai: no heading: {out}"
+        );
     }
 }

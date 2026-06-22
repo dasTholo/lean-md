@@ -131,10 +131,10 @@ pub(crate) fn splice_directives(
     let _ = ast::walk::<WalkError>(arena, root, &mut |a: &ast::Arena,
                                                       nref: ast::NodeRef,
                                                       entering: bool|
-                                                      -> std::result::Result<
-                                                          WalkStatus,
-                                                          WalkError,
-                                                      > {
+     -> std::result::Result<
+        WalkStatus,
+        WalkError,
+    > {
         if entering {
             if matches_extension_kind!(a, nref, LmdDirective) {
                 let d = as_extension_data!(a, nref, LmdDirective);
@@ -239,10 +239,10 @@ pub(crate) fn splice_template_only(ctx: &Rc<EngineContext>, segment: &str) -> St
     let _ = ast::walk::<WalkError>(&arena, root, &mut |a: &ast::Arena,
                                                        nref: ast::NodeRef,
                                                        entering: bool|
-                                                       -> std::result::Result<
-                                                           WalkStatus,
-                                                           WalkError,
-                                                       > {
+     -> std::result::Result<
+        WalkStatus,
+        WalkError,
+    > {
         if entering {
             if matches_extension_kind!(a, nref, LmdDirective) {
                 let d = as_extension_data!(a, nref, LmdDirective);
@@ -591,7 +591,10 @@ mod crp_hook_tests {
         // consumer=ai (default): @read is dispatched, not glossed.
         let doc = "@lean-md\nconsumer: ai\n\n@read Cargo.toml\n";
         let out = render(doc);
-        assert!(!out.contains("Datei `Cargo.toml` lesen"), "ai must not gloss: {out}");
+        assert!(
+            !out.contains("Datei `Cargo.toml` lesen"),
+            "ai must not gloss: {out}"
+        );
     }
 
     #[test]
@@ -601,8 +604,14 @@ mod crp_hook_tests {
         // dense guidance block (D-12).
         let doc = "@lean-md\nconsumer: human\ncrp: tdd\n\n@read src/foo.rs\n";
         let out = render(doc);
-        assert!(!out.contains("<!-- crp:tdd -->"), "no dense guidance for human: {out}");
-        assert!(!out.contains("<!-- crp:legend -->"), "no dense legend for human: {out}");
+        assert!(
+            !out.contains("<!-- crp:tdd -->"),
+            "no dense guidance for human: {out}"
+        );
+        assert!(
+            !out.contains("<!-- crp:legend -->"),
+            "no dense legend for human: {out}"
+        );
     }
 
     #[test]
