@@ -69,6 +69,12 @@ pub fn human_legend<'a>(sigs: &[&'a Signature]) -> String {
     if has(&|s| matches!(s.kind, "const" | "let" | "var")) {
         parts.push("Wert/Konstante");
     }
+    if has(&|s| s.is_exported) {
+        parts.push("öffentlich");
+    }
+    if has(&|s| s.is_async) {
+        parts.push("asynchron");
+    }
     if parts.is_empty() {
         String::new()
     } else {
@@ -141,6 +147,30 @@ mod tests {
         let legend = human_legend(&refs);
         assert!(legend.contains("Funktion"), "fn → Funktion: {legend}");
         assert!(!legend.contains('λ'), "no dense glyphs in human legend: {legend}");
+
+        // is_exported bucket
+        let mut se = Signature::no_span();
+        se.kind = "fn";
+        se.is_exported = true;
+        let refs_e: Vec<&Signature> = vec![&se];
+        let legend_e = human_legend(&refs_e);
+        assert!(
+            legend_e.contains("öffentlich"),
+            "is_exported → öffentlich: {legend_e}"
+        );
+        assert!(!legend_e.contains('+'), "no dense glyph + in human legend: {legend_e}");
+
+        // is_async bucket
+        let mut sa = Signature::no_span();
+        sa.kind = "fn";
+        sa.is_async = true;
+        let refs_a: Vec<&Signature> = vec![&sa];
+        let legend_a = human_legend(&refs_a);
+        assert!(
+            legend_a.contains("asynchron"),
+            "is_async → asynchron: {legend_a}"
+        );
+        assert!(!legend_a.contains('~'), "no dense glyph ~ in human legend: {legend_a}");
     }
 
     #[test]
