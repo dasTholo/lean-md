@@ -11,6 +11,7 @@ pub mod edit;
 pub mod env;
 pub mod find;
 pub mod graph;
+pub mod handoff;
 pub mod impact;
 pub mod include;
 pub mod inspect;
@@ -89,6 +90,7 @@ pub fn default_registry() -> BridgeRegistry {
     reg.register(Box::new(edit::EditBridge));
     reg.register(Box::new(env::EnvBridge));
     reg.register(Box::new(graph::GraphBridge));
+    reg.register(Box::new(handoff::HandoffBridge));
     reg.register(Box::new(find::FindBridge));
     reg.register(Box::new(impact::ImpactBridge));
     reg.register(Box::new(repomap::RepomapBridge));
@@ -134,6 +136,7 @@ mod tests {
             "count",
             "query",
             "graph",
+            "handoff",
             "edit",
             "symbol",
             "refactor",

@@ -177,4 +177,9 @@ mod tests {
             "got: {err:?}"
         );
     }
+
+    #[test]
+    fn handoff_is_registered() {
+        assert!(super::super::default_registry().get("handoff").is_some());
+    }
 }
