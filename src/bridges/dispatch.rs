@@ -58,21 +58,18 @@ impl DirectiveBridge for DispatchBridge {
             .map_err(|_| BridgeError::Resolve("CONTRACT_UNAVAILABLE".to_string()))?;
         let mut contract = contract_raw.replace("{{ role }}", role);
         let mut warning = String::new();
-        let missing_to_agent = match args.get("to_agent") {
-            Some(id) => {
-                contract = contract.replace("{{ controller_id }}", id);
-                false
-            }
-            None => {
-                warning.push_str(
-                    "<!-- lmd: WARNING @dispatch to_agent missing; baton placeholder kept -->\n",
-                );
-                // Replace {{ controller_id }} with a parser-opaque sentinel so that
-                // render_body does not evaluate and destroy the placeholder. We restore
-                // the literal {{ controller_id }} in the output afterward.
-                contract = contract.replace("{{ controller_id }}", CONTROLLER_ID_SENTINEL);
-                true
-            }
+        let missing_to_agent = if let Some(id) = args.get("to_agent") {
+            contract = contract.replace("{{ controller_id }}", id);
+            false
+        } else {
+            warning.push_str(
+                "<!-- lmd: WARNING @dispatch to_agent missing; baton placeholder kept -->\n",
+            );
+            // Replace {{ controller_id }} with a parser-opaque sentinel so that
+            // render_body does not evaluate and destroy the placeholder. We restore
+            // the literal {{ controller_id }} in the output afterward.
+            contract = contract.replace("{{ controller_id }}", CONTROLLER_ID_SENTINEL);
+            true
         };
         let mut contract_rendered = render_body(ctx, &contract); // resolves @include hard-rules
         if missing_to_agent {
@@ -167,6 +164,16 @@ mod tests {
         assert!(
             out.contains("@read a.rs"),
             "render must still produce the prompt: {out}"
+        );
+    }
+
+    #[test]
+    fn invalid_role_is_rejected() {
+        let doc = "@phase \"P\"\n@read a.rs\n@phase-end\n\n@dispatch phase=\"P\" role=admin to_agent=\"c\"\n";
+        let out = render(doc);
+        assert!(
+            out.contains("unknown @dispatch role") || out.contains("admin"),
+            "invalid role must surface an error: {out}"
         );
     }
 }
