@@ -15,6 +15,34 @@ const HARD_RULES: &str = "\
 - Edit *.rs via the @edit directive (or ctx_edit); reformat before commit via ctx_refactor action=reformat.
 ";
 
+/// Built-in `dispatch-contract` fragment (Spec §3.1, D-5/D-11). Block (b) of a
+/// `@dispatch` render: tool-discipline + register/handoff baton. Portiert aus
+/// `.claude/rules/subagent-multi-agent.md`. `{{ role }}` / `{{ controller_id }}`
+/// bleiben verbatim — die `DispatchBridge` (Phase 7C) substituiert sie.
+const DISPATCH_CONTRACT: &str = "\
+## lean-ctx Subagent Contract (MANDATORY)
+You run in an isolated context. Before any other action:
+1. ctx_agent action=register agent_type=subagent role={{ role }}
+   (the controller's cache is already shared — no ctx_share pull, just ctx_read)
+
+@include hard-rules
+
+Tool discipline:
+- Under tool_profile=power ALL lean-ctx tools are DIRECT — call them DIRECTLY. If one
+  shows up deferred, run ToolSearch(query=\"select:<tool>\") FIRST, then call it. NEVER
+  wrap a tool in ctx_call.
+- NEVER fresh, NEVER raw — to re-read your own edits use ctx_delta or ctx_read mode=diff.
+- Search → ctx_search (never grep/rg); read files → ctx_read (never cat).
+- Rust (*.rs) edits → native Edit / ctx_edit; symbol nav/refactor → ctx_refactor / @symbol.
+- git commit: PLAIN git commit -m \"subject\" -m \"trailer\" — NEVER a heredoc / $( ) subshell.
+
+On finish:
+- ctx_agent action=post category=<status|finding> message=\"<summary>\"
+- ctx_agent action=handoff to_agent={{ controller_id }} message=\"<baton>\"
+- ctx_knowledge action=remember for any durable fact/gotcha
+Report final status: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
+";
+
 #[derive(Debug)]
 pub enum ResolveError {
     NotFound(String),
@@ -32,6 +60,7 @@ impl FragmentRegistry {
     pub fn with_builtins() -> Self {
         let mut builtins = HashMap::new();
         builtins.insert("hard-rules", HARD_RULES);
+        builtins.insert("dispatch-contract", DISPATCH_CONTRACT);
         Self { builtins }
     }
 
@@ -102,6 +131,34 @@ mod tests {
         let reg = FragmentRegistry::with_builtins();
         let err = reg.resolve("../etc/passwd", Path::new(".")).unwrap_err();
         assert!(matches!(err, ResolveError::Jail(_)));
+    }
+
+    #[test]
+    fn dispatch_contract_is_a_builtin_with_placeholders() {
+        let reg = FragmentRegistry::with_builtins();
+        let out = reg.resolve("dispatch-contract", Path::new(".")).unwrap();
+        // Parametrisierung bleibt verbatim — Substitution ist Sache der DispatchBridge.
+        assert!(
+            out.contains("{{ role }}"),
+            "contract must carry the {{{{ role }}}} placeholder"
+        );
+        assert!(
+            out.contains("{{ controller_id }}"),
+            "contract must carry the {{{{ controller_id }}}} placeholder"
+        );
+        // Kanonische Bausteine (Spec §3.1): register-Zeile + Baton + Disziplin-Verweis.
+        assert!(
+            out.contains("ctx_agent"),
+            "contract must instruct ctx_agent register/handoff"
+        );
+        assert!(
+            out.contains("hard-rules"),
+            "contract must compose hard-rules (@include)"
+        );
+        assert!(
+            out.contains("NEVER"),
+            "contract must carry the tool-discipline guardrails"
+        );
     }
 
     #[test]
