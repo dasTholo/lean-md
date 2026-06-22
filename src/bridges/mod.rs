@@ -7,6 +7,7 @@ pub mod architecture;
 pub mod call;
 pub mod count;
 pub mod date;
+pub mod dispatch;
 pub mod edit;
 pub mod env;
 pub mod find;
@@ -87,6 +88,7 @@ pub fn default_registry() -> BridgeRegistry {
     reg.register(Box::new(call::CallBridge));
     reg.register(Box::new(count::CountBridge));
     reg.register(Box::new(date::DateBridge));
+    reg.register(Box::new(dispatch::DispatchBridge));
     reg.register(Box::new(edit::EditBridge));
     reg.register(Box::new(env::EnvBridge));
     reg.register(Box::new(graph::GraphBridge));
@@ -133,6 +135,7 @@ mod tests {
             "list",
             "env",
             "date",
+            "dispatch",
             "count",
             "query",
             "graph",
