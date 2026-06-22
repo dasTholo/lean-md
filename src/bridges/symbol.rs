@@ -120,9 +120,11 @@ fn nav(
     }
 }
 
-/// `@symbol overview <path>` → ctx_refactor symbols_overview (path only).
+/// `@symbol overview <path>` → symbols of one file. `Off` delegates to
+/// ctx_refactor symbols_overview (byte-identical). `Compact`/`Tdd` render the
+/// signature notation locally and collect sigs for the End-Hook legend (E-3).
 fn overview(
-    _ctx: &Rc<EngineContext>,
+    ctx: &Rc<EngineContext>,
     args: &DirectiveArgs,
     root: &str,
 ) -> Result<String, BridgeError> {
@@ -132,8 +134,22 @@ fn overview(
         .ok_or(BridgeError::MissingArg("path"))?;
     let abs = crate::core::path_resolve::resolve_tool_path(Some(root), None, path)
         .map_err(|e| BridgeError::Resolve(format!("path blocked by jail: {e}")))?;
-    let obj = serde_json::json!({ "action": "symbols_overview" });
-    Ok(crate::tools::ctx_refactor::handle(&obj, root, &abs))
+
+    if ctx.header.crp == crate::core::protocol::CrpMode::Off {
+        let obj = serde_json::json!({ "action": "symbols_overview" });
+        return Ok(crate::tools::ctx_refactor::handle(&obj, root, &abs));
+    }
+
+    let content = std::fs::read_to_string(&abs)
+        .map_err(|e| BridgeError::Resolve(format!("read {abs}: {e}")))?;
+    let ext = std::path::Path::new(&abs)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    let (rendered, sigs) =
+        crate::lmd::crp::render_file_signatures(&content, ext, ctx.header.crp, None);
+    ctx.crp_sigs.borrow_mut().extend(sigs);
+    Ok(rendered)
 }
 
 /// `impl X for Y { … }` → `Y`; `impl Y { … }` → `Y`; otherwise None.
@@ -302,6 +318,49 @@ mod tests {
 
     fn ctx_at(root: PathBuf) -> Rc<EngineContext> {
         Rc::new(EngineContext::new(LeanMdHeader::default(), root))
+    }
+
+    fn ctx_with_crp(root: PathBuf, crp: crate::core::protocol::CrpMode) -> Rc<EngineContext> {
+        let mut h = LeanMdHeader::default();
+        h.crp = crp;
+        Rc::new(EngineContext::new(h, root))
+    }
+
+    #[test]
+    fn overview_tdd_emits_symbols_and_collects_sigs() {
+        use crate::core::protocol::CrpMode;
+        let dir = std::env::temp_dir().join("lmd_symbol_overview_tdd");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("o.rs");
+        std::fs::write(&f, "pub fn alpha() {}\npub struct Beta;\n").unwrap();
+        let ctx = ctx_with_crp(dir.clone(), CrpMode::Tdd);
+        let args = DirectiveArgs::parse(&format!("overview {}", f.to_str().unwrap()));
+        let out = SymbolBridge.execute(&ctx, &args).unwrap();
+        assert!(out.contains("λ+alpha"), "tdd fn form: {out}");
+        assert!(out.contains("§+Beta"), "tdd struct form: {out}");
+        assert!(
+            !out.contains("§=class"),
+            "bridge must NOT emit legend: {out}"
+        );
+        assert!(!ctx.crp_sigs.borrow().is_empty(), "sigs collected");
+    }
+
+    #[test]
+    fn overview_off_is_unchanged_handler_output() {
+        use crate::core::protocol::CrpMode;
+        let dir = std::env::temp_dir().join("lmd_symbol_overview_off");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("o.rs");
+        std::fs::write(&f, "pub fn alpha() {}\n").unwrap();
+        let ctx = ctx_with_crp(dir.clone(), CrpMode::Off);
+        let args = DirectiveArgs::parse(&format!("overview {}", f.to_str().unwrap()));
+        let out = SymbolBridge.execute(&ctx, &args).unwrap();
+        // Off keeps the ctx_refactor symbols_overview envelope (no λ/§ glyphs).
+        assert!(
+            !out.contains("λ+") && !out.contains("§+"),
+            "Off stays non-symbolic: {out}"
+        );
+        assert!(ctx.crp_sigs.borrow().is_empty(), "Off collects no sigs");
     }
 
     #[test]
