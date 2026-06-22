@@ -277,14 +277,20 @@ pub(crate) fn splice_template_only(ctx: &Rc<EngineContext>, segment: &str) -> St
 
 /// Phase-8 CRP End-Hook (spec §2.4). Last step of the outermost `render_body`.
 /// `Off` is a byte-identical passthrough (#498 regression anchor). `Compact`/
-/// `Tdd` append a stable-header suffix — filled in Tasks 4 and 7.
+/// `Tdd` append a stable-header suffix; the aggregated symbol legend (Tdd only)
+/// is added in Task 7.
 pub fn apply_crp_hook(ctx: &Rc<EngineContext>, rendered: String) -> String {
     use crate::core::protocol::CrpMode;
-    match ctx.header.crp {
-        CrpMode::Off => rendered,
-        // Placeholder until Task 4/7: behave like Off for now.
-        CrpMode::Compact | CrpMode::Tdd => rendered,
+    let mode = ctx.header.crp;
+    if mode == CrpMode::Off {
+        return rendered;
     }
+    let mut out = rendered;
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(&super::crp::crp_guidance_block(mode));
+    out
 }
 
 #[cfg(test)]
@@ -467,5 +473,36 @@ mod tests {
             !out.contains("{{ inlinevar }}"),
             "inline span was actually replaced: {out:?}"
         );
+    }
+}
+
+#[cfg(test)]
+mod crp_hook_tests {
+    use crate::lmd::engine::render;
+
+    #[test]
+    fn off_appends_no_suffix() {
+        let out = render("@lean-md\ncrp: off\n\n# H\n");
+        assert!(!out.contains("crp:compact") && !out.contains("crp:tdd"));
+    }
+
+    #[test]
+    fn compact_appends_guidance_no_symbol_legend() {
+        let out = render("@lean-md\ncrp: compact\n\n# H\n");
+        assert!(
+            out.contains("<!-- crp:compact -->"),
+            "guidance suffix: {out}"
+        );
+        assert!(
+            !out.contains("crp:legend"),
+            "compact has no symbol legend: {out}"
+        );
+    }
+
+    #[test]
+    fn tdd_appends_guidance_suffix() {
+        // Legend aggregation lands in Task 7; here we only assert the guidance.
+        let out = render("@lean-md\ncrp: tdd\n\n# H\n");
+        assert!(out.contains("<!-- crp:tdd -->"), "guidance suffix: {out}");
     }
 }
