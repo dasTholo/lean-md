@@ -520,9 +520,10 @@ mod crp_hook_tests {
 
     #[test]
     fn tdd_aggregates_one_legend_for_present_symbols() {
-        // Use a path inside the workspace so the jail (PathBuf::from(".")) accepts it.
-        let dir =
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_tmp/lmd_crp_legend_co");
+        // Use target/ so the jail (PathBuf::from(".")) accepts it and git never
+        // sees the fixture (target/ is gitignored).
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target/test_tmp/lmd_crp_legend_co");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("c.rs");
         std::fs::write(&f, "pub fn alpha() {}\npub struct Beta;\n").unwrap();

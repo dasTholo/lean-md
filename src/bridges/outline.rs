@@ -63,8 +63,10 @@ mod tests {
     }
 
     fn ctx_with_crp(root: PathBuf, crp: crate::core::protocol::CrpMode) -> Rc<EngineContext> {
-        let mut h = LeanMdHeader::default();
-        h.crp = crp;
+        let h = LeanMdHeader {
+            crp,
+            ..Default::default()
+        };
         Rc::new(EngineContext::new(h, root))
     }
 
