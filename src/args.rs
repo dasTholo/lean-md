@@ -61,6 +61,17 @@ impl DirectiveArgs {
     pub fn named_pairs(&self) -> &[(String, String)] {
         &self.named
     }
+
+    /// Reconstructed token string: positionals space-joined, then named as
+    /// `key=val`. Strips surrounding quotes that `raw()` preserves verbatim.
+    /// Used by the `{raw}` gloss slot so quoted args render without quotes.
+    pub(crate) fn tokens_joined(&self) -> String {
+        let mut parts: Vec<String> = self.positional.clone();
+        for (k, v) in &self.named {
+            parts.push(format!("{k}={v}"));
+        }
+        parts.join(" ")
+    }
 }
 
 /// Whitespace-split that honors `"double"` and `'single'` quotes. A token may
