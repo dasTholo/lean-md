@@ -15,7 +15,6 @@ use crate::core::session::SessionState;
 use crate::core::cache::SessionCache;
 use crate::core::call_graph::{CallGraph, CallGraphInputs};
 use crate::core::graph_index::{self, ProjectIndex};
-use rushdown::new_markdown_to_html;
 
 use super::bridges::{BridgeError, BridgeRegistry, default_registry};
 use super::fragments::FragmentRegistry;
@@ -23,7 +22,6 @@ use super::header::{Consumer, LeanMdHeader, parse_header};
 use super::macros::MacroRegistry;
 use super::parser::lmd_parser_extension;
 use super::phases::PhaseScope;
-use super::render::lmd_renderer_extension;
 
 /// Optional handles into the process-global memory stores (spec §7). Present
 /// only on the MCP `ctx_md_*` path (Phase 9); absent in headless `render()` and
@@ -186,19 +184,18 @@ pub fn render_body(ctx: &Rc<EngineContext>, body: &str) -> String {
     super::phases::render_with_phases(ctx, &body)
 }
 
-/// Render one markdown segment through the rushdown closure wired with the lmd
-/// extensions. Single render of a segment — reused by `render_body`'s phase-free
-/// fast path and by the phase executor for non-phase regions / intra-phase prose.
+/// Render one markdown segment through the lmd parse+splice pipeline.
+/// Parses with the standalone `Parser` + lmd parser extension, then splices
+/// directive outputs back into the source — output is Markdown, not HTML.
+/// Single render of a segment — reused by `render_body`'s phase-free fast path
+/// and by the phase executor for non-phase regions / intra-phase prose.
 pub(crate) fn render_markdown(ctx: &Rc<EngineContext>, segment: &str) -> String {
-    let render = new_markdown_to_html(
-        rushdown::parser::Options::default(),
-        rushdown::renderer::html::Options::default(),
-        lmd_parser_extension(),
-        lmd_renderer_extension(ctx.clone()),
-    );
-    let mut out = String::new();
-    let _ = render(&mut out, segment);
-    out
+    use rushdown::parser::{Options as ParserOptions, Parser};
+    use rushdown::text::BasicReader;
+    let parser = Parser::with_extensions(ParserOptions::default(), lmd_parser_extension());
+    let mut reader = BasicReader::new(segment);
+    let (arena, root) = parser.parse(&mut reader);
+    super::render::splice_directives(ctx, segment, &arena, root)
 }
 
 #[cfg(test)]
@@ -879,6 +876,38 @@ flag is {{ env.LMD_P4_GOLDEN == \"on\" }}
             ctx.sinks.is_none(),
             "headless ctx must degrade memory sinks to no-op"
         );
+    }
+
+    #[test]
+    fn markdown_purity_no_html_leak() {
+        let input = "# H1\n\n## H2\n\nPara with *em* and **strong** and `code`.\n\n\
+> a quote\n\n- l1\n  - nested\n- l2\n\n```rust\nfn x() {}\n```\n\n\
+| a | b |\n|---|---|\n| 1 | 2 |\n\n[link](http://e.x)\n";
+        let out = render(input);
+        assert_eq!(
+            out, input,
+            "no-directive doc must be byte-identical passthrough:\n{out}"
+        );
+        for tag in [
+            "<p>",
+            "<h1>",
+            "<h2>",
+            "<li>",
+            "<blockquote>",
+            "<table>",
+            "<pre>",
+            "<code>",
+        ] {
+            assert!(!out.contains(tag), "HTML leak {tag} in: {out}");
+        }
+    }
+
+    #[test]
+    fn render_determinism_byte_identical() {
+        let f = std::env::temp_dir().join("lmd_det_t4.txt");
+        std::fs::write(&f, "DET_SENTINEL\n").unwrap();
+        let src = format!("# T\n\nsee @read {} now\n", f.to_str().unwrap());
+        assert_eq!(render(&src), render(&src), "render must be deterministic");
     }
 
     #[test]

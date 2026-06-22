@@ -23,6 +23,8 @@ use super::engine::EngineContext;
 use super::node::{LmdDirective, LmdInline, LmdPipe};
 
 /// Carries the engine context into the render hook.
+// removed in V-5 (Task 5)
+#[allow(dead_code)]
 pub struct LmdRendererOptions {
     pub ctx: Rc<EngineContext>,
 }
@@ -118,6 +120,8 @@ fn dispatch_pipe(
     }
 }
 
+// removed in V-5 (Task 5)
+#[allow(dead_code)]
 pub struct LmdDirectiveRenderer<W: TextWrite> {
     _phantom: core::marker::PhantomData<W>,
     writer: html::Writer,
@@ -166,6 +170,8 @@ where
     }
 }
 
+// removed in V-5 (Task 5)
+#[allow(dead_code)]
 pub struct LmdInlineRenderer<W: TextWrite> {
     _phantom: core::marker::PhantomData<W>,
     writer: html::Writer,
@@ -214,6 +220,8 @@ where
     }
 }
 
+// removed in V-5 (Task 5)
+#[allow(dead_code)]
 pub struct LmdPipeRenderer<W: TextWrite> {
     _phantom: core::marker::PhantomData<W>,
     writer: html::Writer,
@@ -265,6 +273,8 @@ where
 }
 
 /// Registers both lmd node renderers, each carrying a clone of the engine ctx.
+// removed in V-5 (Task 5)
+#[allow(dead_code)]
 pub fn lmd_renderer_extension<'cb, W>(ctx: Rc<EngineContext>) -> impl RendererExtension<'cb, W>
 where
     W: TextWrite + 'cb,
