@@ -77,6 +77,13 @@ pub struct EngineContext {
     imported: RefCell<HashSet<PathBuf>>,
     /// Memory-store sink handles (spec §7). `None` ⇒ no-op degradation.
     pub sinks: Option<SinkHandles>,
+    /// Phase-8 CRP: nesting guard so `apply_crp_hook` fires once — on the
+    /// outermost `render_body` only (re-entrant @include/@dispatch must not
+    /// each append a suffix).
+    render_depth: Cell<usize>,
+    /// Phase-8 CRP: signatures emitted by the symbol bridges during this render.
+    /// Drained by `apply_crp_hook` to build ONE aggregated `tdd_legend` (E-4b).
+    pub(crate) crp_sigs: RefCell<Vec<crate::core::signatures::Signature>>,
 }
 
 impl EngineContext {
@@ -97,6 +104,8 @@ impl EngineContext {
             phase_bodies: RefCell::new(HashMap::new()),
             imported: RefCell::new(HashSet::new()),
             sinks: None,
+            render_depth: Cell::new(0),
+            crp_sigs: RefCell::new(Vec::new()),
         }
     }
     /// Construct with memory sinks wired (MCP `ctx_md_*` path, Phase 9).
@@ -187,6 +196,9 @@ pub fn render(input: &str) -> String {
 /// Build a fresh rushdown render closure wired with the lmd extensions and
 /// render `body`. Re-entrant: `@include` calls this for fragment content.
 pub fn render_body(ctx: &Rc<EngineContext>, body: &str) -> String {
+    let outermost = ctx.render_depth.get() == 0;
+    ctx.render_depth.set(ctx.render_depth.get() + 1);
+
     // Pass 1 (4A): strip the definition space (@define/@import) → registry.
     let body = super::macros::extract_definitions(ctx, body);
     // Pass 3 (spec §2.3): prune @if/@consumer containers → winning branch (raw).
@@ -194,7 +206,17 @@ pub fn render_body(ctx: &Rc<EngineContext>, body: &str) -> String {
     // Phase 7C: capture raw @phase bodies for name-lookup by @dispatch (D-4).
     super::phases::capture_phase_bodies(ctx, &body);
     // Pass 4 (Phase 6): execute @phase blocks; phase-free input is a fast pass-through.
-    super::phases::render_with_phases(ctx, &body)
+    let rendered = super::phases::render_with_phases(ctx, &body);
+
+    ctx.render_depth
+        .set(ctx.render_depth.get().saturating_sub(1));
+    // Phase 8 E-4: CRP hook runs only on the outermost render so the legend +
+    // guidance suffix is appended exactly once per document.
+    if outermost {
+        super::render::apply_crp_hook(ctx, rendered)
+    } else {
+        rendered
+    }
 }
 
 /// Render one markdown segment through the lmd parse+splice pipeline.
@@ -953,5 +975,33 @@ flag is {{ env.LMD_P4_GOLDEN == \"on\" }}
             PathBuf::from("."),
         );
         assert_eq!(human.consumer_hint(), 1, "human must be 1");
+    }
+
+    #[test]
+    fn off_render_is_byte_identical_passthrough() {
+        // E-3 regression anchor: a document WITHOUT crp= must render exactly the
+        // same bytes whether or not the Phase-8 hook is present.
+        let doc = "# Heading\n\nSome prose line.\n";
+        // No @lean-md header → crp defaults to Off.
+        let out = render(doc);
+        assert_eq!(out, render(doc), "render must be deterministic");
+        assert!(
+            !out.contains("crp:"),
+            "Off render must not emit any crp suffix: {out}"
+        );
+        assert!(out.contains("Some prose line."));
+    }
+
+    #[test]
+    fn hook_fires_once_not_per_nested_render() {
+        // render_body is re-entrant (@include / @dispatch contract). For Off the
+        // passthrough is harmless, but the depth guard must exist so later modes
+        // append exactly one suffix. Here we assert Off stays suffix-free even
+        // with an @include (which re-enters render_body).
+        let out = render("@include hard-rules\n");
+        assert!(
+            !out.contains("crp:"),
+            "nested Off render stays clean: {out}"
+        );
     }
 }

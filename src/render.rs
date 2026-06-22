@@ -275,6 +275,18 @@ pub(crate) fn splice_template_only(ctx: &Rc<EngineContext>, segment: &str) -> St
     out
 }
 
+/// Phase-8 CRP End-Hook (spec §2.4). Last step of the outermost `render_body`.
+/// `Off` is a byte-identical passthrough (#498 regression anchor). `Compact`/
+/// `Tdd` append a stable-header suffix — filled in Tasks 4 and 7.
+pub fn apply_crp_hook(ctx: &Rc<EngineContext>, rendered: String) -> String {
+    use crate::core::protocol::CrpMode;
+    match ctx.header.crp {
+        CrpMode::Off => rendered,
+        // Placeholder until Task 4/7: behave like Off for now.
+        CrpMode::Compact | CrpMode::Tdd => rendered,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
