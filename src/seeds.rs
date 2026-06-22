@@ -53,7 +53,7 @@ mod tests {
         assert!(!PROJECT_SEEDS.is_empty());
         let mut paths: Vec<&str> = PROJECT_SEEDS.iter().map(|(p, _)| *p).collect();
         let n = paths.len();
-        paths.sort();
+        paths.sort_unstable();
         paths.dedup();
         assert_eq!(paths.len(), n, "duplicate seed target paths");
         for (_, content) in PROJECT_SEEDS {
