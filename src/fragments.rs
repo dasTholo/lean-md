@@ -70,27 +70,11 @@ impl FragmentRegistry {
         if let Some(content) = self.builtins.get(name) {
             return Ok((*content).to_string());
         }
-        // Reject path-traversal components (ParentDir/RootDir) BEFORE any filesystem
-        // access. Do NOT remove as "redundant": canonicalize() on a non-existent
-        // traversal path fails with NotFound (masking the escape) and never reaches
-        // the starts_with(jail) check below — so this upfront guard is load-bearing.
-        if Path::new(name).components().any(|c| {
-            matches!(
-                c,
-                std::path::Component::ParentDir | std::path::Component::RootDir
-            )
-        }) {
-            return Err(ResolveError::Jail(format!("{name} escapes jail")));
-        }
         let candidate = jail_root.join(format!("{name}.lmd.md"));
-        let jail = jail_root
-            .canonicalize()
-            .map_err(|e| ResolveError::Jail(format!("jail root: {e}")))?;
-        let resolved = candidate
-            .canonicalize()
-            .map_err(|_| ResolveError::NotFound(name.to_string()))?;
-        if !resolved.starts_with(&jail) {
-            return Err(ResolveError::Jail(format!("{name} escapes jail")));
+        let resolved = crate::core::pathjail::jail_path(&candidate, jail_root)
+            .map_err(|_| ResolveError::Jail(format!("{name} escapes jail")))?;
+        if !resolved.exists() {
+            return Err(ResolveError::NotFound(name.to_string()));
         }
         std::fs::read_to_string(&resolved).map_err(|e| ResolveError::Io(e.to_string()))
     }
@@ -160,6 +144,18 @@ mod tests {
         assert!(
             out.contains("NEVER"),
             "contract must carry the tool-discipline guardrails"
+        );
+    }
+
+    #[test]
+    fn absolute_path_name_is_jailed() {
+        // M-1 hardening: an absolute name must not escape the jail.
+        // jail_path catches /etc/passwd → not inside jail_root → Err → Jail variant.
+        let reg = FragmentRegistry::with_builtins();
+        let err = reg.resolve("/etc/passwd", Path::new(".")).unwrap_err();
+        assert!(
+            matches!(err, ResolveError::Jail(_)),
+            "absolute name must produce Jail error, got: {err:?}"
         );
     }
 
