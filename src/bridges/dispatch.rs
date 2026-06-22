@@ -176,4 +176,17 @@ mod tests {
             "invalid role must surface an error: {out}"
         );
     }
+
+    #[test]
+    fn rendered_prompt_carries_native_read_prohibition() {
+        // §8.8 (Rust-Anteil): der Prompt selbst verbietet native I/O — die
+        // in-Prompt-Disziplin, die den Subagenten auf ctx_* zwingt.
+        let doc = "@phase \"P\"\n@read a.rs\n@phase-end\n\n@dispatch phase=\"P\" role=dev to_agent=\"c\"\n";
+        let out = render(doc);
+        assert!(out.contains("ctx_read"), "prompt must steer to ctx_read: {out}");
+        assert!(
+            out.contains("never cat") || out.contains("never grep/rg") || out.contains("NEVER"),
+            "prompt must prohibit native I/O: {out}"
+        );
+    }
 }
