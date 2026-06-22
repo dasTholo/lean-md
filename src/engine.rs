@@ -193,6 +193,27 @@ pub fn render(input: &str) -> String {
     render_body(&ctx, body)
 }
 
+/// Render `input` with caller overrides of the authored header (Phase 9, D-11).
+/// `consumer`/`crp` = `Some(..)` overrides the source's `@lean-md` header so a
+/// stored `consumer=ai`/`crp=tdd` plan can be rendered human without editing it;
+/// `None` keeps the source header. Used by `ctx_md_render` + `lean-ctx md`.
+pub fn render_with_overrides(
+    input: &str,
+    consumer: Option<crate::lmd::header::Consumer>,
+    crp: Option<crate::core::protocol::CrpMode>,
+    jail_root: PathBuf,
+) -> String {
+    let (mut header, body) = parse_header(input);
+    if let Some(c) = consumer {
+        header.consumer = c;
+    }
+    if let Some(m) = crp {
+        header.crp = m;
+    }
+    let ctx = Rc::new(EngineContext::new(header, jail_root));
+    render_body(&ctx, body)
+}
+
 /// Build a fresh rushdown render closure wired with the lmd extensions and
 /// render `body`. Re-entrant: `@include` calls this for fragment content.
 pub fn render_body(ctx: &Rc<EngineContext>, body: &str) -> String {
@@ -1002,6 +1023,29 @@ flag is {{ env.LMD_P4_GOLDEN == \"on\" }}
         assert!(
             !out.contains("crp:"),
             "nested Off render stays clean: {out}"
+        );
+    }
+
+    #[test]
+    fn render_with_overrides_forces_human_on_ai_tdd_source() {
+        use crate::lmd::header::Consumer;
+        use std::path::PathBuf;
+        // Source stored agent-facing (ai + tdd); render it human without editing it.
+        let doc = "@lean-md\nconsumer: ai\ncrp: tdd\n\n@read src/foo.rs\n";
+        let out = render_with_overrides(doc, Some(Consumer::Human), None, PathBuf::from("."));
+        assert!(out.contains("Datei `src/foo.rs` lesen"), "glossed: {out}");
+        assert!(!out.contains("<!-- crp:tdd -->"), "no dense suffix: {out}");
+    }
+
+    #[test]
+    fn render_with_overrides_none_keeps_source_header() {
+        use std::path::PathBuf;
+        let doc = "@lean-md\nconsumer: ai\n\n@read Cargo.toml\n";
+        let out = render_with_overrides(doc, None, None, PathBuf::from("."));
+        // ai default → @read dispatched, not glossed.
+        assert!(
+            !out.contains("Datei `Cargo.toml` lesen"),
+            "header respected: {out}"
         );
     }
 }
