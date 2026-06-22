@@ -9,9 +9,10 @@ use std::path::Path;
 /// goes into every dispatch (spec §3.3/§3.5). Kept short on purpose.
 const HARD_RULES: &str = "\
 # Hard Rules (lmd built-in)
-- I/O only via lean-ctx MCP tools (ctx_read/ctx_search/ctx_tree/ctx_shell), serena (symbols), jetbrains (reformat).
+- I/O only via lean-ctx MCP tools (ctx_read/ctx_search/ctx_tree/ctx_shell).
 - Never use native Read/Grep/cat/sed; never `ctx_shell raw=true` unless compression is provably wrong.
-- Edit *.rs only via serena symbol tools.
+- Symbol navigation / refactor via ctx_refactor and the @symbol directive.
+- Edit *.rs via the @edit directive (or ctx_edit); reformat before commit via ctx_refactor action=reformat.
 ";
 
 #[derive(Debug)]
@@ -101,5 +102,27 @@ mod tests {
         let reg = FragmentRegistry::with_builtins();
         let err = reg.resolve("../etc/passwd", Path::new(".")).unwrap_err();
         assert!(matches!(err, ResolveError::Jail(_)));
+    }
+
+    #[test]
+    fn hard_rules_has_no_stale_backings() {
+        // D-8: serena/jetbrains wurden entfernt; der Kanon darf sie nicht mehr nennen.
+        let reg = FragmentRegistry::with_builtins();
+        let out = reg.resolve("hard-rules", Path::new(".")).unwrap();
+        assert!(
+            !out.contains("serena"),
+            "stale backing 'serena' in hard-rules"
+        );
+        assert!(
+            !out.to_lowercase().contains("jetbrains"),
+            "stale backing 'jetbrains' in hard-rules"
+        );
+        // Die heutigen Backings müssen genannt sein.
+        assert!(
+            out.contains("ctx_refactor"),
+            "hard-rules must name ctx_refactor"
+        );
+        assert!(out.contains("@symbol"), "hard-rules must name @symbol");
+        assert!(out.contains("@edit"), "hard-rules must name @edit");
     }
 }
