@@ -7,6 +7,7 @@
 pub mod args;
 pub mod audit;
 pub mod bridges;
+pub mod crp;
 pub mod engine;
 pub mod fragments;
 pub mod header;

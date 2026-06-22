@@ -1,0 +1,101 @@
+//! Phase-8 CRP helpers (lmd-local). Notation rendering + the deterministic
+//! guidance block that `apply_crp_hook` appends for `compact`/`tdd`. All data
+//! derives from the canonical `core::tdd_schema` single source — this module
+//! only READS it (no `tools/`/`core/` edits, spec Phase-8 edit-jail).
+
+use crate::core::protocol::CrpMode;
+use crate::core::signatures::{Signature, extract_signatures};
+
+/// Output rules pulled from the canonical tdd-schema (`crp.output_rules`).
+/// `Off` → none. `Compact`/`Tdd` share the schema's single rule list.
+pub fn crp_output_rules(mode: CrpMode) -> Vec<String> {
+    if mode == CrpMode::Off {
+        return Vec::new();
+    }
+    let schema = crate::core::tdd_schema::tdd_schema_value();
+    schema["crp"]["output_rules"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Byte-stable guidance suffix block (#498): a fixed `<!-- crp:MODE -->` header
+/// followed by the output rules as bullets. Pure function of `mode`.
+pub fn crp_guidance_block(mode: CrpMode) -> String {
+    let header = match mode {
+        CrpMode::Off => return String::new(),
+        CrpMode::Compact => "<!-- crp:compact -->",
+        CrpMode::Tdd => "<!-- crp:tdd -->",
+    };
+    let mut s = String::new();
+    s.push_str(header);
+    s.push('\n');
+    for rule in crp_output_rules(mode) {
+        s.push_str("- ");
+        s.push_str(&rule);
+        s.push('\n');
+    }
+    s
+}
+
+/// Render a file's signatures in the given CRP mode WITHOUT a legend (the
+/// End-Hook owns the aggregated legend, E-4b). Returns `(rendered, sigs)` so the
+/// caller can extend `EngineContext.crp_sigs` for legend aggregation. Only
+/// called for `Compact`/`Tdd` — `Off` keeps delegating to the core handler for
+/// byte-identity. An optional `kind` filter matches `Signature.kind` exactly.
+#[allow(dead_code)]
+pub fn render_file_signatures(
+    content: &str,
+    ext: &str,
+    mode: CrpMode,
+    kind: Option<&str>,
+) -> (String, Vec<Signature>) {
+    let mut sigs = extract_signatures(content, ext);
+    if let Some(k) = kind.filter(|k| *k != "all") {
+        sigs.retain(|s| s.kind == k);
+    }
+    let rendered = sigs
+        .iter()
+        .map(|s| match mode {
+            CrpMode::Tdd => s.to_tdd_located(),
+            _ => s.to_compact_located(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    (rendered, sigs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::protocol::CrpMode;
+
+    #[test]
+    fn output_rules_empty_for_off_nonempty_for_dense() {
+        assert!(crp_output_rules(CrpMode::Off).is_empty());
+        assert!(!crp_output_rules(CrpMode::Compact).is_empty());
+        assert_eq!(
+            crp_output_rules(CrpMode::Compact),
+            crp_output_rules(CrpMode::Tdd),
+            "rules derive from the single tdd-schema source"
+        );
+    }
+
+    #[test]
+    fn guidance_block_is_stable_and_headed() {
+        assert_eq!(crp_guidance_block(CrpMode::Off), "");
+        let tdd = crp_guidance_block(CrpMode::Tdd);
+        assert!(
+            tdd.starts_with("<!-- crp:tdd -->\n"),
+            "stable header: {tdd}"
+        );
+        assert!(tdd.contains("- "), "rules rendered as bullets: {tdd}");
+        // #498: pure function of mode → byte-identical across calls.
+        assert_eq!(tdd, crp_guidance_block(CrpMode::Tdd));
+        assert!(crp_guidance_block(CrpMode::Compact).starts_with("<!-- crp:compact -->\n"));
+    }
+}
