@@ -276,9 +276,10 @@ pub(crate) fn splice_template_only(ctx: &Rc<EngineContext>, segment: &str) -> St
 }
 
 /// Phase-8 CRP End-Hook (spec §2.4). Last step of the outermost `render_body`.
-/// `Off` is a byte-identical passthrough (#498 regression anchor). `Compact`/
-/// `Tdd` append a stable-header suffix; the aggregated symbol legend (Tdd only)
-/// is added in Task 7.
+/// `Off` → byte-identical passthrough (#498). `Compact` → guidance suffix only.
+/// `Tdd` → ONE aggregated `tdd_legend` over the symbols this render emitted
+/// (present-only, ≤15 tok) + guidance suffix. Both legend and guidance use
+/// stable headers and are appended as a suffix (never a prefix).
 pub fn apply_crp_hook(ctx: &Rc<EngineContext>, rendered: String) -> String {
     use crate::core::protocol::CrpMode;
     let mode = ctx.header.crp;
@@ -288,6 +289,17 @@ pub fn apply_crp_hook(ctx: &Rc<EngineContext>, rendered: String) -> String {
     let mut out = rendered;
     if !out.ends_with('\n') {
         out.push('\n');
+    }
+    // Tdd: aggregate the legend once (E-4b). Symbols + legend co-travel (I-2).
+    if mode == CrpMode::Tdd {
+        let sigs = ctx.crp_sigs.borrow();
+        let refs: Vec<&_> = sigs.iter().collect();
+        let legend = crate::core::signatures::tdd_legend(&refs);
+        if !legend.is_empty() {
+            out.push_str("<!-- crp:legend -->\n");
+            out.push_str(&legend);
+            out.push('\n');
+        }
     }
     out.push_str(&super::crp::crp_guidance_block(mode));
     out
@@ -504,5 +516,45 @@ mod crp_hook_tests {
         // Legend aggregation lands in Task 7; here we only assert the guidance.
         let out = render("@lean-md\ncrp: tdd\n\n# H\n");
         assert!(out.contains("<!-- crp:tdd -->"), "guidance suffix: {out}");
+    }
+
+    #[test]
+    fn tdd_aggregates_one_legend_for_present_symbols() {
+        // Use a path inside the workspace so the jail (PathBuf::from(".")) accepts it.
+        let dir =
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test_tmp/lmd_crp_legend_co");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("c.rs");
+        std::fs::write(&f, "pub fn alpha() {}\npub struct Beta;\n").unwrap();
+        let doc = format!(
+            "@lean-md\ncrp: tdd\n\n@outline path={}\n",
+            f.to_str().unwrap()
+        );
+        let out = render(&doc);
+        // I-2 co-travel: symbols AND their legend appear together.
+        assert!(out.contains("λ+alpha"), "symbols present: {out}");
+        assert!(out.contains("<!-- crp:legend -->"), "legend header: {out}");
+        assert!(
+            out.contains("λ=fn"),
+            "legend explains present glyphs: {out}"
+        );
+        assert!(
+            out.contains("§=class"),
+            "legend explains struct glyph: {out}"
+        );
+        // Exactly one legend block (aggregated once).
+        assert_eq!(out.matches("<!-- crp:legend -->").count(), 1, "{out}");
+        // #498 byte-stability across two renders.
+        assert_eq!(out, render(&doc));
+    }
+
+    #[test]
+    fn tdd_without_symbols_has_no_legend_only_guidance() {
+        let out = render("@lean-md\ncrp: tdd\n\n# Just prose\n");
+        assert!(!out.contains("crp:legend"), "no symbols → no legend: {out}");
+        assert!(
+            out.contains("<!-- crp:tdd -->"),
+            "guidance still present: {out}"
+        );
     }
 }

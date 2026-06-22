@@ -97,4 +97,49 @@ mod tests {
         assert_eq!(tdd, crp_guidance_block(CrpMode::Tdd));
         assert!(crp_guidance_block(CrpMode::Compact).starts_with("<!-- crp:compact -->\n"));
     }
+
+    #[test]
+    fn i1_every_tdd_glyph_has_a_legend_entry() {
+        use crate::core::signatures::{Signature, tdd_legend};
+        // One signature per kind that to_tdd can emit, plus pub + async markers.
+        let kinds = [
+            "fn",
+            "method",
+            "class",
+            "struct",
+            "interface",
+            "trait",
+            "type",
+            "enum",
+            "const",
+            "let",
+            "var",
+        ];
+        let sigs: Vec<Signature> = kinds
+            .iter()
+            .enumerate()
+            .map(|(i, k)| {
+                let mut s = Signature::no_span();
+                s.kind = *k;
+                s.name = format!("s{i}");
+                s.is_exported = true; // '+' marker
+                s.is_async = k == &"fn"; // '~' marker
+                s
+            })
+            .collect();
+        let refs: Vec<&Signature> = sigs.iter().collect();
+        let legend = tdd_legend(&refs);
+        // Every distinct glyph produced by to_tdd must be explained in the legend.
+        for s in &sigs {
+            let rendered = s.to_tdd();
+            for glyph in ['λ', '§', '∂', 'τ', 'ε', 'ν', '+', '~'] {
+                if rendered.contains(glyph) {
+                    assert!(
+                        legend.contains(glyph),
+                        "glyph {glyph} from {rendered:?} missing in legend {legend:?}"
+                    );
+                }
+            }
+        }
+    }
 }
