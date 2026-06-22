@@ -18,6 +18,11 @@ const BOOTSTRAP: &str = "## Bootstrap\nToolSearch(query=\"select:mcp__lean-ctx__
 /// unknown variable and destroy the placeholder). Byte-stable, parser-opaque.
 const CONTROLLER_ID_SENTINEL: &str = "\x00CTRL_ID_PLACEHOLDER\x00";
 
+/// Sentinel used for the user-supplied `to_agent` value. The raw value is injected
+/// AFTER `render_body` runs so that user-controlled bytes (e.g. `{{ env.SECRET }}`)
+/// are never re-parsed by the template engine (M-2: template injection guard).
+const TO_AGENT_SENTINEL: &str = "\x00TO_AGENT_VALUE\x00";
+
 pub struct DispatchBridge;
 
 impl DirectiveBridge for DispatchBridge {
@@ -51,24 +56,32 @@ impl DirectiveBridge for DispatchBridge {
             None => "dev",
         };
 
-        // (b) Contract: substitute placeholders BEFORE render, then resolve @include.
+        // (b) Contract: substitute placeholders using sentinels BEFORE render_body so
+        // that user-controlled bytes never enter the template parser (M-2 guard).
         let contract_raw = ctx
             .fragments
             .resolve("dispatch-contract", &ctx.jail_root)
             .map_err(|_| BridgeError::Resolve("CONTRACT_UNAVAILABLE".to_string()))?;
+        // role is a validated enum value (dev|review) — safe to inline before render.
         let mut contract = contract_raw.replace("{{ role }}", role);
         let mut warning = String::new();
-        let missing_to_agent = if let Some(id) = args.get("to_agent") {
-            contract = contract.replace("{{ controller_id }}", id);
+        let to_agent_restore: &str;
+        // Both branches replace {{ controller_id }} with a parser-opaque sentinel.
+        // The real value (or the literal placeholder) is restored AFTER render_body,
+        // so user-supplied bytes in to_agent are never evaluated by the template engine.
+        let missing_to_agent = if let Some(_id) = args.get("to_agent") {
+            // Guard: substitute a sentinel — NOT the raw user value — before render.
+            contract = contract.replace("{{ controller_id }}", TO_AGENT_SENTINEL);
+            to_agent_restore = _id; // restore real value after render
             false
         } else {
             warning.push_str(
                 "<!-- lmd: WARNING @dispatch to_agent missing; baton placeholder kept -->\n",
             );
             // Replace {{ controller_id }} with a parser-opaque sentinel so that
-            // render_body does not evaluate and destroy the placeholder. We restore
-            // the literal {{ controller_id }} in the output afterward.
+            // render_body does not evaluate and destroy the placeholder.
             contract = contract.replace("{{ controller_id }}", CONTROLLER_ID_SENTINEL);
+            to_agent_restore = ""; // unused in this branch
             true
         };
         let mut contract_rendered = render_body(ctx, &contract); // resolves @include hard-rules
@@ -76,6 +89,9 @@ impl DirectiveBridge for DispatchBridge {
             // Restore the human-visible placeholder text.
             contract_rendered =
                 contract_rendered.replace(CONTROLLER_ID_SENTINEL, "{{ controller_id }}");
+        } else {
+            // Restore the real to_agent value — injected AFTER render_body (M-2 safe).
+            contract_rendered = contract_rendered.replace(TO_AGENT_SENTINEL, to_agent_restore);
         }
 
         // (a) template-eager / work-lazy render of the phase body (C2).
@@ -183,10 +199,56 @@ mod tests {
         // in-Prompt-Disziplin, die den Subagenten auf ctx_* zwingt.
         let doc = "@phase \"P\"\n@read a.rs\n@phase-end\n\n@dispatch phase=\"P\" role=dev to_agent=\"c\"\n";
         let out = render(doc);
-        assert!(out.contains("ctx_read"), "prompt must steer to ctx_read: {out}");
+        assert!(
+            out.contains("ctx_read"),
+            "prompt must steer to ctx_read: {out}"
+        );
         assert!(
             out.contains("never cat") || out.contains("never grep/rg") || out.contains("NEVER"),
             "prompt must prohibit native I/O: {out}"
+        );
+    }
+
+    /// M-2: A to_agent value containing an inline template directive must appear
+    /// LITERALLY in the output — the template engine must NOT evaluate it.
+    #[test]
+    fn to_agent_template_injection_is_neutralized() {
+        let doc = "@phase \"P\"\n@read a.rs\n@phase-end\n\n@dispatch phase=\"P\" role=dev to_agent=\"{{ env.HOME }}\"\n";
+        let out = render(doc);
+        // The literal string must appear verbatim.
+        assert!(
+            out.contains("to_agent={{ env.HOME }}"),
+            "to_agent injection must appear literally, not expanded: {out}"
+        );
+        // The expanded home path must NOT be present as the to_agent value.
+        // (We check that the env HOME value, if set, is not the substituted result.)
+        let home = std::env::var("HOME").unwrap_or_default();
+        if !home.is_empty() {
+            assert!(
+                !out.contains(&format!("to_agent={home}")),
+                "expanded HOME must not appear as to_agent value: {out}"
+            );
+        }
+    }
+
+    /// M-3: The rendered output must never contain a raw NUL byte — the sentinel
+    /// must always be fully restored for both present- and missing-to_agent paths.
+    #[test]
+    fn rendered_output_contains_no_nul_bytes() {
+        // Path 1: to_agent present.
+        let doc_present = "@phase \"P\"\n@read a.rs\n@phase-end\n\n@dispatch phase=\"P\" role=dev to_agent=\"ctrl-1\"\n";
+        let out_present = render(doc_present);
+        assert!(
+            !out_present.contains('\u{0}'),
+            "NUL byte leaked in present-to_agent output: {out_present:?}"
+        );
+
+        // Path 2: to_agent absent.
+        let doc_absent = "@phase \"P\"\n@read a.rs\n@phase-end\n\n@dispatch phase=\"P\" role=dev\n";
+        let out_absent = render(doc_absent);
+        assert!(
+            !out_absent.contains('\u{0}'),
+            "NUL byte leaked in missing-to_agent output: {out_absent:?}"
         );
     }
 }
