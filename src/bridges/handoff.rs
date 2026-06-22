@@ -3,7 +3,6 @@
 //! `core::handoff_ledger` (NICHT den ctx_handoff-McpTool — der braucht ToolContext,
 //! den die lmd-Engine nicht hat). Sinks-gated: headless ⇒ deterministischer No-op.
 
-use std::path::Path;
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
@@ -113,63 +112,20 @@ fn handoff_pull(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String,
     ))
 }
 
-/// Jail-Resolve eines Ledger-Pfads relativ zum Engine-Jail-Root. Verbietet
-/// ParentDir- und absolute-Pfad-Escape vor jedem FS-Zugriff.
+/// Jail-Resolve eines Ledger-Pfads relativ zum Engine-Jail-Root.
 ///
-/// Guarantee: the resolved path is guaranteed to be a descendant of the
-/// canonicalized jail root — both for relative and absolute inputs.
-/// ParentDir is checked upfront because a traversal path fails with NotFound
-/// (masking the escape) and never reaches the starts_with(jail) check below —
-/// so this upfront guard is load-bearing (mirrors fragments.rs §76).
+/// Delegates to `crate::core::pathjail::jail_path` — the canonical path jail
+/// (null-byte rejection, `path_jail=false` config bypass, session extra_roots
+/// via #403, not-yet-existing paths via `canonicalize_existing_ancestor`).
+/// An absolute `raw` makes `join` return `raw` itself (Rust path semantics),
+/// so `jail_path` is what enforces the boundary for both relative and absolute
+/// inputs — identical to the graph.rs §7 idiom.
 fn resolve_jailed(ctx: &Rc<EngineContext>, raw: &str) -> Result<std::path::PathBuf, BridgeError> {
-    use std::path::Component;
-    // Upfront guard: ParentDir always escapes the jail.
-    if Path::new(raw)
-        .components()
-        .any(|c| matches!(c, Component::ParentDir))
-    {
-        return Err(BridgeError::Resolve(format!("'{raw}' escapes jail")));
-    }
-    // Relative paths are joined under jail_root; the ParentDir guard above
-    // already ensures they cannot escape — return early (safe by construction).
-    if !Path::new(raw).is_absolute() {
-        return Ok(ctx.jail_root.join(raw));
-    }
-    // Absolute paths: canonicalize both jail root and candidate, then require
-    // candidate starts_with(jail). This matches the fragments.rs jail pattern.
-    // Callers of resolve_jailed (show/pull) always pass existing paths; if the
-    // path does not exist, canonicalize the existing parent and verify it instead
-    // so that any future write-path caller is also covered correctly.
-    let jail = ctx
-        .jail_root
-        .canonicalize()
-        .map_err(|e| BridgeError::Resolve(format!("jail root: {e}")))?;
-    let candidate = std::path::PathBuf::from(raw);
-    let resolved = if candidate.exists() {
-        candidate
-            .canonicalize()
-            .map_err(|e| BridgeError::Resolve(format!("canonicalize '{raw}': {e}")))?
-    } else {
-        // Not-yet-existing absolute path: canonicalize the nearest existing
-        // ancestor and verify it is inside the jail.
-        let parent = candidate.parent().unwrap_or(&candidate);
-        let canon_parent = if parent.exists() {
-            parent
-                .canonicalize()
-                .map_err(|e| BridgeError::Resolve(format!("canonicalize parent of '{raw}': {e}")))?
-        } else {
-            // No existing ancestor reachable — cannot verify; reject.
-            return Err(BridgeError::Resolve(format!("'{raw}' escapes jail")));
-        };
-        if !canon_parent.starts_with(&jail) {
-            return Err(BridgeError::Resolve(format!("'{raw}' escapes jail")));
-        }
-        candidate
-    };
-    if !resolved.starts_with(&jail) {
-        return Err(BridgeError::Resolve(format!("'{raw}' escapes jail")));
-    }
-    Ok(resolved)
+    let candidate = ctx.jail_root.join(raw);
+    crate::core::pathjail::jail_path(&candidate, &ctx.jail_root).map_err(|e| {
+        // Normalise to "escapes jail" wording so callers get a consistent message.
+        BridgeError::Resolve(format!("'{raw}' escapes jail: {e}"))
+    })
 }
 
 #[cfg(test)]
@@ -253,10 +209,12 @@ mod tests {
             "relative path within jail must resolve Ok, got: {result:?}"
         );
         let p = result.unwrap();
-        // Must be a sub-path of jail_root
+        // jail_path returns an absolute, canonicalized path; verify it is a
+        // sub-path of the canonicalized jail root (i.e. still inside the jail).
+        let jail_abs = std::path::PathBuf::from(".").canonicalize().unwrap();
         assert!(
-            p.starts_with(".") || p.is_relative(),
-            "resolved path {p:?} should be relative/inside jail"
+            p.starts_with(&jail_abs),
+            "resolved path {p:?} should be inside jail root {jail_abs:?}"
         );
     }
 }
