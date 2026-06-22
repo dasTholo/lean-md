@@ -17,3 +17,4 @@ pub mod node;
 pub mod parser;
 pub mod phases;
 pub mod render;
+pub mod skills;
