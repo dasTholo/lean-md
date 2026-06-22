@@ -7,44 +7,14 @@ use std::path::Path;
 
 /// Built-in `hard-rules` fragment — the canonical tool-discipline block that
 /// goes into every dispatch (spec §3.3/§3.5). Kept short on purpose.
-const HARD_RULES: &str = "\
-# Hard Rules (lmd built-in)
-- I/O only via lean-ctx MCP tools (ctx_read/ctx_search/ctx_tree/ctx_shell).
-- Never use native Read/Grep/cat/sed; never `ctx_shell raw=true` unless compression is provably wrong.
-- For *.rs prefer symbol-aware tools: navigate & refactor via
-  ctx_refactor / ctx_symbol (@symbol) — rename/move/extract over hand edits.
-- Plain @edit / ctx_edit only for non-symbol changes; reformat before
-  commit via ctx_refactor action=reformat.
-";
+const HARD_RULES: &str = include_str!("../../../lean-md/core/hard-rules.lmd.md");
 
 /// Built-in `dispatch-contract` fragment (Spec §3.1, D-5/D-11). Block (b) of a
 /// `@dispatch` render: tool-discipline + register/handoff baton. Portiert aus
-/// `.claude/rules/subagent-multi-agent.md`. `{{ role }}` / `{{ controller_id }}`
-/// bleiben verbatim — die `DispatchBridge` (Phase 7C) substituiert sie.
-const DISPATCH_CONTRACT: &str = "\
-## lean-ctx Subagent Contract (MANDATORY)
-You run in an isolated context. Before any other action:
-1. ctx_agent action=register agent_type=subagent role={{ role }}
-   (the controller's cache is already shared — no ctx_share pull, just ctx_read)
-
-@include hard-rules
-
-Tool discipline:
-- Under tool_profile=power ALL lean-ctx tools are DIRECT — call them DIRECTLY. If one
-  shows up deferred, run ToolSearch(query=\"select:<tool>\") FIRST, then call it. NEVER
-  wrap a tool in ctx_call.
-- NEVER fresh, NEVER raw — to re-read your own edits use ctx_delta or ctx_read mode=diff.
-- Search → ctx_search (never grep/rg); read files → ctx_read (never cat).
-- Rust (*.rs) edits → native Edit / ctx_edit; symbol nav/refactor → ctx_refactor / @symbol.
-- git commit: PLAIN git commit -m \"subject\" -m \"trailer\" — NEVER a heredoc / $( ) subshell.
-- Output discipline: render in CRP mode `{{ crp }}` (off|compact|tdd) — see tdd-schema.
-
-On finish:
-- ctx_agent action=post category=<status|finding> message=\"<summary>\"
-- ctx_agent action=handoff to_agent={{ controller_id }} message=\"<baton>\"
-- ctx_knowledge action=remember for any durable fact/gotcha
-Report final status: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
-";
+/// `lean-md/core/dispatch-contract.lmd.md` (via `include_str!`, byte-stable #498).
+/// `{{ role }}` / `{{ controller_id }}` bleiben verbatim — die `DispatchBridge`
+/// (Phase 7C) substituiert sie.
+const DISPATCH_CONTRACT: &str = include_str!("../../../lean-md/core/dispatch-contract.lmd.md");
 
 #[derive(Debug)]
 pub enum ResolveError {
@@ -187,6 +157,27 @@ mod tests {
         assert!(
             out.contains("ctx_symbol"),
             "hard-rules must name ctx_symbol for *.rs"
+        );
+    }
+
+    #[test]
+    fn builtin_fragments_match_seed_files_on_disk() {
+        // §8 #9: the built-in fragments MUST be byte-identical to the canonical
+        // lean-md/core seed files. Reading the seed at test time (via the crate
+        // manifest dir) catches any drift between the embedded const and the file.
+        let manifest = env!("CARGO_MANIFEST_DIR"); // .../rust
+        let core = std::path::Path::new(manifest).join("../lean-md/core");
+        let reg = FragmentRegistry::with_builtins();
+
+        let hard_disk = std::fs::read_to_string(core.join("hard-rules.lmd.md")).unwrap();
+        let hard_builtin = reg.resolve("hard-rules", Path::new(".")).unwrap();
+        assert_eq!(hard_builtin, hard_disk, "hard-rules drifted from seed file");
+
+        let disp_disk = std::fs::read_to_string(core.join("dispatch-contract.lmd.md")).unwrap();
+        let disp_builtin = reg.resolve("dispatch-contract", Path::new(".")).unwrap();
+        assert_eq!(
+            disp_builtin, disp_disk,
+            "dispatch-contract drifted from seed file"
         );
     }
 }
