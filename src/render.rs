@@ -8,6 +8,7 @@ use std::rc::Rc;
 use super::args::DirectiveArgs;
 use super::engine::EngineContext;
 use super::node::{LmdDirective, LmdInline, LmdPipe};
+use super::parser::lmd_parser_extension;
 
 /// Neutralize HTML-comment delimiters so an untrusted directive name or a
 /// bridge err str cannot break out of the fallback `<!-- … -->` wrapper
@@ -181,6 +182,99 @@ pub(crate) fn splice_directives(
     out
 }
 
+/// Work-Klasse (Spec D-3): diese Direktiven führt der SUBAGENT in seinem Kontext
+/// aus → beim `@dispatch`-Render bleiben sie VERBATIM (lazy). Alles andere
+/// (`@call`/`@include` + `{{ }}`-Inline) ist Template-Klasse → eager aufgelöst.
+const WORK_DIRECTIVES: &[&str] = &[
+    "read",
+    "search",
+    "edit",
+    "symbol",
+    "graph",
+    "query",
+    "find",
+    "impact",
+    "repomap",
+    "outline",
+    "architecture",
+    "routes",
+    "smells",
+    "review",
+    "inspect",
+    "count",
+    "refactor",
+    "reformat",
+    "list",
+];
+
+/// Template-eager / Work-lazy splice (Spec D-3): wie `splice_directives`, aber
+/// Work-Direktiven (`WORK_DIRECTIVES`) und Pipes werden NICHT dispatcht — ihr
+/// Source-Span bleibt byte-identisch. Nur Template-Direktiven (`@call`/`@include`)
+/// und `{{ }}`-Inlines werden aufgelöst.
+pub(crate) fn splice_template_only(ctx: &Rc<EngineContext>, segment: &str) -> String {
+    use core::fmt;
+    use rushdown::ast::{self, WalkStatus};
+    use rushdown::parser::{Options as ParserOptions, Parser};
+    use rushdown::text::BasicReader;
+    use rushdown::{as_extension_data, matches_extension_kind};
+
+    #[derive(Debug)]
+    struct WalkError(String);
+    impl fmt::Display for WalkError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str(&self.0)
+        }
+    }
+    impl std::error::Error for WalkError {}
+
+    let parser = Parser::with_extensions(ParserOptions::default(), lmd_parser_extension());
+    let mut reader = BasicReader::new(segment);
+    let (arena, root) = parser.parse(&mut reader);
+
+    let mut edits: Vec<((usize, usize), String)> = Vec::new();
+    let _ = ast::walk::<WalkError>(&arena, root, &mut |a: &ast::Arena,
+                                                       nref: ast::NodeRef,
+                                                       entering: bool|
+     -> std::result::Result<
+        WalkStatus,
+        WalkError,
+    > {
+        if entering {
+            if matches_extension_kind!(a, nref, LmdDirective) {
+                let d = as_extension_data!(a, nref, LmdDirective);
+                if !WORK_DIRECTIVES.contains(&d.name.as_str()) {
+                    // Template (@call/@include/…) → eager dispatch.
+                    edits.push((d.span, dispatch(ctx, &d.name, &d.args)));
+                }
+                // else: Work → no edit → source span stays verbatim.
+            } else if matches_extension_kind!(a, nref, LmdInline) {
+                // `{{ }}` is template-class → always resolve eager.
+                let d = as_extension_data!(a, nref, LmdInline);
+                edits.push((d.span, dispatch(ctx, &d.name, &d.args)));
+            }
+            // LmdPipe: conservative → verbatim (no edit).
+        }
+        Ok(WalkStatus::Continue)
+    });
+
+    edits.sort_by_key(|((s, _), _)| *s);
+    let mut out = String::with_capacity(segment.len());
+    let mut cursor = 0usize;
+    for ((start, end), replacement) in edits {
+        if start < cursor || end < start || end > segment.len() {
+            continue;
+        }
+        if !segment.is_char_boundary(start) || !segment.is_char_boundary(end) {
+            continue;
+        }
+        out.push_str(&segment[cursor..start]);
+        out.push_str(&replacement);
+        cursor = end;
+    }
+    out.push_str(&segment[cursor..]);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
@@ -294,6 +388,35 @@ mod tests {
             "prose after directive byte-preserved: {out:?}"
         );
         assert!(!out.contains("<p>"), "no HTML leak: {out}");
+    }
+
+    #[test]
+    fn template_only_keeps_work_bridges_verbatim() {
+        let ctx = Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            std::path::PathBuf::from("."),
+        ));
+        // @include = template (resolved); @read/@query = work (verbatim).
+        let seg = "@include hard-rules\n@read src/x.rs\n@query \"cargo nextest run\"\n";
+        let out = super::splice_template_only(&ctx, seg);
+        // Work bridges stay verbatim (lazy, D-3):
+        assert!(
+            out.contains("@read src/x.rs"),
+            "work @read must stay verbatim: {out}"
+        );
+        assert!(
+            out.contains("@query \"cargo nextest run\""),
+            "work @query verbatim: {out}"
+        );
+        // Template @include is resolved (hard-rules content present, directive gone):
+        assert!(
+            out.contains("lean-ctx"),
+            "@include hard-rules must resolve: {out}"
+        );
+        assert!(
+            !out.contains("@include hard-rules"),
+            "template @include must be consumed: {out}"
+        );
     }
 
     #[test]
