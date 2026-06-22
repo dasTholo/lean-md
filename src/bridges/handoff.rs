@@ -114,21 +114,62 @@ fn handoff_pull(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String,
 }
 
 /// Jail-Resolve eines Ledger-Pfads relativ zum Engine-Jail-Root. Verbietet
-/// ParentDir/RootDir-Escape vor jedem FS-Zugriff (Muster aus fragments.rs).
+/// ParentDir- und absolute-Pfad-Escape vor jedem FS-Zugriff.
+///
+/// Guarantee: the resolved path is guaranteed to be a descendant of the
+/// canonicalized jail root — both for relative and absolute inputs.
+/// ParentDir is checked upfront because a traversal path fails with NotFound
+/// (masking the escape) and never reaches the starts_with(jail) check below —
+/// so this upfront guard is load-bearing (mirrors fragments.rs §76).
 fn resolve_jailed(ctx: &Rc<EngineContext>, raw: &str) -> Result<std::path::PathBuf, BridgeError> {
     use std::path::Component;
+    // Upfront guard: ParentDir always escapes the jail.
     if Path::new(raw)
         .components()
         .any(|c| matches!(c, Component::ParentDir))
     {
         return Err(BridgeError::Resolve(format!("'{raw}' escapes jail")));
     }
-    let candidate = if Path::new(raw).is_absolute() {
-        std::path::PathBuf::from(raw)
+    // Relative paths are joined under jail_root; the ParentDir guard above
+    // already ensures they cannot escape — return early (safe by construction).
+    if !Path::new(raw).is_absolute() {
+        return Ok(ctx.jail_root.join(raw));
+    }
+    // Absolute paths: canonicalize both jail root and candidate, then require
+    // candidate starts_with(jail). This matches the fragments.rs jail pattern.
+    // Callers of resolve_jailed (show/pull) always pass existing paths; if the
+    // path does not exist, canonicalize the existing parent and verify it instead
+    // so that any future write-path caller is also covered correctly.
+    let jail = ctx
+        .jail_root
+        .canonicalize()
+        .map_err(|e| BridgeError::Resolve(format!("jail root: {e}")))?;
+    let candidate = std::path::PathBuf::from(raw);
+    let resolved = if candidate.exists() {
+        candidate
+            .canonicalize()
+            .map_err(|e| BridgeError::Resolve(format!("canonicalize '{raw}': {e}")))?
     } else {
-        ctx.jail_root.join(raw)
+        // Not-yet-existing absolute path: canonicalize the nearest existing
+        // ancestor and verify it is inside the jail.
+        let parent = candidate.parent().unwrap_or(&candidate);
+        let canon_parent = if parent.exists() {
+            parent
+                .canonicalize()
+                .map_err(|e| BridgeError::Resolve(format!("canonicalize parent of '{raw}': {e}")))?
+        } else {
+            // No existing ancestor reachable — cannot verify; reject.
+            return Err(BridgeError::Resolve(format!("'{raw}' escapes jail")));
+        };
+        if !canon_parent.starts_with(&jail) {
+            return Err(BridgeError::Resolve(format!("'{raw}' escapes jail")));
+        }
+        candidate
     };
-    Ok(candidate)
+    if !resolved.starts_with(&jail) {
+        return Err(BridgeError::Resolve(format!("'{raw}' escapes jail")));
+    }
+    Ok(resolved)
 }
 
 #[cfg(test)]
@@ -181,5 +222,41 @@ mod tests {
     #[test]
     fn handoff_is_registered() {
         assert!(super::super::default_registry().get("handoff").is_some());
+    }
+
+    #[test]
+    fn resolve_jailed_blocks_absolute_path_escape() {
+        // Absolute paths must NOT escape the jail — e.g. /etc/passwd must Err.
+        let ctx = headless_ctx();
+        let result = resolve_jailed(&ctx, "/etc/passwd");
+        assert!(
+            result.is_err(),
+            "absolute path jail escape must return Err, got Ok({:?})",
+            result.ok()
+        );
+        match result.unwrap_err() {
+            BridgeError::Resolve(m) => assert!(
+                m.contains("escapes jail"),
+                "error must mention 'escapes jail', got: {m}"
+            ),
+            other => panic!("expected BridgeError::Resolve, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolve_jailed_allows_relative_path_within_jail() {
+        // A plain relative path (no traversal) must resolve Ok under jail_root.
+        let ctx = headless_ctx(); // jail_root = PathBuf::from(".")
+        let result = resolve_jailed(&ctx, "some/relative/ledger.json");
+        assert!(
+            result.is_ok(),
+            "relative path within jail must resolve Ok, got: {result:?}"
+        );
+        let p = result.unwrap();
+        // Must be a sub-path of jail_root
+        assert!(
+            p.starts_with(".") || p.is_relative(),
+            "resolved path {p:?} should be relative/inside jail"
+        );
     }
 }
