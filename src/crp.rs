@@ -42,6 +42,40 @@ pub fn crp_guidance_block(mode: CrpMode) -> String {
     s
 }
 
+/// Phase-9 human-readable counterpart of `core::signatures::tdd_legend`:
+/// the SAME kind buckets, expanded to German words (no dense glyphs). Used by
+/// the `consumer=human` branch of `apply_crp_hook` (D-12). Pure function.
+pub fn human_legend<'a>(sigs: &[&'a Signature]) -> String {
+    if sigs.is_empty() {
+        return String::new();
+    }
+    let mut parts: Vec<&str> = Vec::new();
+    let has = |pred: &dyn Fn(&'a Signature) -> bool| sigs.iter().any(|s| pred(s));
+    if has(&|s| matches!(s.kind, "fn" | "method")) {
+        parts.push("Funktion");
+    }
+    if has(&|s| matches!(s.kind, "class" | "struct")) {
+        parts.push("Klasse/Struct");
+    }
+    if has(&|s| matches!(s.kind, "interface" | "trait")) {
+        parts.push("Trait/Interface");
+    }
+    if has(&|s| s.kind == "type") {
+        parts.push("Typ");
+    }
+    if has(&|s| s.kind == "enum") {
+        parts.push("Enum");
+    }
+    if has(&|s| matches!(s.kind, "const" | "let" | "var")) {
+        parts.push("Wert/Konstante");
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("**Verwendete Notation:** {}", parts.join(", "))
+    }
+}
+
 /// Render a file's signatures in the given CRP mode WITHOUT a legend (the
 /// End-Hook owns the aggregated legend, E-4b). Returns `(rendered, sigs)` so the
 /// caller can extend `EngineContext.crp_sigs` for legend aggregation. Only
@@ -96,6 +130,22 @@ mod tests {
         // #498: pure function of mode → byte-identical across calls.
         assert_eq!(tdd, crp_guidance_block(CrpMode::Tdd));
         assert!(crp_guidance_block(CrpMode::Compact).starts_with("<!-- crp:compact -->\n"));
+    }
+
+    #[test]
+    fn human_legend_expands_glyphs_to_words() {
+        use crate::core::signatures::Signature;
+        let mut s = Signature::no_span();
+        s.kind = "fn";
+        let refs: Vec<&Signature> = vec![&s];
+        let legend = human_legend(&refs);
+        assert!(legend.contains("Funktion"), "fn → Funktion: {legend}");
+        assert!(!legend.contains('λ'), "no dense glyphs in human legend: {legend}");
+    }
+
+    #[test]
+    fn human_legend_empty_for_no_sigs() {
+        assert_eq!(human_legend(&[]), "");
     }
 
     #[test]

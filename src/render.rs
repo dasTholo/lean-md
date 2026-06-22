@@ -279,33 +279,46 @@ pub(crate) fn splice_template_only(ctx: &Rc<EngineContext>, segment: &str) -> St
     out
 }
 
-/// Phase-8 CRP End-Hook (spec §2.4). Last step of the outermost `render_body`.
-/// `Off` → byte-identical passthrough (#498). `Compact` → guidance suffix only.
-/// `Tdd` → ONE aggregated `tdd_legend` over the symbols this render emitted
-/// (present-only, ≤15 tok) + guidance suffix. Both legend and guidance use
-/// stable headers and are appended as a suffix (never a prefix).
+/// Phase-8/9 CRP End-Hook (spec §2.4). Last step of the outermost `render_body`.
+/// `Off` → byte-identical passthrough (#498). `Compact`/`Tdd` ai-path: guidance
+/// suffix (+ aggregated `tdd_legend` for Tdd). `consumer=human` (D-12): the dense
+/// agent-guidance block is dropped; a readable German `human_legend` is appended
+/// instead (only when symbols were emitted). Both paths are pure + byte-stable.
 pub fn apply_crp_hook(ctx: &Rc<EngineContext>, rendered: String) -> String {
     use crate::core::protocol::CrpMode;
     let mode = ctx.header.crp;
     if mode == CrpMode::Off {
         return rendered;
     }
+    let human = ctx.consumer_hint() == 1;
     let mut out = rendered;
     if !out.ends_with('\n') {
         out.push('\n');
     }
-    // Tdd: aggregate the legend once (E-4b). Symbols + legend co-travel (I-2).
     if mode == CrpMode::Tdd {
         let sigs = ctx.crp_sigs.borrow();
         let refs: Vec<&_> = sigs.iter().collect();
-        let legend = crate::core::signatures::tdd_legend(&refs);
-        if !legend.is_empty() {
-            out.push_str("<!-- crp:legend -->\n");
-            out.push_str(&legend);
-            out.push('\n');
+        if human {
+            // D-12: expand the known legend to readable prose (usually empty in
+            // pure narration, since Work-bridges are glossed not executed).
+            let legend = super::crp::human_legend(&refs);
+            if !legend.is_empty() {
+                out.push_str(&legend);
+                out.push('\n');
+            }
+        } else {
+            let legend = crate::core::signatures::tdd_legend(&refs);
+            if !legend.is_empty() {
+                out.push_str("<!-- crp:legend -->\n");
+                out.push_str(&legend);
+                out.push('\n');
+            }
         }
     }
-    out.push_str(&super::crp::crp_guidance_block(mode));
+    // Agent guidance is an instruction TO the agent — irrelevant to a human reader.
+    if !human {
+        out.push_str(&super::crp::crp_guidance_block(mode));
+    }
     out
 }
 
@@ -579,5 +592,24 @@ mod crp_hook_tests {
         let doc = "@lean-md\nconsumer: ai\n\n@read Cargo.toml\n";
         let out = render(doc);
         assert!(!out.contains("Datei `Cargo.toml` lesen"), "ai must not gloss: {out}");
+    }
+
+    #[test]
+    fn human_render_drops_dense_crp_suffix() {
+        use crate::lmd::engine::render;
+        // Source authored agent-facing (ai + tdd). Human render must not carry the
+        // dense guidance block (D-12).
+        let doc = "@lean-md\nconsumer: human\ncrp: tdd\n\n@read src/foo.rs\n";
+        let out = render(doc);
+        assert!(!out.contains("<!-- crp:tdd -->"), "no dense guidance for human: {out}");
+        assert!(!out.contains("<!-- crp:legend -->"), "no dense legend for human: {out}");
+    }
+
+    #[test]
+    fn ai_render_keeps_dense_crp_suffix() {
+        use crate::lmd::engine::render;
+        let doc = "@lean-md\nconsumer: ai\ncrp: tdd\n\nplain\n";
+        let out = render(doc);
+        assert!(out.contains("<!-- crp:tdd -->"), "ai keeps guidance: {out}");
     }
 }
