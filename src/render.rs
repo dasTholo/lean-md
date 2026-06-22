@@ -285,14 +285,197 @@ where
     })
 }
 
+/// Source-preserving directive expander (spec K2). DFS-collects every `Lmd*`
+/// node as `(span, bridge_output)`, then splices the outputs into `source`,
+/// leaving all non-directive bytes byte-identical. Overlapping spans (defensive;
+/// directives don't nest) are skipped deterministically. Pure string op over
+/// already-gated bridge outputs — no new attack surface (spec §6).
+pub(crate) fn splice_directives(
+    ctx: &Rc<EngineContext>,
+    source: &str,
+    arena: &rushdown::ast::Arena,
+    root: rushdown::ast::NodeRef,
+) -> String {
+    use core::fmt;
+    use rushdown::ast::{self, WalkStatus};
+    use rushdown::{as_extension_data, matches_extension_kind};
+
+    #[derive(Debug)]
+    struct WalkError(String);
+    impl fmt::Display for WalkError {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str(&self.0)
+        }
+    }
+    impl std::error::Error for WalkError {}
+
+    let mut edits: Vec<((usize, usize), String)> = Vec::new();
+    let _ = ast::walk::<WalkError>(arena, root, &mut |a: &ast::Arena,
+                                                      nref: ast::NodeRef,
+                                                      entering: bool|
+     -> std::result::Result<
+        WalkStatus,
+        WalkError,
+    > {
+        if entering {
+            if matches_extension_kind!(a, nref, LmdDirective) {
+                let d = as_extension_data!(a, nref, LmdDirective);
+                edits.push((d.span, dispatch(ctx, &d.name, &d.args)));
+            } else if matches_extension_kind!(a, nref, LmdInline) {
+                let d = as_extension_data!(a, nref, LmdInline);
+                edits.push((d.span, dispatch(ctx, &d.name, &d.args)));
+            } else if matches_extension_kind!(a, nref, LmdPipe) {
+                let p = as_extension_data!(a, nref, LmdPipe);
+                edits.push((
+                    p.span,
+                    dispatch_pipe(
+                        ctx,
+                        &p.left_name,
+                        &p.left_args,
+                        &p.right_name,
+                        &p.right_args,
+                    ),
+                ));
+            }
+        }
+        Ok(WalkStatus::Continue)
+    });
+
+    edits.sort_by_key(|((s, _), _)| *s);
+
+    let mut out = String::with_capacity(source.len());
+    let mut cursor = 0usize;
+    for ((start, end), replacement) in edits {
+        if start < cursor || end < start || end > source.len() {
+            continue; // overlap / invalid span — skip deterministically
+        }
+        if !source.is_char_boundary(start) || !source.is_char_boundary(end) {
+            debug_assert!(
+                false,
+                "lmd splice span not on char boundary: {start}..{end}"
+            );
+            continue;
+        }
+        out.push_str(&source[cursor..start]);
+        out.push_str(&replacement);
+        cursor = end;
+    }
+    out.push_str(&source[cursor..]);
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use super::sanitize_comment;
+    use std::rc::Rc;
+
+    use rushdown::parser::{Options as ParserOptions, Parser};
+    use rushdown::text::BasicReader;
+
+    use super::{sanitize_comment, splice_directives};
+    use crate::lmd::engine::EngineContext;
+    use crate::lmd::header::LeanMdHeader;
+    use crate::lmd::parser::lmd_parser_extension;
 
     #[test]
     fn sanitizes_comment_breakout_sequences() {
         assert_eq!(sanitize_comment("x-->y"), "x--&gt;y");
         assert_eq!(sanitize_comment("<!--z"), "&lt;!--z");
         assert_eq!(sanitize_comment("plain"), "plain");
+    }
+
+    #[test]
+    fn splice_passthrough_without_directives() {
+        let ctx = Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            std::path::PathBuf::from("."),
+        ));
+        let source = "# Title\n\nPlain *prose* and a list:\n- a\n- b\n";
+        let parser = Parser::with_extensions(ParserOptions::default(), lmd_parser_extension());
+        let mut reader = BasicReader::new(source);
+        let (arena, root) = parser.parse(&mut reader);
+        let out = splice_directives(&ctx, source, &arena, root);
+        assert_eq!(out, source, "no directives => byte-identical passthrough");
+    }
+
+    #[test]
+    fn splice_replaces_directive_only() {
+        let f = std::env::temp_dir().join("lmd_splice_t3.txt");
+        std::fs::write(&f, "SPLICE_SENTINEL_3\n").unwrap();
+        let ctx = Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            std::env::temp_dir(),
+        ));
+        // @read is a block directive — must appear at line-start. Prose lives in
+        // a separate paragraph so the surrounding bytes are byte-preserved.
+        let source = format!(
+            "pre prose\n\n@read {}\n\npost unrelated\n",
+            f.to_str().unwrap()
+        );
+        let parser = Parser::with_extensions(ParserOptions::default(), lmd_parser_extension());
+        let mut reader = BasicReader::new(&source);
+        let (arena, root) = parser.parse(&mut reader);
+        let out = splice_directives(&ctx, &source, &arena, root);
+        assert!(
+            out.contains("SPLICE_SENTINEL_3"),
+            "bridge output spliced in: {out}"
+        );
+        assert!(
+            out.contains("pre prose"),
+            "preceding prose byte-preserved: {out}"
+        );
+        assert!(
+            out.contains("post unrelated"),
+            "following prose byte-preserved: {out}"
+        );
+        assert!(!out.contains("<p>"), "no HTML leak: {out}");
+    }
+
+    #[test]
+    fn splice_preserves_multibyte_prose_around_directive() {
+        let ctx = Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            std::env::temp_dir(),
+        ));
+        let source = "Grüße {{ date }} — Größe äöü\n";
+        let parser = Parser::with_extensions(ParserOptions::default(), lmd_parser_extension());
+        let mut reader = BasicReader::new(source);
+        let (arena, root) = parser.parse(&mut reader);
+        let out = splice_directives(&ctx, source, &arena, root);
+        assert!(
+            out.starts_with("Grüße "),
+            "leading multibyte prose preserved: {out}"
+        );
+        assert!(
+            out.contains("Größe äöü"),
+            "trailing multibyte prose preserved: {out}"
+        );
+    }
+
+    #[test]
+    fn splice_directive_on_second_line_keeps_offset() {
+        let f = std::env::temp_dir().join("lmd_splice_t3_line2.txt");
+        std::fs::write(&f, "SENTINEL_LINE2\n").unwrap();
+        let ctx = Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            std::env::temp_dir(),
+        ));
+        let source = format!("# Heading\n\n@read {}\n\ntail prose\n", f.to_str().unwrap());
+        let parser = Parser::with_extensions(ParserOptions::default(), lmd_parser_extension());
+        let mut reader = BasicReader::new(&source);
+        let (arena, root) = parser.parse(&mut reader);
+        let out = splice_directives(&ctx, &source, &arena, root);
+        assert!(
+            out.starts_with("# Heading\n\n"),
+            "prose before directive byte-preserved: {out:?}"
+        );
+        assert!(
+            out.contains("SENTINEL_LINE2"),
+            "bridge output present at correct position: {out:?}"
+        );
+        assert!(
+            out.contains("tail prose"),
+            "prose after directive byte-preserved: {out:?}"
+        );
+        assert!(!out.contains("<p>"), "no HTML leak: {out}");
     }
 }
