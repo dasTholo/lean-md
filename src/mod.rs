@@ -6,6 +6,7 @@
 
 pub mod args;
 pub mod audit;
+pub mod availability;
 pub mod bridges;
 pub mod crp;
 pub mod engine;
