@@ -159,6 +159,10 @@ pub(crate) fn splice_directives(
     let mut out = String::with_capacity(source.len());
     let mut cursor = 0usize;
     for ((start, end), replacement) in edits {
+        // `start < cursor` also resolves the duplicate-start case: edits sharing
+        // a start offset are kept in DFS order by the stable sort, so the first
+        // one wins and any later duplicate falls through here (its start is now
+        // < cursor). Directives don't nest, so this is defensive only.
         if start < cursor || end < start || end > source.len() {
             continue; // overlap / invalid span — skip deterministically
         }
@@ -290,5 +294,43 @@ mod tests {
             "prose after directive byte-preserved: {out:?}"
         );
         assert!(!out.contains("<p>"), "no HTML leak: {out}");
+    }
+
+    #[test]
+    fn splice_inline_on_later_line_keeps_offset() {
+        // Inline `{{ … }}` on line 3: lines 1-2 and the rest of line 3 plus the
+        // trailing lines must stay byte-identical; only the `{{ … }}` span is
+        // replaced. Closes the coverage gap for inline directives on non-first
+        // segment lines (block line-2 is covered by the test above). A bound
+        // param gives the inline a deterministic, distinct output so the test
+        // genuinely exercises the replacement (no silent passthrough no-op).
+        let ctx = Rc::new(EngineContext::new(
+            LeanMdHeader::default(),
+            std::env::temp_dir(),
+        ));
+        let mut params = std::collections::HashMap::new();
+        params.insert("inlinevar".to_string(), "INLINE_VAL".to_string());
+        ctx.push_params(params);
+        let source = "# Heading\n\nValue is {{ inlinevar }} here\n\ntail prose\n";
+        let parser = Parser::with_extensions(ParserOptions::default(), lmd_parser_extension());
+        let mut reader = BasicReader::new(source);
+        let (arena, root) = parser.parse(&mut reader);
+        let out = splice_directives(&ctx, source, &arena, root);
+        assert!(
+            out.starts_with("# Heading\n\nValue is "),
+            "leading lines + line-3 prefix byte-preserved: {out:?}"
+        );
+        assert!(
+            out.contains("INLINE_VAL"),
+            "inline resolved + spliced at the correct offset: {out:?}"
+        );
+        assert!(
+            out.ends_with(" here\n\ntail prose\n"),
+            "line-3 suffix + trailing lines byte-preserved: {out:?}"
+        );
+        assert!(
+            !out.contains("{{ inlinevar }}"),
+            "inline span was actually replaced: {out:?}"
+        );
     }
 }
