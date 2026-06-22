@@ -35,7 +35,7 @@ pub(crate) fn dispatch_result(
 
 /// Look up `name` in the registry and run the bridge; on miss/error emit a
 /// visible comment instead of failing the whole render.
-fn dispatch(ctx: &Rc<EngineContext>, name: &str, raw_args: &str) -> String {
+pub(crate) fn dispatch(ctx: &Rc<EngineContext>, name: &str, raw_args: &str) -> String {
     // Phase 9: consumer=human renders Work-directives as prose, not output.
     if ctx.consumer_hint() == 1 && WORK_DIRECTIVES.contains(&name) {
         return super::gloss::gloss(name, raw_args);

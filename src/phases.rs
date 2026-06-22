@@ -302,6 +302,10 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
                 buf.clear();
             }
             let name = parse_phase_name(rest);
+            // Phase 9: human render emits a readable section heading per phase.
+            if ctx.consumer_hint() == 1 {
+                out.push_str(&format!("## Phase: {name}\n\n"));
+            }
             session_decision(ctx, &format!("Phase: {name}"));
             ctx.phase_scope.borrow_mut().push(PhaseScope::new(name));
             opened_here = true;
@@ -349,27 +353,37 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
             if let Some((name, args)) =
                 crate::lmd::parser::block::parse_directive_line(line.as_bytes())
             {
-                match crate::lmd::render::dispatch_result(ctx, &name, &args) {
-                    Ok(rendered) => {
-                        if let Some(sc) = ctx.phase_scope.borrow_mut().last_mut() {
-                            sc.outputs.push((name, args.clone(), rendered.clone()));
-                        }
-                        out.push_str(&rendered);
-                        out.push('\n');
+                // Phase 9: consumer=human glosses Work-directives as prose (no abort path).
+                if ctx.consumer_hint() == 1 {
+                    let rendered = crate::lmd::render::dispatch(ctx, &name, &args);
+                    if let Some(sc) = ctx.phase_scope.borrow_mut().last_mut() {
+                        sc.outputs.push((name, args.clone(), rendered.clone()));
                     }
-                    Err(e) => {
-                        let phase_name = ctx
-                            .phase_scope
-                            .borrow()
-                            .last()
-                            .map_or_else(String::new, |sc| sc.name.clone());
-                        if let Some(sc) = ctx.phase_scope.borrow_mut().last_mut() {
-                            sc.aborted = Some(PhaseError {
-                                phase: phase_name,
-                                directive: name,
-                                line: src_line,
-                                cause: format!("{e:?}"),
-                            });
+                    out.push_str(&rendered);
+                    out.push('\n');
+                } else {
+                    match crate::lmd::render::dispatch_result(ctx, &name, &args) {
+                        Ok(rendered) => {
+                            if let Some(sc) = ctx.phase_scope.borrow_mut().last_mut() {
+                                sc.outputs.push((name, args.clone(), rendered.clone()));
+                            }
+                            out.push_str(&rendered);
+                            out.push('\n');
+                        }
+                        Err(e) => {
+                            let phase_name = ctx
+                                .phase_scope
+                                .borrow()
+                                .last()
+                                .map_or_else(String::new, |sc| sc.name.clone());
+                            if let Some(sc) = ctx.phase_scope.borrow_mut().last_mut() {
+                                sc.aborted = Some(PhaseError {
+                                    phase: phase_name,
+                                    directive: name,
+                                    line: src_line,
+                                    cause: format!("{e:?}"),
+                                });
+                            }
                         }
                     }
                 }
@@ -905,5 +919,22 @@ trailing prose
             "render output must be a deterministic function of input (#498)"
         );
         assert!(a.contains("PHASE_ABORTED \"X\" at @read"));
+    }
+
+    #[test]
+    fn human_phase_emits_heading() {
+        use crate::lmd::engine::render;
+        let doc = "@lean-md\nconsumer: human\n\n@phase \"A3-parser\"\n@read src/foo.rs\n@phase-end\n";
+        let out = render(doc);
+        assert!(out.contains("## Phase: A3-parser"), "heading: {out}");
+        assert!(out.contains("Datei `src/foo.rs` lesen"), "body glossed: {out}");
+    }
+
+    #[test]
+    fn ai_phase_emits_no_heading() {
+        use crate::lmd::engine::render;
+        let doc = "@lean-md\nconsumer: ai\n\n@phase \"A3-parser\"\nplain line\n@phase-end\n";
+        let out = render(doc);
+        assert!(!out.contains("## Phase: A3-parser"), "ai: no heading: {out}");
     }
 }
