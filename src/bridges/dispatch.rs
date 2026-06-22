@@ -62,8 +62,17 @@ impl DirectiveBridge for DispatchBridge {
             .fragments
             .resolve("dispatch-contract", &ctx.jail_root)
             .map_err(|_| BridgeError::Resolve("CONTRACT_UNAVAILABLE".to_string()))?;
+        // crp is a controlled enum value (off|compact|tdd) — safe to inline
+        // before render_body (no user bytes, no template-injection risk).
+        let crp_str = match ctx.header.crp {
+            crate::core::protocol::CrpMode::Off => "off",
+            crate::core::protocol::CrpMode::Compact => "compact",
+            crate::core::protocol::CrpMode::Tdd => "tdd",
+        };
         // role is a validated enum value (dev|review) — safe to inline before render.
-        let mut contract = contract_raw.replace("{{ role }}", role);
+        let mut contract = contract_raw
+            .replace("{{ role }}", role)
+            .replace("{{ crp }}", crp_str);
         let mut warning = String::new();
         let to_agent_restore: &str;
         // Both branches replace {{ controller_id }} with a parser-opaque sentinel.
@@ -229,6 +238,24 @@ mod tests {
                 "expanded HOME must not appear as to_agent value: {out}"
             );
         }
+    }
+
+    #[test]
+    fn dispatch_threads_crp_tdd_into_contract() {
+        let doc = "@lean-md\ncrp: tdd\n\n@phase \"P\"\nDo the work.\n@phase-end\n\n@dispatch phase=\"P\" role=dev to_agent=\"c\"\n";
+        let out = render(doc);
+        assert!(out.contains("CRP mode `tdd`"), "crp threaded: {out}");
+        assert!(!out.contains("{{ crp }}"), "placeholder substituted: {out}");
+    }
+
+    #[test]
+    fn dispatch_threads_crp_off_by_default() {
+        let doc = "@phase \"P\"\nDo the work.\n@phase-end\n\n@dispatch phase=\"P\" role=dev to_agent=\"c\"\n";
+        let out = render(doc);
+        assert!(
+            out.contains("CRP mode `off`"),
+            "default off threaded: {out}"
+        );
     }
 
     /// M-3: The rendered output must never contain a raw NUL byte — the sentinel

@@ -37,6 +37,7 @@ Tool discipline:
 - Search → ctx_search (never grep/rg); read files → ctx_read (never cat).
 - Rust (*.rs) edits → native Edit / ctx_edit; symbol nav/refactor → ctx_refactor / @symbol.
 - git commit: PLAIN git commit -m \"subject\" -m \"trailer\" — NEVER a heredoc / $( ) subshell.
+- Output discipline: render in CRP mode `{{ crp }}` (off|compact|tdd) — see tdd-schema.
 
 On finish:
 - ctx_agent action=post category=<status|finding> message=\"<summary>\"
@@ -144,6 +145,10 @@ mod tests {
         assert!(
             out.contains("NEVER"),
             "contract must carry the tool-discipline guardrails"
+        );
+        assert!(
+            out.contains("{{ crp }}"),
+            "contract must carry the {{{{ crp }}}} placeholder"
         );
     }
 
