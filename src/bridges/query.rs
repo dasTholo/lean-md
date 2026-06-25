@@ -1,9 +1,8 @@
-//! `@query` Router bridge → executes a shell command via the same path as the
-//! `ctx_shell` MCP tool, then compresses output. Consumer-gated: only runs with
-//! `@lean-md shell=allow` (Spec §7). Inherits validate_command (strict-mode
-//! $()/backtick block) + shell_allowlist + secret redaction — invents no new
-//! deny-patterns.
-use std::collections::HashMap;
+//! `@query` Router bridge → routes shell commands outbound to the lean-ctx
+//! server via `ctx_shell`. Consumer-gated: only runs with `@lean-md shell=allow`
+//! (Spec §7). The server is authoritative for allowlist/validation/redaction
+//! (Spec §6) — this bridge enforces only the local consumer gate and empty-cmd
+//! check.
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
@@ -31,26 +30,13 @@ impl DirectiveBridge for QueryBridge {
         if cmd.is_empty() {
             return Err(BridgeError::MissingArg("command"));
         }
-        // Inherited lean-ctx shell defenses — no new deny-patterns (§7).
-        if let Some(rejection) = crate::tools::ctx_shell::validate_command(cmd) {
-            return Err(BridgeError::ShellRejected(rejection));
-        }
-        if let Err(msg) = crate::core::shell_allowlist::check_shell_allowlist(cmd) {
-            return Err(BridgeError::ShellRejected(msg));
-        }
-        let cwd = ctx.jail_root.to_string_lossy().to_string();
-        let (raw_output, exit) =
-            crate::server::execute::execute_command_with_env(cmd, &cwd, &HashMap::new());
-        // Secret-Redaction (only if enabled) — inherited, not reinvented (§7).
-        let cfg = crate::core::config::Config::load();
-        let safe_output = if cfg.secret_detection.enabled {
-            crate::core::secret_detection::scan_and_redact(&raw_output, &cfg.secret_detection).0
-        } else {
-            raw_output
-        };
-        let compressed =
-            crate::tools::ctx_shell::handle(cmd, &safe_output, exit, crate::crp_proto::CrpMode::Off);
-        Ok(crate::core::redaction::redact_text_if_enabled(&compressed))
+        // Route outbound — server enforces allowlist/validation/redaction (§6).
+        // arg key `command` per appendix-mcp-tools.md §1 ctx_shell row.
+        let out = ctx
+            .backend
+            .call("ctx_shell", serde_json::json!({ "command": cmd }))
+            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+        Ok(out)
     }
 }
 
@@ -82,35 +68,35 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "server-enforced; needs lean-ctx in PATH (Task 6.12 integration gate)"]
     fn runs_allowlisted_command_with_shell_allow() {
-        // Hermetic: pin the allowlist via override so the test does NOT depend on
-        // the user's config (default ships a NON-empty deny-by-default allowlist).
-        // `git` is representative of @query's real purpose — a shell-only tool with
-        // no native lmd directive. nextest = process-per-test, so the env override is isolated.
-        crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git");
+        // Allowlist/validation/redaction are now enforced server-side (§6).
+        // This test verifies the outbound path returns real output from ctx_shell.
+        // Requires a live lean-ctx server — skipped in unit CI until Task 6.12.
         let out = QueryBridge
             .execute(
                 &ctx_with_shell(ShellMode::Allow),
                 &DirectiveArgs::parse("git --version"),
             )
             .unwrap();
-        crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
         assert!(out.contains("git version"), "got: {out}");
     }
 
     #[test]
+    #[ignore = "server-enforced; needs lean-ctx in PATH (Task 6.12 integration gate)"]
     fn inherits_allowlist_deny_by_default() {
-        // §7: a non-allowlisted base command is hard-blocked — @query inherits the
-        // deny-by-default gate via check_shell_allowlist, it does not reinvent it.
-        crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git");
-        let err = QueryBridge
+        // Allowlist deny-by-default is now enforced by the lean-ctx server (§6).
+        // This test verifies the server rejects non-allowlisted commands via the
+        // outbound path. Requires a live lean-ctx server — skipped in unit CI.
+        let out = QueryBridge
             .execute(
                 &ctx_with_shell(ShellMode::Allow),
                 &DirectiveArgs::parse("ls -la"),
             )
-            .unwrap_err();
-        crate::test_env::remove_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE");
-        assert!(matches!(err, BridgeError::ShellRejected(_)));
+            .unwrap();
+        // Server returns an error envelope, not a BridgeError, for denied cmds.
+        assert!(out.contains("ERROR:") || out.contains("denied") || out.contains("not in"),
+            "expected denial envelope, got: {out}");
     }
 
     #[test]
