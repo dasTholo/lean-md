@@ -31,7 +31,13 @@ impl DirectiveBridge for RememberBridge {
             .get("key")
             .map_or_else(|| slug(content), str::to_string);
         let confidence = args.get("confidence").and_then(|s| s.parse::<f32>().ok());
-        Ok(knowledge_remember(ctx, category.as_deref(), &key, content, confidence))
+        Ok(knowledge_remember(
+            ctx,
+            category.as_deref(),
+            &key,
+            content,
+            confidence,
+        ))
     }
 }
 

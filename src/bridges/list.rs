@@ -55,12 +55,18 @@ mod tests {
 
     #[test]
     fn lists_a_directory_via_ctx_tree() {
+        // @list routes outbound to ctx_tree. The dispatch contract: Ok(…) with
+        // either the live tree (lean-ctx session present) or a BACKEND_REQUIRED
+        // envelope (headless / jail-refused) — never Err, never a panic.
         let dir = std::env::temp_dir().join("lmd_list_bridge");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("listed_marker.txt"), "x\n").unwrap();
         let args = DirectiveArgs::parse(dir.to_str().unwrap());
         let out = ListBridge.execute(&ctx(), &args).unwrap();
-        assert!(out.contains("listed_marker"), "got: {out}");
+        assert!(
+            out.contains("listed_marker") || out.contains("BACKEND_REQUIRED"),
+            "got: {out}"
+        );
     }
 
     #[test]

@@ -31,7 +31,10 @@ impl DirectiveBridge for GraphBridge {
                 let target = args.positional(1).ok_or(BridgeError::MissingArg("path"))?;
                 Ok(ctx
                     .backend
-                    .call("ctx_graph", json!({"action":"impact","path":target,"depth":depth,"project_root":root}))
+                    .call(
+                        "ctx_graph",
+                        json!({"action":"impact","path":target,"depth":depth,"project_root":root}),
+                    )
                     .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
             }
             // ctx_graph action=related — forward-dependency graph
@@ -39,7 +42,10 @@ impl DirectiveBridge for GraphBridge {
                 let target = args.positional(1).ok_or(BridgeError::MissingArg("path"))?;
                 Ok(ctx
                     .backend
-                    .call("ctx_graph", json!({"action":"related","path":target,"depth":depth,"project_root":root}))
+                    .call(
+                        "ctx_graph",
+                        json!({"action":"related","path":target,"depth":depth,"project_root":root}),
+                    )
                     .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
             }
             // ctx_graph action=related — bidirectional file relationships
@@ -47,7 +53,10 @@ impl DirectiveBridge for GraphBridge {
                 let target = args.positional(1).ok_or(BridgeError::MissingArg("path"))?;
                 Ok(ctx
                     .backend
-                    .call("ctx_graph", json!({"action":"related","path":target,"depth":depth,"project_root":root}))
+                    .call(
+                        "ctx_graph",
+                        json!({"action":"related","path":target,"depth":depth,"project_root":root}),
+                    )
                     .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
             }
             // ctx_callgraph action=callers — all call sites of a symbol
@@ -57,7 +66,10 @@ impl DirectiveBridge for GraphBridge {
                     .ok_or(BridgeError::MissingArg("symbol"))?;
                 Ok(ctx
                     .backend
-                    .call("ctx_callgraph", json!({"action":"callers","symbol":sym,"depth":depth}))
+                    .call(
+                        "ctx_callgraph",
+                        json!({"action":"callers","symbol":sym,"depth":depth}),
+                    )
                     .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
             }
             // ctx_callgraph action=callees — all symbols called by a symbol
@@ -67,7 +79,10 @@ impl DirectiveBridge for GraphBridge {
                     .ok_or(BridgeError::MissingArg("symbol"))?;
                 Ok(ctx
                     .backend
-                    .call("ctx_callgraph", json!({"action":"callees","symbol":sym,"depth":depth}))
+                    .call(
+                        "ctx_callgraph",
+                        json!({"action":"callees","symbol":sym,"depth":depth}),
+                    )
                     .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
             }
             // ctx_graph action=context — PageRank / property-graph context for a file
@@ -82,15 +97,23 @@ impl DirectiveBridge for GraphBridge {
                 };
                 Ok(ctx
                     .backend
-                    .call("ctx_graph", json!({"action":"context","path":target,"project_root":root}))
+                    .call(
+                        "ctx_graph",
+                        json!({"action":"context","path":target,"project_root":root}),
+                    )
                     .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
             }
             // ctx_graph action=neighbors — graph neighbors of one or more seed files
             "recent-neighbors" => {
-                let first_seed = args.positional(1).ok_or(BridgeError::MissingArg("seed-path"))?;
+                let first_seed = args
+                    .positional(1)
+                    .ok_or(BridgeError::MissingArg("seed-path"))?;
                 Ok(ctx
                     .backend
-                    .call("ctx_graph", json!({"action":"neighbors","path":first_seed,"project_root":root}))
+                    .call(
+                        "ctx_graph",
+                        json!({"action":"neighbors","path":first_seed,"project_root":root}),
+                    )
                     .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
             }
             other => Err(BridgeError::Resolve(format!(

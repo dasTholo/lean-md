@@ -26,7 +26,10 @@ impl DirectiveBridge for ReadBridge {
         let mode = args.get("mode").unwrap_or("auto");
         let out = ctx
             .backend
-            .call("ctx_read", serde_json::json!({ "path": path, "mode": mode }))
+            .call(
+                "ctx_read",
+                serde_json::json!({ "path": path, "mode": mode }),
+            )
             .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
         Ok(out)
     }

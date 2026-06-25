@@ -40,7 +40,9 @@ fn glob_count(pattern: &str) -> usize {
     let parts: Vec<&str> = norm.split('/').collect();
 
     // Find the split point: first segment containing a wildcard.
-    let split = parts.iter().position(|s| s.contains('*') || s.contains('?'));
+    let split = parts
+        .iter()
+        .position(|s| s.contains('*') || s.contains('?'));
 
     let Some(split) = split else {
         // No wildcards — just check if the exact path exists.
@@ -50,7 +52,10 @@ fn glob_count(pattern: &str) -> usize {
     let base: std::path::PathBuf = if split == 0 {
         Path::new(".").to_path_buf()
     } else {
-        parts[..split].iter().collect()
+        // Rejoin with '/' rather than `iter().collect()`: a leading empty
+        // segment (absolute path, e.g. "/tmp/x") must keep its root, which
+        // `PathBuf::from_iter(["", "tmp"])` would drop, yielding a relative path.
+        std::path::PathBuf::from(parts[..split].join("/"))
     };
     let segs: Vec<String> = parts[split..].iter().map(|s| s.to_string()).collect();
     let seg_refs: Vec<&str> = segs.iter().map(String::as_str).collect();

@@ -9,8 +9,7 @@ use crate::crp_proto::CrpMode;
 use crate::engine::{EngineContext, render_body};
 use crate::header::{Consumer, parse_header};
 
-const LMD_BRAINSTORM_BODY: &str =
-    include_str!("../../../lean-md/skills/lmd-brainstorm/body.lmd.md");
+const LMD_BRAINSTORM_BODY: &str = include_str!("../content/skills/lmd-brainstorm/body.lmd.md");
 
 /// Embedded body source for a known lmd skill, or `None` if unknown.
 pub fn skill_body(name: &str) -> Option<&'static str> {

@@ -10,15 +10,15 @@ use std::path::{Path, PathBuf};
 pub const PROJECT_SEEDS: &[(&str, &str)] = &[
     (
         "lang/rust.lmd.md",
-        include_str!("../../../lean-md/lang/rust.lmd.md"),
+        include_str!("../content/lang/rust.lmd.md"),
     ),
     (
         "tooling/mcp-tools.lmd.md",
-        include_str!("../../../lean-md/tooling/mcp-tools.lmd.md"),
+        include_str!("../content/tooling/mcp-tools.lmd.md"),
     ),
     (
         "dispatch-contract.ext.lmd.md",
-        include_str!("../../../lean-md/templates/dispatch-contract.ext.lmd.md"),
+        include_str!("../content/templates/dispatch-contract.ext.lmd.md"),
     ),
 ];
 

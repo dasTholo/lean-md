@@ -120,10 +120,8 @@ fn fire_action(ctx: &Rc<EngineContext>, scope: &PhaseScope, action: &OnComplete)
         "decision" => session_decision(ctx, &value),
         "remember" => {
             let category = attr(&action.attrs, "category");
-            let key = attr(&action.attrs, "key").map_or_else(
-                || crate::bridges::remember::slug(&value),
-                str::to_string,
-            );
+            let key = attr(&action.attrs, "key")
+                .map_or_else(|| crate::bridges::remember::slug(&value), str::to_string);
             let confidence = attr(&action.attrs, "confidence").and_then(|s| s.parse::<f32>().ok());
             let _ = crate::bridges::remember::knowledge_remember(
                 ctx, category, &key, &value, confidence,
@@ -132,19 +130,15 @@ fn fire_action(ctx: &Rc<EngineContext>, scope: &PhaseScope, action: &OnComplete)
         "post" => fire_agent(ctx, "post", &value, attr(&action.attrs, "category")),
         "diary" => fire_agent(ctx, "diary", &value, attr(&action.attrs, "category")),
         "capture" => {
-            // value == "auto": scan body tool outputs → session findings.
-            // Determinism #498: no output written to the render body.
-            let Some(sinks) = ctx.sinks.as_ref() else {
-                return;
-            };
-            let Some(session) = sinks.session.as_ref() else {
-                return;
-            };
+            // value == "auto": scan body tool outputs → session findings via the
+            // outbound `ctx_session` finding sink. Determinism #498: no output
+            // written to the render body. Headless backend → BACKEND_REQUIRED
+            // envelope is discarded (capture is a best-effort side-effect).
             for (name, args, output) in &scope.outputs {
                 let tool = format!("ctx_{name}");
                 // ctx_search output has no `pattern:` header (the tool omits it in its
                 // text output); inject a synthetic header so `extract_search_pattern`
-                // (in `core/auto_findings.rs`) finds a non-empty pattern and the
+                // (in `auto_findings.rs`) finds a non-empty pattern and the
                 // noise-guard doesn't fall back to "?" and discard the finding.
                 // Parse via DirectiveArgs — identical to SearchBridge — so quoted
                 // patterns (`@search "foo bar"`) and attr form (`@search pattern=foo`)
@@ -162,83 +156,58 @@ fn fire_action(ctx: &Rc<EngineContext>, scope: &PhaseScope, action: &OnComplete)
                     output
                 };
                 if let Some(f) = crate::auto_findings::extract(&tool, effective) {
-                    session.blocking_write().add_finding(None, None, &f.summary);
+                    session_add_finding(ctx, &f.summary);
                 }
             }
         }
         "checkpoint" => {
-            // Compress over the session cache as a side-effect/log (#498: output discarded).
-            if ctx.sinks.is_none() {
-                return;
-            }
-            let _ = crate::tools::ctx_compress::handle(
-                &ctx.cache.borrow(),
-                false,
-                crate::crp_proto::CrpMode::Off,
+            // Outbound checkpoint: ask the backend to compress the live session.
+            // Headless → BACKEND_REQUIRED envelope, discarded (#498: no body output).
+            let _ = ctx.backend.call(
+                "ctx_compress",
+                serde_json::json!({ "action": "checkpoint" }),
             );
         }
         _ => {} // other sinks land in later tasks
     }
 }
 
-/// Team-bus / diary sink. Degrades to no-op when no agent is registered (§4.4).
+/// Team-bus / diary sink → outbound `ctx_agent`. Degrades to a discarded
+/// BACKEND_REQUIRED envelope when no backend/agent is reachable (§4.4); the
+/// server enforces agent registration. Determinism #498: output not rendered.
 fn fire_agent(ctx: &Rc<EngineContext>, action: &str, message: &str, category: Option<&str>) {
-    let Some(sinks) = ctx.sinks.as_ref() else {
-        return;
-    };
-    let Some(agent_id) = sinks.agent_id.as_deref() else {
-        return;
-    }; // no agent → no-op
-    let root = ctx.jail_root.to_str().unwrap_or(".");
-    let _ = crate::tools::ctx_agent::handle(
-        action,
-        None,
-        None,
-        root,
-        Some(agent_id),
-        Some(message),
-        category,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        false,
-        None,
-    );
+    let mut payload = serde_json::Map::new();
+    payload.insert("action".into(), action.into());
+    payload.insert("message".into(), message.into());
+    if let Some(category) = category {
+        payload.insert("category".into(), category.into());
+    }
+    let _ = ctx
+        .backend
+        .call("ctx_agent", serde_json::Value::Object(payload));
 }
 
 fn session_set_task(ctx: &Rc<EngineContext>, value: &str) {
-    let Some(sinks) = ctx.sinks.as_ref() else {
-        return;
-    };
-    let Some(session) = sinks.session.as_ref() else {
-        return;
-    };
-    session.blocking_write().set_task(value, None);
+    let _ = ctx.backend.call(
+        "ctx_session",
+        serde_json::json!({ "action": "task", "value": value }),
+    );
 }
 
 fn session_add_finding(ctx: &Rc<EngineContext>, value: &str) {
-    let Some(sinks) = ctx.sinks.as_ref() else {
-        return;
-    };
-    let Some(session) = sinks.session.as_ref() else {
-        return;
-    };
-    session.blocking_write().add_finding(None, None, value);
+    let _ = ctx.backend.call(
+        "ctx_session",
+        serde_json::json!({ "action": "finding", "value": value }),
+    );
 }
 
-/// Session `decision` sink (open + abort narrative). Gated by sinks; headless
-/// no-op. Uses `blocking_write()` — the MCP handler runs render under spawn_blocking.
+/// Session `decision` sink (open + abort narrative) → outbound `ctx_session`.
+/// Headless backend → discarded BACKEND_REQUIRED envelope (#498: not rendered).
 pub(crate) fn session_decision(ctx: &Rc<EngineContext>, summary: &str) {
-    let Some(sinks) = ctx.sinks.as_ref() else {
-        return;
-    };
-    let Some(session) = sinks.session.as_ref() else {
-        return;
-    };
-    session.blocking_write().add_decision(summary, None);
+    let _ = ctx.backend.call(
+        "ctx_session",
+        serde_json::json!({ "action": "decision", "value": summary }),
+    );
 }
 
 /// Pass 4: execute phase blocks. Phase-free body → fast pass-through.
@@ -350,8 +319,7 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
             if aborted {
                 continue; // skip remaining body after abort
             }
-            if let Some((name, args)) =
-                crate::parser::block::parse_directive_line(line.as_bytes())
+            if let Some((name, args)) = crate::parser::block::parse_directive_line(line.as_bytes())
             {
                 // Phase 9: consumer=human glosses Work-directives as prose (no abort path).
                 if ctx.consumer_hint() == 1 {
@@ -433,21 +401,11 @@ fn finalize_phase(ctx: &Rc<EngineContext>, out: &mut String, scope: &PhaseScope)
 /// to a future task when ctx_knowledge exposes a `gotcha` action in the appendix.
 fn report_phase_gotcha(_ctx: &Rc<EngineContext>, _err: &PhaseError) {}
 
-/// Merge-stable, greppable trigger: paths stripped, cause reduced to its head.
-fn normalize_trigger(err: &PhaseError) -> String {
-    let head = err
-        .cause
-        .split([':', '('])
-        .next()
-        .unwrap_or(&err.cause)
-        .trim();
-    format!(
-        "@phase \"{}\" aborted at @{}: {}",
-        err.phase, err.directive, head
-    )
-}
-
 /// Deterministic cause → GotchaCategory loose-name mapping (spec §3.5).
+/// Test-only: the gotcha sink it once fed is a no-op in lean-md (outbound-only,
+/// deferred). `normalize_trigger` (the sibling helper) was removed as dead code
+/// in the standalone-crate decoupling (Task 6).
+#[cfg(test)]
 fn map_cause_category(cause: &str) -> &'static str {
     if cause.contains("error[E") || cause.contains("mismatched") {
         "build"
@@ -588,11 +546,12 @@ trailing prose
 
     #[test]
     fn body_error_aborts_phase_with_stable_envelope() {
-        // @read of a missing file errors → phase aborts, PHASE_ABORTED envelope.
-        let out =
-            render("@phase \"Parser\"\n@read /no/such/file_xyz.rs\nAFTER\n@phase-end\nNEXT\n");
+        // A directive that returns Err headless (here @count with no pattern →
+        // MissingArg) aborts its phase with the PHASE_ABORTED envelope. (@read is
+        // outbound now and never Errs, so an in-process erroring directive is used.)
+        let out = render("@phase \"Parser\"\n@count\nAFTER\n@phase-end\nNEXT\n");
         assert!(
-            out.contains("PHASE_ABORTED \"Parser\" at @read"),
+            out.contains("PHASE_ABORTED \"Parser\" at @count"),
             "envelope missing: {out}"
         );
         assert!(
@@ -627,33 +586,72 @@ trailing prose
         );
     }
 
+    // ── Sink routing tests ──────────────────────────────────────────────────
+    // The local SessionCache / SinkHandles / ProjectKnowledge subsystems were
+    // removed in the standalone-crate decoupling (Task 6). `@on complete` sinks
+    // now route OUTBOUND through `ctx.backend.call(tool, args)`. A `RecordingBackend`
+    // captures those calls so the routing remains deterministically testable
+    // without `lean-ctx` on PATH.
+
+    use crate::backend::{BackendError, CodeIntelBackend};
+    use std::cell::RefCell;
+
+    /// Test backend that records every outbound `(tool, args)` call and returns
+    /// a fixed success string (so bridges treat it as a live backend, not a
+    /// BACKEND_REQUIRED degradation).
+    struct RecordingBackend {
+        calls: std::rc::Rc<RefCell<Vec<(String, serde_json::Value)>>>,
+    }
+
+    impl CodeIntelBackend for RecordingBackend {
+        fn call(&self, tool: &str, args: serde_json::Value) -> Result<String, BackendError> {
+            self.calls.borrow_mut().push((tool.to_string(), args));
+            Ok(String::new())
+        }
+    }
+
+    /// Build an `EngineContext` whose backend records outbound calls.
+    fn recording_ctx(
+        root: std::path::PathBuf,
+    ) -> (
+        Rc<EngineContext>,
+        std::rc::Rc<RefCell<Vec<(String, serde_json::Value)>>>,
+    ) {
+        let calls = std::rc::Rc::new(RefCell::new(Vec::new()));
+        let backend = Box::new(RecordingBackend {
+            calls: calls.clone(),
+        });
+        let ctx = Rc::new(EngineContext::with_backend(
+            LeanMdHeader::default(),
+            root,
+            backend,
+        ));
+        (ctx, calls)
+    }
+
+    /// Find the first recorded call to `tool` whose `action` field equals `action`.
+    fn find_call<'a>(
+        calls: &'a [(String, serde_json::Value)],
+        tool: &str,
+        action: &str,
+    ) -> Option<&'a serde_json::Value> {
+        calls
+            .iter()
+            .find(|(t, a)| t == tool && a.get("action").and_then(|v| v.as_str()) == Some(action))
+            .map(|(_, a)| a)
+    }
+
     #[test]
     fn abort_reports_gotcha_with_normalized_trigger() {
-        // Gotcha persistence is a no-op in lean-md (outbound-only, deferred to
-        // a future task). The PHASE_ABORTED envelope is still emitted — that is
-        // the invariant this test guards in lean-md.
-        use crate::engine::{EngineContext, SinkHandles};
-        use crate::header::LeanMdHeader;
-        use std::rc::Rc;
-
+        // The PHASE_ABORTED envelope is the invariant guarded here; gotcha
+        // persistence is a no-op in lean-md (outbound-only, deferred).
         let root = std::env::temp_dir().join("lmd_phase_gotcha");
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
-
-        let sinks = SinkHandles {
-            session_id: "s-gotcha".to_string(),
-            session: None,
-            agent_id: None,
-        };
-        let ctx = Rc::new(EngineContext::with_sinks(
-            LeanMdHeader::default(),
-            root.clone(),
-            sinks,
-        ));
-        let out = crate::engine::render_body(
-            &ctx,
-            "@phase \"Parser\"\n@read /no/such/file_abc.rs\n@phase-end\n",
-        );
+        let (ctx, _calls) = recording_ctx(root);
+        // @count with no pattern → MissingArg → phase abort (in-process error;
+        // @read is outbound now and never Errs).
+        let out = crate::engine::render_body(&ctx, "@phase \"Parser\"\n@count\n@phase-end\n");
         assert!(
             out.contains("PHASE_ABORTED"),
             "envelope still emitted: {out}"
@@ -671,165 +669,145 @@ trailing prose
 
     #[test]
     fn on_complete_fires_session_sinks_in_order_on_clean_end() {
-        use crate::core::session::SessionState;
-        use crate::engine::{EngineContext, SinkHandles};
-        use crate::header::LeanMdHeader;
-        use std::rc::Rc;
-        use std::sync::Arc;
-        use tokio::sync::RwLock;
-
-        let session = Arc::new(RwLock::new(SessionState::new()));
-        let sinks = SinkHandles {
-            session_id: "s1".to_string(),
-            session: Some(session.clone()),
-            agent_id: None,
-        };
-        let ctx = Rc::new(EngineContext::with_sinks(
-            LeanMdHeader::default(),
-            std::env::temp_dir(),
-            sinks,
-        ));
+        // task + decision sinks route to outbound ctx_session calls in source order.
+        let (ctx, calls) = recording_ctx(std::env::temp_dir());
         let _ = crate::engine::render_body(
             &ctx,
             "@phase \"Build\"\nbody\n@on complete task=\"build done [100%]\"\n@on complete decision=\"shipped\"\n@phase-end\n",
         );
-        let st = session.blocking_read();
+        let calls = calls.borrow();
+        let task = find_call(&calls, "ctx_session", "task").expect("task sink must fire");
         assert_eq!(
-            st.task.as_ref().unwrap().description,
-            "build done [100%]",
-            "task sink must fire"
+            task.get("value").and_then(|v| v.as_str()),
+            Some("build done [100%]"),
+            "task value forwarded"
         );
+        // Two decision calls are recorded: the open "Phase: Build" narrative and
+        // the closing @on complete decision="shipped". Assert the latter exists.
         assert!(
-            st.decisions.iter().any(|d| d.summary.contains("shipped")),
-            "decision sink must fire"
+            calls.iter().any(|(t, a)| t == "ctx_session"
+                && a["action"] == "decision"
+                && a.get("value").and_then(|v| v.as_str()) == Some("shipped")),
+            "closing decision sink must forward value=shipped"
         );
+        // Source order: the open `Phase: Build` decision precedes the task sink.
+        let task_pos = calls
+            .iter()
+            .position(|(t, a)| t == "ctx_session" && a["action"] == "task")
+            .unwrap();
+        let dec_pos = calls
+            .iter()
+            .rposition(|(t, a)| t == "ctx_session" && a["action"] == "decision")
+            .unwrap();
+        assert!(task_pos < dec_pos, "task fires before the closing decision");
     }
 
     #[test]
     fn on_complete_remember_writes_knowledge() {
-        use crate::engine::{EngineContext, SinkHandles};
-        use crate::header::LeanMdHeader;
-        use std::rc::Rc;
-
+        // remember sink routes to an outbound ctx_knowledge remember call with the
+        // slugged key, the category attr, and the content value.
         let root = std::env::temp_dir().join("lmd_oc_remember");
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
-        let ctx = Rc::new(EngineContext::with_sinks(
-            LeanMdHeader::default(),
-            root.clone(),
-            SinkHandles {
-                session_id: "s3".into(),
-                session: None,
-                agent_id: None,
-            },
-        ));
+        let (ctx, calls) = recording_ctx(root);
         let _ = crate::engine::render_body(
             &ctx,
             "@phase \"P\"\nwork\n@on complete remember=\"parser uses pratt\" category=decision\n@phase-end\n",
         );
-        let k = crate::core::knowledge::ProjectKnowledge::load(root.to_str().unwrap()).unwrap();
-        let hits = k.recall("pratt");
-        assert!(
-            !hits.is_empty(),
-            "remember sink must persist a knowledge fact"
-        );
-        // Verify attrs were persisted correctly (guards against attr-lookup bugs).
-        let fact = hits
-            .iter()
-            .find(|f| f.key == "parser_uses_pratt")
-            .expect("fact key must be slug of content: 'parser_uses_pratt'");
+        let calls = calls.borrow();
+        let k = find_call(&calls, "ctx_knowledge", "remember")
+            .expect("remember sink must route to ctx_knowledge");
         assert_eq!(
-            fact.category, "decision",
-            "category attr must be 'decision'"
+            k.get("key").and_then(|v| v.as_str()),
+            Some("parser_uses_pratt"),
+            "key must be the slug of the content"
+        );
+        assert_eq!(
+            k.get("category").and_then(|v| v.as_str()),
+            Some("decision"),
+            "category attr forwarded"
         );
         assert!(
-            fact.value.contains("parser uses pratt"),
+            k.get("value")
+                .and_then(|v| v.as_str())
+                .is_some_and(|v| v.contains("parser uses pratt")),
             "value must contain the written content; got: {:?}",
-            fact.value
+            k.get("value")
         );
     }
 
     #[test]
     fn post_without_agent_degrades_to_noop() {
-        use crate::engine::{EngineContext, SinkHandles};
-        use crate::header::LeanMdHeader;
-        use std::rc::Rc;
-
-        // sinks present but no agent_id → post/diary degrade, no panic, no error envelope.
-        let ctx = Rc::new(EngineContext::with_sinks(
-            LeanMdHeader::default(),
-            std::env::temp_dir(),
-            SinkHandles {
-                session_id: "s4".into(),
-                session: None,
-                agent_id: None,
-            },
-        ));
+        // post/diary sinks route outbound to ctx_agent; the server enforces agent
+        // registration. Here we assert it does not abort the phase and the call
+        // is forwarded with the right action.
+        let (ctx, calls) = recording_ctx(std::env::temp_dir());
         let out = crate::engine::render_body(
             &ctx,
             "@phase \"P\"\nwork\n@on complete post=\"hi\" category=status\n@phase-end\n",
         );
         assert!(
             !out.contains("PHASE_ABORTED"),
-            "team sink degradation is not an abort: {out}"
+            "team sink routing is not an abort: {out}"
         );
         assert!(!out.contains("panic"), "must not panic: {out}");
+        let calls = calls.borrow();
+        assert!(
+            find_call(&calls, "ctx_agent", "post").is_some(),
+            "post sink must route to ctx_agent"
+        );
     }
 
     #[test]
     fn aborted_phase_skips_on_complete() {
-        use crate::core::session::SessionState;
-        use crate::engine::{EngineContext, SinkHandles};
-        use crate::header::LeanMdHeader;
-        use std::rc::Rc;
-        use std::sync::Arc;
-        use tokio::sync::RwLock;
-
-        let session = Arc::new(RwLock::new(SessionState::new()));
-        let ctx = Rc::new(EngineContext::with_sinks(
-            LeanMdHeader::default(),
-            std::env::temp_dir(),
-            SinkHandles {
-                session_id: "s2".into(),
-                session: Some(session.clone()),
-                agent_id: None,
-            },
-        ));
+        // An aborted phase must NOT fire its @on complete task sink: no outbound
+        // ctx_session `task` call is recorded.
+        let (ctx, calls) = recording_ctx(std::env::temp_dir());
+        // @count (no pattern) Errs → phase aborts before the @on complete fires.
         let _ = crate::engine::render_body(
             &ctx,
-            "@phase \"P\"\n@read /no/such/zzz.rs\n@on complete task=\"done [100%]\"\n@phase-end\n",
+            "@phase \"P\"\n@count\n@on complete task=\"done [100%]\"\n@phase-end\n",
         );
+        let calls = calls.borrow();
         assert!(
-            session.blocking_read().task.is_none(),
+            find_call(&calls, "ctx_session", "task").is_none(),
             "aborted phase must NOT fire its @on complete task"
         );
     }
 
     #[test]
     fn capture_auto_emits_findings_from_body_outputs() {
-        use crate::core::session::SessionState;
-        use crate::engine::{EngineContext, SinkHandles};
-        use crate::header::LeanMdHeader;
-        use std::rc::Rc;
-        use std::sync::Arc;
-        use tokio::sync::RwLock;
-
-        // A @search in the body produces output that auto_findings::extract turns
-        // into a finding; capture=auto routes it to the session.
+        // capture=auto scans body tool outputs and routes findings to outbound
+        // ctx_session `finding` calls. The @search body output is produced by the
+        // recording backend; we feed a synthetic search result so auto_findings
+        // extracts a finding deterministically.
         let dir = std::env::temp_dir().join("lmd_capture_auto");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("hit.rs"), "fn capture_marker_77() {}\n").unwrap();
 
-        let session = Arc::new(RwLock::new(SessionState::new()));
-        let ctx = Rc::new(EngineContext::with_sinks(
+        // Backend that returns a search-result body for ctx_search so capture=auto
+        // has something to extract; records ctx_session finding calls.
+        let calls = std::rc::Rc::new(RefCell::new(Vec::new()));
+        struct SearchBackend {
+            calls: std::rc::Rc<RefCell<Vec<(String, serde_json::Value)>>>,
+        }
+        impl CodeIntelBackend for SearchBackend {
+            fn call(&self, tool: &str, args: serde_json::Value) -> Result<String, BackendError> {
+                self.calls.borrow_mut().push((tool.to_string(), args));
+                if tool == "ctx_search" {
+                    Ok("src/hit.rs:1: fn capture_marker_77() {}\n1 match\n".to_string())
+                } else {
+                    Ok(String::new())
+                }
+            }
+        }
+        let ctx = Rc::new(EngineContext::with_backend(
             LeanMdHeader::default(),
             dir.clone(),
-            SinkHandles {
-                session_id: "s5".into(),
-                session: Some(session.clone()),
-                agent_id: None,
-            },
+            Box::new(SearchBackend {
+                calls: calls.clone(),
+            }),
         ));
         let pat = "capture_marker_77";
         let _ = crate::engine::render_body(
@@ -839,32 +817,19 @@ trailing prose
                 dir.to_str().unwrap()
             ),
         );
+        let calls = calls.borrow();
         assert!(
-            !session.blocking_read().findings.is_empty(),
-            "capture=auto must turn body tool output into session findings"
+            calls
+                .iter()
+                .any(|(t, a)| t == "ctx_session" && a["action"] == "finding"),
+            "capture=auto must route body tool output to an outbound finding sink"
         );
     }
 
     #[test]
     fn on_complete_substitutes_call_params() {
-        use crate::core::session::SessionState;
-        use crate::engine::{EngineContext, SinkHandles};
-        use crate::header::LeanMdHeader;
-        use std::rc::Rc;
-        use std::sync::Arc;
-        use tokio::sync::RwLock;
-
-        let session = Arc::new(RwLock::new(SessionState::new()));
-        let ctx = Rc::new(EngineContext::with_sinks(
-            LeanMdHeader::default(),
-            std::env::temp_dir(),
-            SinkHandles {
-                session_id: "s6".into(),
-                session: Some(session.clone()),
-                agent_id: None,
-            },
-        ));
-        // A macro that closes a phase with parameterized task progress.
+        // @on complete inside @call substitutes params before routing outbound.
+        let (ctx, calls) = recording_ctx(std::env::temp_dir());
         let doc = "@define close(pct, note)\n\
                    @on complete task=\"{{ note }} [{{ pct }}%]\"\n\
                    @define-end\n\n\
@@ -873,10 +838,12 @@ trailing prose
                    @call close(100, parser fertig) /\n\
                    @phase-end\n";
         let _ = crate::engine::render_body(&ctx, doc);
-        let st = session.blocking_read();
+        let calls = calls.borrow();
+        let task = find_call(&calls, "ctx_session", "task")
+            .expect("@on complete task must route outbound");
         assert_eq!(
-            st.task.as_ref().unwrap().description,
-            "parser fertig [100%]",
+            task.get("value").and_then(|v| v.as_str()),
+            Some("parser fertig [100%]"),
             "@on complete inside @call must substitute params (D-5 composition)"
         );
     }
@@ -884,14 +851,15 @@ trailing prose
     #[test]
     fn phase_aborted_envelope_is_byte_stable() {
         use crate::engine::render;
-        let doc = "@phase \"X\"\n@read /no/such/qq.rs\n@phase-end\n";
+        // @count (no pattern) Errs in-process → deterministic PHASE_ABORTED.
+        let doc = "@phase \"X\"\n@count\n@phase-end\n";
         let a = render(doc);
         let b = render(doc);
         assert_eq!(
             a, b,
             "render output must be a deterministic function of input (#498)"
         );
-        assert!(a.contains("PHASE_ABORTED \"X\" at @read"));
+        assert!(a.contains("PHASE_ABORTED \"X\" at @count"));
     }
 
     #[test]

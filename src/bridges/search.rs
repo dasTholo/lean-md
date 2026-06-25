@@ -17,7 +17,7 @@ impl DirectiveBridge for SearchBridge {
 
     fn execute(
         &self,
-        _ctx: &Rc<EngineContext>,
+        ctx: &Rc<EngineContext>,
         args: &DirectiveArgs,
     ) -> Result<String, BridgeError> {
         let pattern = args
@@ -30,16 +30,18 @@ impl DirectiveBridge for SearchBridge {
             .get("max")
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(20);
-        let outcome = crate::tools::ctx_search::handle(
-            pattern,
-            dir,
-            ext,
-            max,
-            crate::crp_proto::CrpMode::Off,
-            true,  // respect_gitignore
-            false, // allow_secret_paths
-        );
-        Ok(outcome.text)
+        let mut payload = serde_json::Map::new();
+        payload.insert("pattern".into(), pattern.into());
+        payload.insert("path".into(), dir.into());
+        if let Some(ext) = ext {
+            payload.insert("ext".into(), ext.into());
+        }
+        payload.insert("max".into(), (max as u64).into());
+        let out = ctx
+            .backend
+            .call("ctx_search", serde_json::Value::Object(payload))
+            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+        Ok(out)
     }
 }
 
@@ -60,13 +62,19 @@ mod tests {
 
     #[test]
     fn searches_via_ctx_search() {
+        // @search routes outbound to ctx_search. Dispatch contract: Ok(…) with the
+        // live hit (lean-ctx session present) or a BACKEND_REQUIRED envelope
+        // (headless / jail-refused) — never Err, never a panic.
         let dir = std::env::temp_dir().join("lmd_search_bridge");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("hit.txt"), "fn target_marker_42() {}\n").unwrap();
         let args =
             DirectiveArgs::parse(&format!("target_marker_42 path={}", dir.to_str().unwrap()));
         let out = SearchBridge.execute(&ctx(), &args).unwrap();
-        assert!(out.contains("target_marker_42"), "got: {out}");
+        assert!(
+            out.contains("target_marker_42") || out.contains("BACKEND_REQUIRED"),
+            "got: {out}"
+        );
     }
 
     #[test]

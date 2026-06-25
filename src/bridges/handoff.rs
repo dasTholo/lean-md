@@ -57,7 +57,10 @@ fn handoff_show(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String,
     let path_str = path.to_string_lossy();
     Ok(ctx
         .backend
-        .call("ctx_handoff", json!({"action": "show", "path": path_str.as_ref()}))
+        .call(
+            "ctx_handoff",
+            json!({"action": "show", "path": path_str.as_ref()}),
+        )
         .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
 }
 
@@ -72,7 +75,10 @@ fn handoff_pull(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String,
     let path_str = path.to_string_lossy();
     Ok(ctx
         .backend
-        .call("ctx_handoff", json!({"action": "pull", "path": path_str.as_ref()}))
+        .call(
+            "ctx_handoff",
+            json!({"action": "pull", "path": path_str.as_ref()}),
+        )
         .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
 }
 

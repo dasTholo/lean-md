@@ -141,24 +141,24 @@ impl DirectiveBridge for RefactorBridge {
         args: &DirectiveArgs,
     ) -> Result<String, BridgeError> {
         let root = ctx.jail_root.to_str().unwrap_or(".");
-        let (action, obj, abs) = build_action_and_map(args, root)?;
+        let (_action, obj, _abs) = build_action_and_map(args, root)?;
 
-        let out = crate::tools::ctx_refactor::handle(&serde_json::Value::Object(obj), root, &abs);
-
-        // Cache coherence (spec §3.4): mirror edit.rs:symbolic_edit exactly.
-        // Apply-path only — preview is read-only and must NEVER clear the cache.
-        // CONFLICT arrives as "ERROR: CONFLICT: …" — already covered by the ERROR prefix.
-        if apply_succeeded(&action, &out) {
-            ctx.cache.borrow_mut().clear();
-        }
+        // Route through the outbound code-intel backend (mirror edit.rs).
+        // Cache coherence is the backend's concern now — lmd holds no local
+        // file cache; apply-side invalidation lives in lean-ctx (#498 decoupling).
+        let out = ctx
+            .backend
+            .call("ctx_refactor", serde_json::Value::Object(obj))
+            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
 
         Ok(out)
     }
 }
 
-/// Apply succeeded and the shared cache must be invalidated (spec §3.4):
-/// only on the apply phase, and only when the backend reports neither an
-/// ERROR envelope nor a "not applied" no-op. Mirrors edit.rs:symbolic_edit.
+/// Apply-success predicate (test-only). The shared cache it once invalidated was
+/// removed in the standalone-crate decoupling (Task 6); cache coherence is the
+/// backend's concern now. Retained as a documented predicate for the unit test.
+#[cfg(test)]
 pub(crate) fn apply_succeeded(action: &str, out: &str) -> bool {
     action.ends_with("_apply") && !out.starts_with("ERROR") && !out.contains("not applied")
 }
@@ -605,11 +605,13 @@ mod tests {
         }
     }
 
-    /// Integration: a preview call must NOT clear the cache even if the backend
-    /// returns a non-error string.
+    /// Integration: a preview call (no plan_hash=) is read-only — it selects the
+    /// `_preview` action and routes outbound, degrading to a BACKEND_REQUIRED
+    /// envelope headless. Cache coherence is the backend's concern now (the local
+    /// SessionCache was removed in the standalone-crate decoupling, Task 6).
     #[test]
-    fn preview_never_clears_cache() {
-        let dir = std::env::temp_dir().join("lmd_refactor_preview_noclear");
+    fn preview_is_read_only_and_routes_outbound() {
+        let dir = std::env::temp_dir().join("lmd_refactor_preview_readonly");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("sub.rs");
         std::fs::write(&f, "pub fn my_func() {}\n").unwrap();
@@ -618,19 +620,22 @@ mod tests {
             dir.clone(),
         ));
 
-        // Warm the cache via store() so we can detect if it's cleared.
         let path_str = f.to_str().unwrap();
-        ctx.cache.borrow_mut().store(path_str, "cached-content");
+        // No plan_hash → _preview action; structurally read-only.
+        let (action, _, _) = build_action_and_map(
+            &DirectiveArgs::parse(&format!("rename path={path_str} line=1 new=other")),
+            dir.to_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(action, "rename_preview", "no plan_hash → preview path");
 
         let input = format!("rename path={path_str} line=1 new=other");
-        let _out = RefactorBridge
+        let out = RefactorBridge
             .execute(&ctx, &DirectiveArgs::parse(&input))
             .unwrap();
-
-        // Preview must never clear — the stored entry must still be present.
         assert!(
-            ctx.cache.borrow().get(path_str).is_some(),
-            "preview must NOT clear the cache"
+            out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
+            "preview must degrade cleanly headless, got: {out}"
         );
     }
 

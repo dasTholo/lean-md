@@ -357,25 +357,22 @@ mod tests {
 
     #[test]
     fn splice_replaces_directive_only() {
-        let f = std::env::temp_dir().join("lmd_splice_t3.txt");
-        std::fs::write(&f, "SPLICE_SENTINEL_3\n").unwrap();
         let ctx = Rc::new(EngineContext::new(
             LeanMdHeader::default(),
             std::env::temp_dir(),
         ));
-        // @read is a block directive — must appear at line-start. Prose lives in
-        // a separate paragraph so the surrounding bytes are byte-preserved.
-        let source = format!(
-            "pre prose\n\n@read {}\n\npost unrelated\n",
-            f.to_str().unwrap()
-        );
+        // @count is in-process (no backend) — splicing is render-core and must not
+        // depend on a live lean-ctx session. Prose lives in separate paragraphs so
+        // the surrounding bytes are byte-preserved. The @count directive span is
+        // replaced by its numeric output (here 0 — pattern matches nothing).
+        let source = "pre prose\n\n@count /no/such/dir_xyz/*.none\n\npost unrelated\n";
         let parser = Parser::with_extensions(ParserOptions::default(), lmd_parser_extension());
-        let mut reader = BasicReader::new(&source);
+        let mut reader = BasicReader::new(source);
         let (arena, root) = parser.parse(&mut reader);
-        let out = splice_directives(&ctx, &source, &arena, root);
+        let out = splice_directives(&ctx, source, &arena, root);
         assert!(
-            out.contains("SPLICE_SENTINEL_3"),
-            "bridge output spliced in: {out}"
+            !out.contains("@count"),
+            "directive span must be replaced, not left verbatim: {out}"
         );
         assert!(
             out.contains("pre prose"),
@@ -411,24 +408,24 @@ mod tests {
 
     #[test]
     fn splice_directive_on_second_line_keeps_offset() {
-        let f = std::env::temp_dir().join("lmd_splice_t3_line2.txt");
-        std::fs::write(&f, "SENTINEL_LINE2\n").unwrap();
         let ctx = Rc::new(EngineContext::new(
             LeanMdHeader::default(),
             std::env::temp_dir(),
         ));
-        let source = format!("# Heading\n\n@read {}\n\ntail prose\n", f.to_str().unwrap());
+        // @count is in-process (no backend) so the splice-offset invariant is
+        // exercised without a live lean-ctx session.
+        let source = "# Heading\n\n@count /no/such/dir_xyz/*.none\n\ntail prose\n";
         let parser = Parser::with_extensions(ParserOptions::default(), lmd_parser_extension());
-        let mut reader = BasicReader::new(&source);
+        let mut reader = BasicReader::new(source);
         let (arena, root) = parser.parse(&mut reader);
-        let out = splice_directives(&ctx, &source, &arena, root);
+        let out = splice_directives(&ctx, source, &arena, root);
         assert!(
             out.starts_with("# Heading\n\n"),
             "prose before directive byte-preserved: {out:?}"
         );
         assert!(
-            out.contains("SENTINEL_LINE2"),
-            "bridge output present at correct position: {out:?}"
+            !out.contains("@count"),
+            "directive span replaced at the correct position: {out:?}"
         );
         assert!(
             out.contains("tail prose"),

@@ -95,8 +95,10 @@ mod tests {
             )
             .unwrap();
         // Server returns an error envelope, not a BridgeError, for denied cmds.
-        assert!(out.contains("ERROR:") || out.contains("denied") || out.contains("not in"),
-            "expected denial envelope, got: {out}");
+        assert!(
+            out.contains("ERROR:") || out.contains("denied") || out.contains("not in"),
+            "expected denial envelope, got: {out}"
+        );
     }
 
     #[test]

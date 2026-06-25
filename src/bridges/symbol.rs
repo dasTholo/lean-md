@@ -142,13 +142,10 @@ fn overview(
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("");
-    let (rendered, sigs) =
-        crate::crp::render_file_signatures(&content, ext, ctx.header.crp, None);
+    let (rendered, sigs) = crate::crp::render_file_signatures(&content, ext, ctx.header.crp, None);
     ctx.crp_sigs.borrow_mut().extend(sigs);
     Ok(rendered)
 }
-
-
 
 #[cfg(test)]
 mod tests {

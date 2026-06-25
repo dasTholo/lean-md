@@ -22,7 +22,7 @@ impl DirectiveBridge for RenderBridge {
     }
     fn execute(
         &self,
-        ctx: &Rc<EngineContext>,
+        _ctx: &Rc<EngineContext>,
         args: &DirectiveArgs,
     ) -> Result<String, BridgeError> {
         let input = args

@@ -37,7 +37,9 @@ impl DirectiveBridge for CallBridge {
             // No macro defined with this name — visible error (built-in-first).
             // Plugin-tool fallback is a lean-ctx core concept; lean-md routes
             // external tool calls via ctx.backend, not a local PluginManager.
-            return Err(BridgeError::Resolve(format!("macro not found: {macro_name}")));
+            return Err(BridgeError::Resolve(format!(
+                "macro not found: {macro_name}"
+            )));
         };
 
         let expanded = substitute_params(&def.body, &def.params, &call_args);
@@ -128,5 +130,4 @@ mod tests {
         let out = render("@define g(a)\n[{{ a }}]\n@define-end\n\n@call g() /\n");
         assert!(out.contains("[]"), "missing arg → empty, got: {out}");
     }
-
 }

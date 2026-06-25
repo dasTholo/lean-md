@@ -86,7 +86,6 @@ impl DirectiveBridge for ReviewBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::tokens::count_tokens;
     use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
@@ -118,6 +117,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "server-enforced: @review routes outbound to ctx_review; needs lean-ctx in PATH"]
     fn review_checklist_dispatches_headless() {
         // checklist is project-wide (no path) → a real, non-empty dispatch.
         let ctx = ctx_at(std::env::temp_dir());
@@ -128,12 +128,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "server-enforced: diff-review routes outbound to ctx_review; needs lean-ctx in PATH"]
     fn diff_review_is_faithful_passthrough_and_dense() {
         // diff-review takes RAW diff text (no git, no jail). A single-quoted arg
         // preserves real newlines verbatim (args.rs tokenizer). Build a bulky
-        // 2-file diff; the verdict must (a) surface the changed files and (b) be
-        // DENSER (fewer cl100k tokens) than the raw diff — the §4.4 output-
-        // compression claim, NOT a structural-lever claim.
+        // 2-file diff; the verdict must surface the changed files. The density
+        // (cl100k token) claim is now the backend's concern (outbound ctx_review).
         let ctx = ctx_at(std::env::temp_dir().join("lmd_review_diff"));
 
         // A normal multi-line Rust string literal (real newlines), no single
@@ -153,7 +153,7 @@ mod tests {
         // Single-quoted arg → verbatim (real newlines preserved, no escaping).
         let directive = format!("diff-review diff='{body}'");
         let parsed = DirectiveArgs::parse(&directive);
-        let raw_diff = parsed
+        let _raw_diff = parsed
             .get("diff")
             .expect("diff arg must round-trip through the single-quote tokenizer");
 
@@ -163,12 +163,6 @@ mod tests {
         assert!(
             out.contains("alpha.rs") && out.contains("beta.rs"),
             "diff-review must surface both changed files, got: {out}"
-        );
-        assert!(
-            count_tokens(&out) < count_tokens(raw_diff),
-            "diff-review verdict ({} tok) must be denser than the raw diff ({} tok)",
-            count_tokens(&out),
-            count_tokens(raw_diff)
         );
     }
 
@@ -181,6 +175,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "server-enforced: diff-review routes outbound to ctx_review; needs lean-ctx in PATH"]
     fn diff_review_reads_piped_input() {
         // The pipe supplies the diff text; no `diff=` arg present.
         let ctx = ctx_at(std::env::temp_dir().join("lmd_review_pipe"));

@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 
 use super::args::DirectiveArgs;
 
-const GLOSS_TABLE_SRC: &str = include_str!("../../../lean-md/gloss/directives.lmd.md");
+const GLOSS_TABLE_SRC: &str = include_str!("../content/gloss/directives.lmd.md");
 
 fn table() -> &'static HashMap<String, String> {
     static TABLE: OnceLock<HashMap<String, String>> = OnceLock::new();
@@ -140,7 +140,7 @@ mod tests {
         // include_str! identity (Spec §6.4): the embedded bytes are the file.
         let on_disk = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../lean-md/gloss/directives.lmd.md"
+            "/content/gloss/directives.lmd.md"
         ))
         .expect("gloss file readable");
         assert_eq!(

@@ -7,14 +7,14 @@ use std::path::Path;
 
 /// Built-in `hard-rules` fragment — the canonical tool-discipline block that
 /// goes into every dispatch (spec §3.3/§3.5). Kept short on purpose.
-const HARD_RULES: &str = include_str!("../../../lean-md/core/hard-rules.lmd.md");
+const HARD_RULES: &str = include_str!("../content/core/hard-rules.lmd.md");
 
 /// Built-in `dispatch-contract` fragment (Spec §3.1, D-5/D-11). Block (b) of a
 /// `@dispatch` render: tool-discipline + register/handoff baton. Portiert aus
 /// `lean-md/core/dispatch-contract.lmd.md` (via `include_str!`, byte-stable #498).
 /// `{{ role }}` / `{{ controller_id }}` bleiben verbatim — die `DispatchBridge`
 /// (Phase 7C) substituiert sie.
-const DISPATCH_CONTRACT: &str = include_str!("../../../lean-md/core/dispatch-contract.lmd.md");
+const DISPATCH_CONTRACT: &str = include_str!("../content/core/dispatch-contract.lmd.md");
 
 #[derive(Debug)]
 pub enum ResolveError {
@@ -165,8 +165,8 @@ mod tests {
         // §8 #9: the built-in fragments MUST be byte-identical to the canonical
         // lean-md/core seed files. Reading the seed at test time (via the crate
         // manifest dir) catches any drift between the embedded const and the file.
-        let manifest = env!("CARGO_MANIFEST_DIR"); // .../rust
-        let core = std::path::Path::new(manifest).join("../lean-md/core");
+        let manifest = env!("CARGO_MANIFEST_DIR"); // crate root
+        let core = std::path::Path::new(manifest).join("content/core");
         let reg = FragmentRegistry::with_builtins();
 
         let hard_disk = std::fs::read_to_string(core.join("hard-rules.lmd.md")).unwrap();

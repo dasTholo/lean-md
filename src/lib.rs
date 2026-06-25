@@ -21,9 +21,11 @@ pub mod parser;
 pub mod pathx;
 pub mod phases;
 pub mod render;
-pub mod signatures;
 pub mod seeds;
+pub mod signatures;
 pub mod skills;
+#[cfg(test)]
+mod test_env;
 
-pub use engine::{render, render_body, render_markdown, render_with_overrides, EngineContext};
+pub use engine::{EngineContext, render, render_body, render_with_overrides};
 pub use fragments::FragmentRegistry;

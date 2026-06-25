@@ -134,7 +134,9 @@ mod tests {
         let be = CliBackend {
             project_root: dir.to_string_lossy().into_owned(),
         };
-        let out = be.call("ctx_tree", serde_json::json!({"path": "."})).unwrap();
+        let out = be
+            .call("ctx_tree", serde_json::json!({"path": "."}))
+            .unwrap();
         assert!(out.contains("MARKER.txt"), "got: {out}");
     }
 

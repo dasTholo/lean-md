@@ -46,9 +46,10 @@ impl DirectiveBridge for ReformatBridge {
     }
 }
 
-/// Reformat succeeded and the file was mutated → the shared cache must be
-/// cleared (spec §3.4). reformat is single-phase, so success is simply the
-/// absence of an ERROR envelope (BACKEND_REQUIRED arrives as "ERROR: …").
+/// Reformat-success predicate (test-only). The shared cache it once guarded was
+/// removed in the standalone-crate decoupling (Task 6); cache coherence is the
+/// backend's concern now. Retained as a documented predicate for the unit test.
+#[cfg(test)]
 pub(crate) fn reformat_succeeded(out: &str) -> bool {
     !out.starts_with("ERROR")
 }
