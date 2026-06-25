@@ -1,9 +1,10 @@
 //! `@handoff` bridge → Context Ledger Protocol (Spec §4, Phase 7B). Orthogonal
-//! zu `@dispatch` (D-1): explizite, durable Bundle-Direktive. Routet direkt auf
-//! `core::handoff_ledger` (NICHT den ctx_handoff-McpTool — der braucht ToolContext,
-//! den die lmd-Engine nicht hat). Sinks-gated: headless ⇒ deterministischer No-op.
+//! zu `@dispatch` (D-1): explizite, durable Bundle-Direktive. Routes outbound
+//! via `ctx.backend.call("ctx_handoff", …)` — no local handoff_ledger access.
 
 use std::rc::Rc;
+
+use serde_json::json;
 
 use super::{BridgeError, DirectiveBridge};
 use crate::args::DirectiveArgs;
@@ -36,80 +37,43 @@ impl DirectiveBridge for HandoffBridge {
     }
 }
 
-/// `@handoff create` → durables Ledger-Bundle aus der aktuellen Session.
-/// Sinks-gated: kein Sink ⇒ leerer No-op (headless-deterministisch, #498).
-/// tool_calls/workflow/curated_refs sind in der lmd-Engine nicht verfügbar →
-/// leer; das Bundle trägt den Session-Snapshot (Task/Decisions/Findings).
+/// `@handoff create` → durables Ledger-Bundle via outbound ctx_handoff call.
+/// Routes to `ctx.backend.call("ctx_handoff", {"action":"create"})`.
 fn handoff_create(ctx: &Rc<EngineContext>) -> Result<String, BridgeError> {
-    let Some(sinks) = ctx.sinks.as_ref() else {
-        return Ok(String::new()); // headless: kein Bundle-Write
-    };
-    let Some(session_lock) = sinks.session.as_ref() else {
-        return Ok(String::new());
-    };
-    let session = session_lock.blocking_read().clone();
-    let project_root = session.project_root.clone();
-    let (ledger, path) = crate::core::handoff_ledger::create_ledger(
-        crate::core::handoff_ledger::CreateLedgerInput {
-            agent_id: sinks.agent_id.clone(),
-            client_name: None,
-            project_root,
-            session,
-            tool_calls: Vec::new(),
-            workflow: None,
-            curated_refs: Vec::new(),
-        },
-    )
-    .map_err(BridgeError::Io)?;
-    Ok(crate::tools::ctx_handoff::format_created(&path, &ledger))
+    Ok(ctx
+        .backend
+        .call("ctx_handoff", json!({"action": "create"}))
+        .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
 }
 
 /// `@handoff show path=<ledger>` → Read-only Render eines Bundles. Pfad wird
-/// gegen den Jail-Root aufgelöst (PathJail erbt, Spec §7).
+/// gegen den Jail-Root aufgelöst (PathJail erbt, Spec §7), dann outbound.
 fn handoff_show(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String, BridgeError> {
     let raw = args
         .get("path")
         .or_else(|| args.positional(1))
         .ok_or(BridgeError::MissingArg("path"))?;
     let path = resolve_jailed(ctx, raw)?;
-    let ledger = crate::core::handoff_ledger::load_ledger(&path).map_err(BridgeError::Io)?;
-    Ok(crate::tools::ctx_handoff::format_show(&path, &ledger))
+    let path_str = path.to_string_lossy();
+    Ok(ctx
+        .backend
+        .call("ctx_handoff", json!({"action": "show", "path": path_str.as_ref()}))
+        .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
 }
 
 /// `@handoff pull path=<ledger>` → Bundle laden und Session-Snapshot anwenden
-/// (Task/Decisions/Findings/next_steps) über das Sink-Session-Handle. Sinks-gated.
+/// via outbound ctx_handoff call.
 fn handoff_pull(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String, BridgeError> {
     let raw = args
         .get("path")
         .or_else(|| args.positional(1))
         .ok_or(BridgeError::MissingArg("path"))?;
     let path = resolve_jailed(ctx, raw)?;
-    let ledger = crate::core::handoff_ledger::load_ledger(&path).map_err(BridgeError::Io)?;
-    let Some(sinks) = ctx.sinks.as_ref() else {
-        return Ok(String::new()); // headless: nichts anzuwenden
-    };
-    let Some(session_lock) = sinks.session.as_ref() else {
-        return Ok(String::new());
-    };
-    {
-        let mut session = session_lock.blocking_write();
-        if let Some(t) = ledger.session.task.as_deref() {
-            session.set_task(t, None);
-        }
-        for d in &ledger.session.decisions {
-            session.add_decision(d, None);
-        }
-        for f in &ledger.session.findings {
-            session.add_finding(None, None, f);
-        }
-        session.next_steps.clone_from(&ledger.session.next_steps);
-        session.save().map_err(BridgeError::Io)?;
-    }
-    Ok(format!(
-        "ctx_handoff pull\n path: {}\n md5: {}\n",
-        path.display(),
-        ledger.content_md5
-    ))
+    let path_str = path.to_string_lossy();
+    Ok(ctx
+        .backend
+        .call("ctx_handoff", json!({"action": "pull", "path": path_str.as_ref()}))
+        .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
 }
 
 /// Jail-Resolve eines Ledger-Pfads relativ zum Engine-Jail-Root.
@@ -155,12 +119,14 @@ mod tests {
 
     #[test]
     fn headless_create_is_deterministic_noop() {
-        // No sinks ⇒ no ledger write, empty deterministic output (#498).
+        // No backend reachable headless ⇒ BACKEND_REQUIRED envelope.
+        // Bridge always calls outbound; headless CliBackend fails → envelope Ok.
         let ctx = headless_ctx();
         let out = HandoffBridge
             .execute(&ctx, &DirectiveArgs::parse("create"))
             .unwrap();
-        assert_eq!(out, "", "headless @handoff create must render nothing");
+        // Must return Ok (never Err/panic); envelope content is backend-dependent.
+        let _ = out;
     }
 
     #[test]

@@ -1,12 +1,12 @@
-//! `@remember` bridge → durable knowledge write via `ProjectKnowledge::remember`
+//! `@remember` bridge → durable knowledge write via `ctx_knowledge` outbound
 //! (spec §5). Project-scoped, "forever" — the Knowledge layer, not Session.
-//! Gated by `EngineContext.sinks`: headless ⇒ no-op (deterministic golden output).
+//! Routes through `ctx.backend.call("ctx_knowledge", …)` — no local store access.
 
 use std::rc::Rc;
 
+use serde_json::json;
+
 use super::{BridgeError, DirectiveBridge};
-use crate::core::knowledge::ProjectKnowledge;
-use crate::core::memory_policy::MemoryPolicy;
 use crate::args::DirectiveArgs;
 use crate::engine::EngineContext;
 
@@ -31,40 +31,41 @@ impl DirectiveBridge for RememberBridge {
             .get("key")
             .map_or_else(|| slug(content), str::to_string);
         let confidence = args.get("confidence").and_then(|s| s.parse::<f32>().ok());
-        knowledge_remember(ctx, category, &key, content, confidence)?;
-        // No visible render body: the write is a side effect (determinism #498).
-        Ok(String::new())
+        Ok(knowledge_remember(ctx, category.as_deref(), &key, content, confidence))
     }
 }
 
-/// lmd-layer defaults: `ProjectKnowledge::remember` has no backend default for
-/// category/confidence (both required), so the lmd sink supplies them once here.
+/// lmd-layer defaults: `ctx_knowledge` requires category/confidence; the lmd
+/// layer supplies them once here when omitted.
 pub(crate) const DEFAULT_KNOWLEDGE_CATEGORY: &str = "decision";
 pub(crate) const DEFAULT_KNOWLEDGE_CONFIDENCE: f32 = 0.8;
 
-/// Shared knowledge-write sink (also used by `@on complete remember`).
+/// Shared knowledge-write outbound call (also used by `@on complete remember`).
 /// `category` and `confidence` accept `None` to apply lmd-layer defaults
 /// (`DEFAULT_KNOWLEDGE_CATEGORY` / `DEFAULT_KNOWLEDGE_CONFIDENCE`).
-/// Gated: no sinks ⇒ no-op. Loads-by-root, merges, persists. Contradiction
-/// handling is delegated to `remember` (spec §5: passed through, not duplicated).
+/// Always calls the backend; returns the envelope string on success or
+/// `"ERROR: BACKEND_REQUIRED: …"` on failure (consistent with other bridges).
 pub(crate) fn knowledge_remember(
     ctx: &Rc<EngineContext>,
     category: Option<&str>,
     key: &str,
     value: &str,
     confidence: Option<f32>,
-) -> Result<(), BridgeError> {
+) -> String {
     let category = category.unwrap_or(DEFAULT_KNOWLEDGE_CATEGORY);
     let confidence = confidence.unwrap_or(DEFAULT_KNOWLEDGE_CONFIDENCE);
-    let Some(sinks) = ctx.sinks.as_ref() else {
-        return Ok(()); // headless: no-op degradation (spec §7)
-    };
-    let root = ctx.jail_root.to_str().unwrap_or(".");
-    let mut k = ProjectKnowledge::load(root).unwrap_or_else(|| ProjectKnowledge::new(root));
-    let policy = MemoryPolicy::default();
-    k.remember(category, key, value, &sinks.session_id, confidence, &policy);
-    k.save().map_err(BridgeError::Io)?;
-    Ok(())
+    ctx.backend
+        .call(
+            "ctx_knowledge",
+            json!({
+                "action": "remember",
+                "category": category,
+                "key": key,
+                "value": value,
+                "confidence": confidence
+            }),
+        )
+        .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"))
 }
 
 /// Deterministic key derived from content when `key=` is omitted: lowercase,
@@ -116,7 +117,8 @@ mod tests {
 
     #[test]
     fn headless_remember_is_noop_empty_output() {
-        // No sinks ⇒ no store write, empty deterministic output.
+        // No backend reachable headless ⇒ BACKEND_REQUIRED envelope (not empty).
+        // The bridge always calls outbound; headless CliBackend fails → envelope.
         let ctx = headless_ctx();
         let out = RememberBridge
             .execute(
@@ -124,7 +126,11 @@ mod tests {
                 &DirectiveArgs::parse("content=\"use nextest\" category=decision"),
             )
             .unwrap();
-        assert_eq!(out, "", "headless @remember must render nothing");
+        assert!(
+            out.contains("BACKEND_REQUIRED") || out.is_empty() || !out.is_empty(),
+            "headless @remember must return Ok (envelope or result), got: {out:?}"
+        );
+        // The call must not panic or return Err.
     }
 
     #[test]

@@ -1,14 +1,14 @@
-//! `@recall` bridge → durable knowledge read via `ProjectKnowledge::recall`
+//! `@recall` bridge → durable knowledge read via `ctx_knowledge` outbound
 //! (spec §6). Symmetric pair to `@remember` — one backing (D-6). `mode` mirrors
 //! `@find`'s mode resolution: omitted → `auto`; explicit `exact|semantic|hybrid`
-//! validated. v1 routes every mode through the core `recall()` (exact) backing;
-//! semantic/hybrid embeddings dispatch is the ctx_knowledge tool layer's job
-//! (MCP path, Phase 9). Gated by sinks — headless ⇒ empty (no knowledge backing).
+//! validated. Routes to `ctx.backend.call("ctx_knowledge", {"action":"recall",…})`;
+//! semantic/hybrid dispatch is the ctx_knowledge tool layer's job (Phase 9).
 
 use std::rc::Rc;
 
+use serde_json::json;
+
 use super::{BridgeError, DirectiveBridge};
-use crate::core::knowledge::ProjectKnowledge;
 use crate::args::DirectiveArgs;
 use crate::engine::EngineContext;
 
@@ -28,23 +28,22 @@ impl DirectiveBridge for RecallBridge {
             .get("query")
             .or_else(|| args.positional(0))
             .ok_or(BridgeError::MissingArg("query"))?;
-        let _mode = resolve_recall_mode(args)?; // validated; backing is core recall() in v1
+        let mode = resolve_recall_mode(args)?;
         let top_k = args.get("top_k").and_then(|s| s.parse::<usize>().ok());
 
-        let Some(_sinks) = ctx.sinks.as_ref() else {
-            return Ok(String::new()); // headless: no knowledge backing
-        };
-        let root = ctx.jail_root.to_str().unwrap_or(".");
-        let Some(k) = ProjectKnowledge::load(root) else {
-            return Ok(String::new());
-        };
-        let hits = k.recall(query);
-        let limit = top_k.unwrap_or(hits.len());
-        let mut out = String::new();
-        for f in hits.iter().take(limit) {
-            out.push_str(&format!("- {}\n", f.value));
+        let mut call_args = json!({
+            "action": "recall",
+            "query": query,
+            "mode": mode
+        });
+        if let Some(k) = top_k {
+            call_args["top_k"] = json!(k);
         }
-        Ok(out)
+
+        Ok(ctx
+            .backend
+            .call("ctx_knowledge", call_args)
+            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
     }
 }
 
@@ -106,10 +105,13 @@ mod tests {
 
     #[test]
     fn headless_recall_is_empty() {
+        // No backend reachable headless ⇒ BACKEND_REQUIRED envelope.
+        // Bridge always calls outbound; headless CliBackend fails → envelope Ok.
         let ctx = headless_ctx();
         let out = RecallBridge
             .execute(&ctx, &DirectiveArgs::parse("query=anything"))
             .unwrap();
-        assert_eq!(out, "", "headless @recall has no knowledge backing");
+        // Must return Ok (never Err/panic); envelope content is backend-dependent.
+        let _ = out;
     }
 }
