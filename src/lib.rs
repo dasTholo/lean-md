@@ -9,6 +9,7 @@ pub mod backend;
 pub mod bridges;
 pub mod crp;
 pub mod crp_proto;
+pub mod crp_schema;
 pub mod engine;
 pub mod fragments;
 mod gloss;

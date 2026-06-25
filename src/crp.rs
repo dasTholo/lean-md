@@ -4,7 +4,7 @@
 //! only READS it (no `tools/`/`core/` edits, spec Phase-8 edit-jail).
 
 use crate::crp_proto::CrpMode;
-use crate::core::signatures::{Signature, extract_signatures};
+use crate::signatures::{Signature, extract_signatures};
 
 /// Output rules pulled from the canonical tdd-schema (`crp.output_rules`).
 /// `Off` → none. `Compact`/`Tdd` share the schema's single rule list.
@@ -12,7 +12,7 @@ pub fn crp_output_rules(mode: CrpMode) -> Vec<String> {
     if mode == CrpMode::Off {
         return Vec::new();
     }
-    let schema = crate::core::tdd_schema::tdd_schema_value();
+    let schema = crate::crp_schema::tdd_schema_value();
     schema["crp"]["output_rules"]
         .as_array()
         .map(|arr| {
@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn human_legend_expands_glyphs_to_words() {
-        use crate::core::signatures::Signature;
+        use crate::signatures::Signature;
         let mut s = Signature::no_span();
         s.kind = "fn";
         let refs: Vec<&Signature> = vec![&s];
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn i1_every_tdd_glyph_has_a_legend_entry() {
-        use crate::core::signatures::{Signature, tdd_legend};
+        use crate::signatures::{Signature, tdd_legend};
         // One signature per kind that to_tdd can emit, plus pub + async markers.
         let kinds = [
             "fn",
