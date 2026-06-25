@@ -65,7 +65,7 @@ fn resolve_value(ctx: &Rc<EngineContext>, name: &str, raw_args: &str) -> String 
     } else {
         format!("{name} {raw_args}")
     };
-    crate::lmd::macros::eval_string(ctx, &expr)
+    crate::macros::eval_string(ctx, &expr)
 }
 
 /// Dispatch a single pipe: run left (no piped input), inject its output as the
@@ -285,7 +285,7 @@ pub(crate) fn splice_template_only(ctx: &Rc<EngineContext>, segment: &str) -> St
 /// agent-guidance block is dropped; a readable German `human_legend` is appended
 /// instead (only when symbols were emitted). Both paths are pure + byte-stable.
 pub fn apply_crp_hook(ctx: &Rc<EngineContext>, rendered: String) -> String {
-    use crate::core::protocol::CrpMode;
+    use crate::crp_proto::CrpMode;
     let mode = ctx.header.crp;
     if mode == CrpMode::Off {
         return rendered;
@@ -330,9 +330,9 @@ mod tests {
     use rushdown::text::BasicReader;
 
     use super::{sanitize_comment, splice_directives};
-    use crate::lmd::engine::EngineContext;
-    use crate::lmd::header::LeanMdHeader;
-    use crate::lmd::parser::lmd_parser_extension;
+    use crate::engine::EngineContext;
+    use crate::header::LeanMdHeader;
+    use crate::parser::lmd_parser_extension;
 
     #[test]
     fn sanitizes_comment_breakout_sequences() {
@@ -507,7 +507,7 @@ mod tests {
 
 #[cfg(test)]
 mod crp_hook_tests {
-    use crate::lmd::engine::render;
+    use crate::engine::render;
 
     #[test]
     fn off_appends_no_suffix() {
@@ -578,7 +578,7 @@ mod crp_hook_tests {
 
     #[test]
     fn human_consumer_glosses_work_directives() {
-        use crate::lmd::engine::render;
+        use crate::engine::render;
         let doc = "@lean-md\nconsumer: human\n\n@read src/foo.rs\n";
         let out = render(doc);
         assert!(out.contains("Datei `src/foo.rs` lesen"), "glossed: {out}");
@@ -587,7 +587,7 @@ mod crp_hook_tests {
 
     #[test]
     fn ai_consumer_still_executes_work_directives() {
-        use crate::lmd::engine::render;
+        use crate::engine::render;
         // consumer=ai (default): @read is dispatched, not glossed.
         let doc = "@lean-md\nconsumer: ai\n\n@read Cargo.toml\n";
         let out = render(doc);
@@ -599,7 +599,7 @@ mod crp_hook_tests {
 
     #[test]
     fn human_render_drops_dense_crp_suffix() {
-        use crate::lmd::engine::render;
+        use crate::engine::render;
         // Source authored agent-facing (ai + tdd). Human render must not carry the
         // dense guidance block (D-12).
         let doc = "@lean-md\nconsumer: human\ncrp: tdd\n\n@read src/foo.rs\n";
@@ -616,7 +616,7 @@ mod crp_hook_tests {
 
     #[test]
     fn ai_render_keeps_dense_crp_suffix() {
-        use crate::lmd::engine::render;
+        use crate::engine::render;
         let doc = "@lean-md\nconsumer: ai\ncrp: tdd\n\nplain\n";
         let out = render(doc);
         assert!(out.contains("<!-- crp:tdd -->"), "ai keeps guidance: {out}");

@@ -375,8 +375,8 @@ fn import_library(ctx: &Rc<EngineContext>, target: &str, out: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::engine::EngineContext;
-    use crate::lmd::header::{Consumer, LeanMdHeader};
+    use crate::engine::EngineContext;
+    use crate::header::{Consumer, LeanMdHeader};
     use std::path::PathBuf;
 
     fn ctx_with(header: LeanMdHeader) -> Rc<EngineContext> {

@@ -199,8 +199,8 @@ pub fn render(input: &str) -> String {
 /// `None` keeps the source header. Used by `ctx_md_render` + `lean-ctx md`.
 pub fn render_with_overrides(
     input: &str,
-    consumer: Option<crate::lmd::header::Consumer>,
-    crp: Option<crate::core::protocol::CrpMode>,
+    consumer: Option<crate::header::Consumer>,
+    crp: Option<crate::crp_proto::CrpMode>,
     jail_root: PathBuf,
 ) -> String {
     let (mut header, body) = parse_header(input);
@@ -862,7 +862,7 @@ mod tests {
         crate::test_env::set_var("LEAN_CTX_SHELL_ALLOWLIST_OVERRIDE", "git");
         let ctx = Rc::new(EngineContext::new(
             LeanMdHeader {
-                shell: crate::lmd::header::ShellMode::Allow,
+                shell: crate::header::ShellMode::Allow,
                 ..Default::default()
             },
             dir.clone(),
@@ -968,7 +968,7 @@ flag is {{ env.LMD_P4_GOLDEN == \"on\" }}
 
     #[test]
     fn with_sinks_enables_the_gate() {
-        use crate::lmd::engine::SinkHandles;
+        use crate::engine::SinkHandles;
         let sinks = SinkHandles {
             session_id: "s-test".to_string(),
             session: None,
@@ -985,7 +985,7 @@ flag is {{ env.LMD_P4_GOLDEN == \"on\" }}
 
     #[test]
     fn consumer_hint_maps_audience() {
-        use crate::lmd::header::Consumer;
+        use crate::header::Consumer;
         let ai = EngineContext::new(LeanMdHeader::default(), PathBuf::from("."));
         assert_eq!(ai.consumer_hint(), 0, "ai must be 0");
         let human = EngineContext::new(
@@ -1028,7 +1028,7 @@ flag is {{ env.LMD_P4_GOLDEN == \"on\" }}
 
     #[test]
     fn render_with_overrides_forces_human_on_ai_tdd_source() {
-        use crate::lmd::header::Consumer;
+        use crate::header::Consumer;
         use std::path::PathBuf;
         // Source stored agent-facing (ai + tdd); render it human without editing it.
         let doc = "@lean-md\nconsumer: ai\ncrp: tdd\n\n@read src/foo.rs\n";

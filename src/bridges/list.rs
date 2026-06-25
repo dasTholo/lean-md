@@ -2,8 +2,8 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 /// `@list [path] [depth=<n>]` — defaults path=".", depth=2, hidden files off,
 /// gitignore respected. Routes `ctx_tree::handle`. No required arg.
@@ -35,9 +35,9 @@ impl DirectiveBridge for ListBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::args::DirectiveArgs;
-    use crate::lmd::engine::EngineContext;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::args::DirectiveArgs;
+    use crate::engine::EngineContext;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
     fn ctx() -> Rc<EngineContext> {

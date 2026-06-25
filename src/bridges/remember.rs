@@ -7,8 +7,8 @@ use std::rc::Rc;
 use super::{BridgeError, DirectiveBridge};
 use crate::core::knowledge::ProjectKnowledge;
 use crate::core::memory_policy::MemoryPolicy;
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 pub struct RememberBridge;
 
@@ -87,7 +87,7 @@ pub(crate) fn slug(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
     fn headless_ctx() -> Rc<EngineContext> {

@@ -2,8 +2,8 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 /// `@count <glob>` — number of filesystem paths matching the glob pattern.
 /// Paths that cannot be read (e.g. permission-denied during traversal) are
@@ -33,9 +33,9 @@ impl DirectiveBridge for CountBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::args::DirectiveArgs;
-    use crate::lmd::engine::EngineContext;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::args::DirectiveArgs;
+    use crate::engine::EngineContext;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
     fn ctx() -> Rc<EngineContext> {

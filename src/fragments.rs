@@ -42,7 +42,7 @@ impl FragmentRegistry {
             return Ok((*content).to_string());
         }
         let candidate = jail_root.join(format!("{name}.lmd.md"));
-        let resolved = crate::core::pathjail::jail_path(&candidate, jail_root)
+        let resolved = crate::pathx::jail_path(&candidate, jail_root)
             .map_err(|_| ResolveError::Jail(format!("{name} escapes jail")))?;
         if !resolved.exists() {
             return Err(ResolveError::NotFound(name.to_string()));

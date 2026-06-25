@@ -6,8 +6,8 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 pub struct OutlineBridge;
 
@@ -28,11 +28,11 @@ impl DirectiveBridge for OutlineBridge {
         let kind = args.get("kind"); // optional kind filter
 
         let root = ctx.jail_root.to_str().unwrap_or(".");
-        let abs = crate::core::path_resolve::resolve_tool_path(Some(root), None, path)
+        let abs = crate::pathx::resolve_tool_path(Some(root), None, path)
             .map_err(|e| BridgeError::Resolve(format!("path blocked by jail: {e}")))?;
 
         // Off (default): delegate to the core handler → byte-identical (E-3).
-        if ctx.header.crp == crate::core::protocol::CrpMode::Off {
+        if ctx.header.crp == crate::crp_proto::CrpMode::Off {
             let (out, _count) = crate::tools::ctx_outline::handle(&abs, kind);
             return Ok(out);
         }
@@ -46,7 +46,7 @@ impl DirectiveBridge for OutlineBridge {
             .and_then(|e| e.to_str())
             .unwrap_or("");
         let (rendered, sigs) =
-            crate::lmd::crp::render_file_signatures(&content, ext, ctx.header.crp, kind);
+            crate::crp::render_file_signatures(&content, ext, ctx.header.crp, kind);
         ctx.crp_sigs.borrow_mut().extend(sigs);
         Ok(rendered)
     }
@@ -55,14 +55,14 @@ impl DirectiveBridge for OutlineBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
     fn ctx_at(root: PathBuf) -> Rc<EngineContext> {
         Rc::new(EngineContext::new(LeanMdHeader::default(), root))
     }
 
-    fn ctx_with_crp(root: PathBuf, crp: crate::core::protocol::CrpMode) -> Rc<EngineContext> {
+    fn ctx_with_crp(root: PathBuf, crp: crate::crp_proto::CrpMode) -> Rc<EngineContext> {
         let h = LeanMdHeader {
             crp,
             ..Default::default()
@@ -110,12 +110,12 @@ mod tests {
 
     #[test]
     fn outline_off_matches_handler_byte_identical() {
-        use crate::core::protocol::CrpMode;
+        use crate::crp_proto::CrpMode;
         let dir = std::env::temp_dir().join("lmd_outline_off");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("o.rs");
         std::fs::write(&f, "pub fn alpha(x: u32) -> u32 { x }\n").unwrap();
-        let abs = crate::core::path_resolve::resolve_tool_path(
+        let abs = crate::pathx::resolve_tool_path(
             Some(dir.to_str().unwrap()),
             None,
             f.to_str().unwrap(),
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn outline_tdd_emits_symbols_and_collects_sigs() {
-        use crate::core::protocol::CrpMode;
+        use crate::crp_proto::CrpMode;
         let dir = std::env::temp_dir().join("lmd_outline_tdd");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("o.rs");
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn outline_compact_emits_keyword_form() {
-        use crate::core::protocol::CrpMode;
+        use crate::crp_proto::CrpMode;
         let dir = std::env::temp_dir().join("lmd_outline_compact");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("o.rs");

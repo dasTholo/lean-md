@@ -9,8 +9,8 @@ use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
 use crate::core::knowledge::ProjectKnowledge;
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 pub struct RecallBridge;
 
@@ -64,7 +64,7 @@ fn resolve_recall_mode(args: &DirectiveArgs) -> Result<&str, BridgeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
     fn headless_ctx() -> Rc<EngineContext> {

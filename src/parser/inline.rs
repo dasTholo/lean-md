@@ -116,8 +116,8 @@ mod tests {
 
     #[test]
     fn inline_span_covers_double_brace_region() {
-        use crate::lmd::node::LmdInline;
-        use crate::lmd::parser::lmd_parser_extension;
+        use crate::node::LmdInline;
+        use crate::parser::lmd_parser_extension;
         use rushdown::ast::{self, WalkStatus};
         use rushdown::parser::{Options as ParserOptions, Parser};
         use rushdown::text::BasicReader;

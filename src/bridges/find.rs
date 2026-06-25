@@ -7,8 +7,8 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 pub struct FindBridge;
 
@@ -41,7 +41,7 @@ impl DirectiveBridge for FindBridge {
             query,
             path,
             top_k,
-            crate::tools::CrpMode::Off,
+            crate::crp_proto::CrpMode::Off,
             None, // languages
             None, // path_glob
             Some(mode),
@@ -69,7 +69,7 @@ fn resolve_mode(args: &DirectiveArgs) -> Result<&str, BridgeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
     fn ctx_at(root: PathBuf) -> Rc<EngineContext> {

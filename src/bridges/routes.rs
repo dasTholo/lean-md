@@ -7,8 +7,8 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 pub struct RoutesBridge;
 
@@ -33,7 +33,7 @@ impl DirectiveBridge for RoutesBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
     fn ctx_at(root: PathBuf) -> Rc<EngineContext> {

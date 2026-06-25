@@ -4,9 +4,9 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::{EngineContext, render_body};
-use crate::lmd::fragments::ResolveError;
+use crate::args::DirectiveArgs;
+use crate::engine::{EngineContext, render_body};
+use crate::fragments::ResolveError;
 
 pub struct IncludeBridge;
 
@@ -41,9 +41,9 @@ impl DirectiveBridge for IncludeBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::args::DirectiveArgs;
-    use crate::lmd::engine::EngineContext;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::args::DirectiveArgs;
+    use crate::engine::EngineContext;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
     use std::rc::Rc;
 

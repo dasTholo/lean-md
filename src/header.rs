@@ -2,7 +2,7 @@
 //! The header is consumed by a line-based scan BEFORE rushdown sees the body,
 //! so config feeds `EngineContext` and never appears in rendered output.
 
-use crate::core::protocol::CrpMode;
+use crate::crp_proto::CrpMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Consumer {
@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn parses_crp_canonical_and_aliases() {
-        use crate::core::protocol::CrpMode;
+        use crate::crp_proto::CrpMode;
         let (h, _) = parse_header("@lean-md\ncrp: tdd\n\nx\n");
         assert_eq!(h.crp, CrpMode::Tdd);
         let (h, _) = parse_header("@lean-md\ncrp: compact\n\nx\n");
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn crp_unknown_is_lenient_off_and_default_is_off() {
-        use crate::core::protocol::CrpMode;
+        use crate::crp_proto::CrpMode;
         let (h, _) = parse_header("@lean-md\ncrp: bogus\n\nx\n");
         assert_eq!(h.crp, CrpMode::Off, "unknown crp must fall back to Off");
         // E-3 default guarantee: no crp key → Off.

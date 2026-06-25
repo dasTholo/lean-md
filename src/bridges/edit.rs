@@ -7,8 +7,8 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 pub struct EditBridge;
 
@@ -41,7 +41,7 @@ fn text_edit(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String, Br
     // §5 PathJail for writes (matches ctx_refactor's resolve; reads pass through
     // unchanged but writes must not escape the render's project root).
     let root = ctx.jail_root.to_str().unwrap_or(".");
-    let abs = crate::core::path_resolve::resolve_tool_path(Some(root), None, path)
+    let abs = crate::pathx::resolve_tool_path(Some(root), None, path)
         .map_err(|e| BridgeError::Resolve(format!("path blocked by jail: {e}")))?;
 
     let params = crate::tools::ctx_edit::EditParams {
@@ -118,7 +118,7 @@ fn symbolic_edit(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::header::LeanMdHeader;
 
     fn ctx_at(root: &std::path::Path) -> Rc<EngineContext> {
         Rc::new(EngineContext::new(
@@ -142,7 +142,7 @@ mod tests {
                 &mut cache,
                 f.to_str().unwrap(),
                 "full",
-                crate::tools::CrpMode::Off,
+                crate::crp_proto::CrpMode::Off,
             );
         }
 
@@ -161,7 +161,7 @@ mod tests {
                 &mut cache,
                 f.to_str().unwrap(),
                 "full",
-                crate::tools::CrpMode::Off,
+                crate::crp_proto::CrpMode::Off,
             )
         };
         assert!(reread.contains("AFTER"), "stale cache hit, got: {reread}");

@@ -7,8 +7,8 @@ use super::{BridgeError, DirectiveBridge};
 use crate::core::call_graph::CallGraph;
 use crate::core::graph_context;
 use crate::core::graph_index::{self, ProjectIndex};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 pub struct GraphBridge;
 
@@ -58,7 +58,7 @@ impl DirectiveBridge for GraphBridge {
                 // §7 PathJail: resolve the target inside the jail; an absolute
                 // arg makes `join` ignore `root`, so `jail_path` is what actually
                 // refuses out-of-jail and `..`-traversal paths before any read.
-                let Ok(abs) = crate::core::pathjail::jail_path(&jail_root.join(target), jail_root)
+                let Ok(abs) = crate::pathx::jail_path(&jail_root.join(target), jail_root)
                 else {
                     return Ok(format!("Path '{target}' is outside the jail root"));
                 };
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn context_op_renders_for_a_real_file() {
-        use crate::lmd::header::LeanMdHeader;
+        use crate::header::LeanMdHeader;
         use std::path::PathBuf;
         let ctx = Rc::new(EngineContext::new(
             LeanMdHeader::default(),
@@ -276,7 +276,7 @@ mod tests {
 
     #[test]
     fn context_op_rejects_out_of_jail_path() {
-        use crate::lmd::header::LeanMdHeader;
+        use crate::header::LeanMdHeader;
         use std::path::PathBuf;
         let ctx = Rc::new(EngineContext::new(
             LeanMdHeader::default(),
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn recent_neighbors_requires_at_least_one_seed() {
-        use crate::lmd::header::LeanMdHeader;
+        use crate::header::LeanMdHeader;
         use std::path::PathBuf;
         let ctx = Rc::new(EngineContext::new(
             LeanMdHeader::default(),
@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn recent_neighbors_renders_for_real_seed() {
-        use crate::lmd::header::LeanMdHeader;
+        use crate::header::LeanMdHeader;
         use std::path::PathBuf;
         let ctx = Rc::new(EngineContext::new(
             LeanMdHeader::default(),

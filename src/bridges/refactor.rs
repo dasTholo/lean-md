@@ -8,8 +8,8 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 pub struct RefactorBridge;
 
@@ -166,7 +166,7 @@ pub(crate) fn apply_succeeded(action: &str, out: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
     fn ctx_at(root: PathBuf) -> Rc<EngineContext> {
@@ -613,7 +613,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("sub.rs");
         std::fs::write(&f, "pub fn my_func() {}\n").unwrap();
-        let ctx = Rc::new(crate::lmd::engine::EngineContext::new(
+        let ctx = Rc::new(crate::engine::EngineContext::new(
             LeanMdHeader::default(),
             dir.clone(),
         ));

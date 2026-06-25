@@ -7,8 +7,8 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 pub struct InspectBridge;
 
@@ -43,7 +43,7 @@ impl DirectiveBridge for InspectBridge {
                 .positional(1)
                 .or_else(|| args.get("path"))
                 .ok_or(BridgeError::MissingArg("path"))?;
-            crate::core::path_resolve::resolve_tool_path(Some(root), None, path)
+            crate::pathx::resolve_tool_path(Some(root), None, path)
                 .map_err(|e| BridgeError::Resolve(format!("path blocked by jail: {e}")))?
         } else {
             String::new()
@@ -61,7 +61,7 @@ impl DirectiveBridge for InspectBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
     fn ctx_at(root: PathBuf) -> Rc<EngineContext> {

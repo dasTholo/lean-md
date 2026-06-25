@@ -7,7 +7,7 @@
 
 use std::rc::Rc;
 
-use crate::lmd::engine::{EngineContext, render_markdown};
+use crate::engine::{EngineContext, render_markdown};
 
 /// A failing body directive that aborted its phase (spec §3.3, D-9). Self-
 /// describing: which directive failed, where, why. The single source for all
@@ -67,7 +67,7 @@ impl PhaseScope {
 }
 
 /// Parse `<sink>="<value>" [attr=v …]` into an [`OnComplete`]. Reuses
-/// [`crate::lmd::args::DirectiveArgs`] for quote-aware tokenization. The first
+/// [`crate::args::DirectiveArgs`] for quote-aware tokenization. The first
 /// named pair's key is the sink; its value is the payload; remaining pairs are
 /// attrs (e.g. `category=`, `key=`, `confidence=`).
 ///
@@ -90,7 +90,7 @@ fn parse_on_complete(rest: &str) -> Option<OnComplete> {
             attrs: vec![],
         });
     }
-    let args = crate::lmd::args::DirectiveArgs::parse(rest);
+    let args = crate::args::DirectiveArgs::parse(rest);
     let pairs = args.named_pairs();
     let (sink, value) = pairs.first()?.clone();
     let attrs = pairs[1..].to_vec();
@@ -110,7 +110,7 @@ fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
 /// Team (Task 9), capture/checkpoint (Task 10) extend this match in later tasks.
 fn fire_action(ctx: &Rc<EngineContext>, scope: &PhaseScope, action: &OnComplete) {
     let value = if action.value.contains("{{") {
-        crate::lmd::macros::eval_string(ctx, &action.value)
+        crate::macros::eval_string(ctx, &action.value)
     } else {
         action.value.clone()
     };
@@ -121,11 +121,11 @@ fn fire_action(ctx: &Rc<EngineContext>, scope: &PhaseScope, action: &OnComplete)
         "remember" => {
             let category = attr(&action.attrs, "category");
             let key = attr(&action.attrs, "key").map_or_else(
-                || crate::lmd::bridges::remember::slug(&value),
+                || crate::bridges::remember::slug(&value),
                 str::to_string,
             );
             let confidence = attr(&action.attrs, "confidence").and_then(|s| s.parse::<f32>().ok());
-            let _ = crate::lmd::bridges::remember::knowledge_remember(
+            let _ = crate::bridges::remember::knowledge_remember(
                 ctx, category, &key, &value, confidence,
             );
         }
@@ -151,7 +151,7 @@ fn fire_action(ctx: &Rc<EngineContext>, scope: &PhaseScope, action: &OnComplete)
                 // produce the correct label, not a malformed `"\"foo` or `pattern=foo`.
                 let annotated;
                 let effective = if name == "search" {
-                    let parsed = crate::lmd::args::DirectiveArgs::parse(args);
+                    let parsed = crate::args::DirectiveArgs::parse(args);
                     let pattern = parsed
                         .positional(0)
                         .or_else(|| parsed.get("pattern"))
@@ -174,7 +174,7 @@ fn fire_action(ctx: &Rc<EngineContext>, scope: &PhaseScope, action: &OnComplete)
             let _ = crate::tools::ctx_compress::handle(
                 &ctx.cache.borrow(),
                 false,
-                crate::core::protocol::CrpMode::Off,
+                crate::crp_proto::CrpMode::Off,
             );
         }
         _ => {} // other sinks land in later tasks
@@ -351,18 +351,18 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
                 continue; // skip remaining body after abort
             }
             if let Some((name, args)) =
-                crate::lmd::parser::block::parse_directive_line(line.as_bytes())
+                crate::parser::block::parse_directive_line(line.as_bytes())
             {
                 // Phase 9: consumer=human glosses Work-directives as prose (no abort path).
                 if ctx.consumer_hint() == 1 {
-                    let rendered = crate::lmd::render::dispatch(ctx, &name, &args);
+                    let rendered = crate::render::dispatch(ctx, &name, &args);
                     if let Some(sc) = ctx.phase_scope.borrow_mut().last_mut() {
                         sc.outputs.push((name, args.clone(), rendered.clone()));
                     }
                     out.push_str(&rendered);
                     out.push('\n');
                 } else {
-                    match crate::lmd::render::dispatch_result(ctx, &name, &args) {
+                    match crate::render::dispatch_result(ctx, &name, &args) {
                         Ok(rendered) => {
                             if let Some(sc) = ctx.phase_scope.borrow_mut().last_mut() {
                                 sc.outputs.push((name, args.clone(), rendered.clone()));
@@ -531,8 +531,8 @@ mod tests {
     use std::path::PathBuf;
     use std::rc::Rc;
 
-    use crate::lmd::engine::{EngineContext, render};
-    use crate::lmd::header::LeanMdHeader;
+    use crate::engine::{EngineContext, render};
+    use crate::header::LeanMdHeader;
 
     #[test]
     fn capture_phase_bodies_extracts_raw_body_without_lifecycle() {
@@ -647,8 +647,8 @@ trailing prose
 
     #[test]
     fn abort_reports_gotcha_with_normalized_trigger() {
-        use crate::lmd::engine::{EngineContext, SinkHandles};
-        use crate::lmd::header::LeanMdHeader;
+        use crate::engine::{EngineContext, SinkHandles};
+        use crate::header::LeanMdHeader;
         use std::rc::Rc;
 
         let root = std::env::temp_dir().join("lmd_phase_gotcha");
@@ -665,7 +665,7 @@ trailing prose
             root.clone(),
             sinks,
         ));
-        let out = crate::lmd::engine::render_body(
+        let out = crate::engine::render_body(
             &ctx,
             "@phase \"Parser\"\n@read /no/such/file_abc.rs\n@phase-end\n",
         );
@@ -699,8 +699,8 @@ trailing prose
     #[test]
     fn on_complete_fires_session_sinks_in_order_on_clean_end() {
         use crate::core::session::SessionState;
-        use crate::lmd::engine::{EngineContext, SinkHandles};
-        use crate::lmd::header::LeanMdHeader;
+        use crate::engine::{EngineContext, SinkHandles};
+        use crate::header::LeanMdHeader;
         use std::rc::Rc;
         use std::sync::Arc;
         use tokio::sync::RwLock;
@@ -716,7 +716,7 @@ trailing prose
             std::env::temp_dir(),
             sinks,
         ));
-        let _ = crate::lmd::engine::render_body(
+        let _ = crate::engine::render_body(
             &ctx,
             "@phase \"Build\"\nbody\n@on complete task=\"build done [100%]\"\n@on complete decision=\"shipped\"\n@phase-end\n",
         );
@@ -734,8 +734,8 @@ trailing prose
 
     #[test]
     fn on_complete_remember_writes_knowledge() {
-        use crate::lmd::engine::{EngineContext, SinkHandles};
-        use crate::lmd::header::LeanMdHeader;
+        use crate::engine::{EngineContext, SinkHandles};
+        use crate::header::LeanMdHeader;
         use std::rc::Rc;
 
         let root = std::env::temp_dir().join("lmd_oc_remember");
@@ -750,7 +750,7 @@ trailing prose
                 agent_id: None,
             },
         ));
-        let _ = crate::lmd::engine::render_body(
+        let _ = crate::engine::render_body(
             &ctx,
             "@phase \"P\"\nwork\n@on complete remember=\"parser uses pratt\" category=decision\n@phase-end\n",
         );
@@ -778,8 +778,8 @@ trailing prose
 
     #[test]
     fn post_without_agent_degrades_to_noop() {
-        use crate::lmd::engine::{EngineContext, SinkHandles};
-        use crate::lmd::header::LeanMdHeader;
+        use crate::engine::{EngineContext, SinkHandles};
+        use crate::header::LeanMdHeader;
         use std::rc::Rc;
 
         // sinks present but no agent_id → post/diary degrade, no panic, no error envelope.
@@ -792,7 +792,7 @@ trailing prose
                 agent_id: None,
             },
         ));
-        let out = crate::lmd::engine::render_body(
+        let out = crate::engine::render_body(
             &ctx,
             "@phase \"P\"\nwork\n@on complete post=\"hi\" category=status\n@phase-end\n",
         );
@@ -806,8 +806,8 @@ trailing prose
     #[test]
     fn aborted_phase_skips_on_complete() {
         use crate::core::session::SessionState;
-        use crate::lmd::engine::{EngineContext, SinkHandles};
-        use crate::lmd::header::LeanMdHeader;
+        use crate::engine::{EngineContext, SinkHandles};
+        use crate::header::LeanMdHeader;
         use std::rc::Rc;
         use std::sync::Arc;
         use tokio::sync::RwLock;
@@ -822,7 +822,7 @@ trailing prose
                 agent_id: None,
             },
         ));
-        let _ = crate::lmd::engine::render_body(
+        let _ = crate::engine::render_body(
             &ctx,
             "@phase \"P\"\n@read /no/such/zzz.rs\n@on complete task=\"done [100%]\"\n@phase-end\n",
         );
@@ -835,8 +835,8 @@ trailing prose
     #[test]
     fn capture_auto_emits_findings_from_body_outputs() {
         use crate::core::session::SessionState;
-        use crate::lmd::engine::{EngineContext, SinkHandles};
-        use crate::lmd::header::LeanMdHeader;
+        use crate::engine::{EngineContext, SinkHandles};
+        use crate::header::LeanMdHeader;
         use std::rc::Rc;
         use std::sync::Arc;
         use tokio::sync::RwLock;
@@ -859,7 +859,7 @@ trailing prose
             },
         ));
         let pat = "capture_marker_77";
-        let _ = crate::lmd::engine::render_body(
+        let _ = crate::engine::render_body(
             &ctx,
             &format!(
                 "@phase \"Scan\"\n@search {pat} {}\n@on complete capture=auto\n@phase-end\n",
@@ -875,8 +875,8 @@ trailing prose
     #[test]
     fn on_complete_substitutes_call_params() {
         use crate::core::session::SessionState;
-        use crate::lmd::engine::{EngineContext, SinkHandles};
-        use crate::lmd::header::LeanMdHeader;
+        use crate::engine::{EngineContext, SinkHandles};
+        use crate::header::LeanMdHeader;
         use std::rc::Rc;
         use std::sync::Arc;
         use tokio::sync::RwLock;
@@ -899,7 +899,7 @@ trailing prose
                    work\n\
                    @call close(100, parser fertig) /\n\
                    @phase-end\n";
-        let _ = crate::lmd::engine::render_body(&ctx, doc);
+        let _ = crate::engine::render_body(&ctx, doc);
         let st = session.blocking_read();
         assert_eq!(
             st.task.as_ref().unwrap().description,
@@ -910,7 +910,7 @@ trailing prose
 
     #[test]
     fn phase_aborted_envelope_is_byte_stable() {
-        use crate::lmd::engine::render;
+        use crate::engine::render;
         let doc = "@phase \"X\"\n@read /no/such/qq.rs\n@phase-end\n";
         let a = render(doc);
         let b = render(doc);
@@ -923,7 +923,7 @@ trailing prose
 
     #[test]
     fn human_phase_emits_heading() {
-        use crate::lmd::engine::render;
+        use crate::engine::render;
         let doc =
             "@lean-md\nconsumer: human\n\n@phase \"A3-parser\"\n@read src/foo.rs\n@phase-end\n";
         let out = render(doc);
@@ -936,7 +936,7 @@ trailing prose
 
     #[test]
     fn ai_phase_emits_no_heading() {
-        use crate::lmd::engine::render;
+        use crate::engine::render;
         let doc = "@lean-md\nconsumer: ai\n\n@phase \"A3-parser\"\nplain line\n@phase-end\n";
         let out = render(doc);
         assert!(

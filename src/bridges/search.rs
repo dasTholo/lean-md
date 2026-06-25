@@ -2,8 +2,8 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 /// `@search <pattern> [path=<dir>] [ext=<ext>] [max=<n>]` — defaults: path=".",
 /// max=20, gitignore respected, secret paths skipped. Routes `ctx_search::handle`.
@@ -35,7 +35,7 @@ impl DirectiveBridge for SearchBridge {
             dir,
             ext,
             max,
-            crate::tools::CrpMode::Off,
+            crate::crp_proto::CrpMode::Off,
             true,  // respect_gitignore
             false, // allow_secret_paths
         );
@@ -46,9 +46,9 @@ impl DirectiveBridge for SearchBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::args::DirectiveArgs;
-    use crate::lmd::engine::EngineContext;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::args::DirectiveArgs;
+    use crate::engine::EngineContext;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
     fn ctx() -> Rc<EngineContext> {

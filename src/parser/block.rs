@@ -132,8 +132,8 @@ mod tests {
 
     #[test]
     fn block_directive_span_covers_line_without_newline() {
-        use crate::lmd::node::LmdDirective;
-        use crate::lmd::parser::lmd_parser_extension;
+        use crate::node::LmdDirective;
+        use crate::parser::lmd_parser_extension;
         use rushdown::ast::{self, WalkStatus};
         use rushdown::parser::{Options as ParserOptions, Parser};
         use rushdown::text::BasicReader;
@@ -161,8 +161,8 @@ mod tests {
 
     #[test]
     fn block_pipe_span_covers_line_without_newline() {
-        use crate::lmd::node::LmdPipe;
-        use crate::lmd::parser::lmd_parser_extension;
+        use crate::node::LmdPipe;
+        use crate::parser::lmd_parser_extension;
         use rushdown::ast::{self, WalkStatus};
         use rushdown::parser::{Options as ParserOptions, Parser};
         use rushdown::text::BasicReader;

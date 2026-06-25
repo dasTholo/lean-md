@@ -6,8 +6,8 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::{EngineContext, render_body};
+use crate::args::DirectiveArgs;
+use crate::engine::{EngineContext, render_body};
 
 /// ToolSearch-Bootstrap (Block c, Spec D-2/§3.2): lädt die deferred lazy-core-
 /// Tools vor dem ersten Read im Subagenten. Byte-stabil (#498).
@@ -65,9 +65,9 @@ impl DirectiveBridge for DispatchBridge {
         // crp is a controlled enum value (off|compact|tdd) — safe to inline
         // before render_body (no user bytes, no template-injection risk).
         let crp_str = match ctx.header.crp {
-            crate::core::protocol::CrpMode::Off => "off",
-            crate::core::protocol::CrpMode::Compact => "compact",
-            crate::core::protocol::CrpMode::Tdd => "tdd",
+            crate::crp_proto::CrpMode::Off => "off",
+            crate::crp_proto::CrpMode::Compact => "compact",
+            crate::crp_proto::CrpMode::Tdd => "tdd",
         };
         // role is a validated enum value (dev|review) — safe to inline before render.
         let mut contract = contract_raw
@@ -104,7 +104,7 @@ impl DirectiveBridge for DispatchBridge {
         }
 
         // (a) template-eager / work-lazy render of the phase body (C2).
-        let body_rendered = crate::lmd::render::splice_template_only(ctx, &raw_body);
+        let body_rendered = crate::render::splice_template_only(ctx, &raw_body);
 
         // Compose (b) + (a) + (c). Stable headers (#498).
         let mut out = String::new();
@@ -123,7 +123,7 @@ impl DirectiveBridge for DispatchBridge {
 
 #[cfg(test)]
 mod tests {
-    use crate::lmd::engine::render;
+    use crate::engine::render;
 
     #[test]
     fn dispatch_is_registered() {

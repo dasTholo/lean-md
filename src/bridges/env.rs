@@ -2,8 +2,8 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 /// `@env <KEY>` — expands to the value of env var `KEY`, or empty if unset.
 pub struct EnvBridge;
@@ -26,9 +26,9 @@ impl DirectiveBridge for EnvBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::args::DirectiveArgs;
-    use crate::lmd::engine::EngineContext;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::args::DirectiveArgs;
+    use crate::engine::EngineContext;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
     fn ctx() -> Rc<EngineContext> {

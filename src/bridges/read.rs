@@ -3,8 +3,8 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 /// `@read <path> [mode=<mode>]` — defaults to `auto`. Phase 1 passes the path
 /// through unchanged (jailing `@read` is a §7/Phase-7 concern).
@@ -32,7 +32,7 @@ impl DirectiveBridge for ReadBridge {
             &mut cache,
             path,
             mode,
-            crate::tools::CrpMode::Off,
+            crate::crp_proto::CrpMode::Off,
             None,
         );
         if out.resolved_mode == "error" {
@@ -45,9 +45,9 @@ impl DirectiveBridge for ReadBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::args::DirectiveArgs;
-    use crate::lmd::engine::EngineContext;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::args::DirectiveArgs;
+    use crate::engine::EngineContext;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
     use std::rc::Rc;
 

@@ -14,9 +14,9 @@ use serde_json::Value;
 use super::{BridgeError, DirectiveBridge};
 use crate::core::plugins::PluginManager;
 use crate::core::plugins::tools::{PluginToolSpec, invoke};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::{EngineContext, render_body};
-use crate::lmd::macros::{parse_call_signature, substitute_params};
+use crate::args::DirectiveArgs;
+use crate::engine::{EngineContext, render_body};
+use crate::macros::{parse_call_signature, substitute_params};
 
 pub struct CallBridge;
 
@@ -137,8 +137,8 @@ fn call_args_to_json(order: &[String], args: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::engine::render;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::engine::render;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
     fn ctx() -> Rc<EngineContext> {
@@ -195,7 +195,7 @@ mod tests {
         }
         let pattern = format!("{}/*.activ", dir.to_str().unwrap());
         let ctx = ctx();
-        let out = crate::lmd::engine::render_body(
+        let out = crate::engine::render_body(
             &ctx,
             &format!("@define cnt()\n@count {pattern}\n@define-end\n\n@call cnt() /\n"),
         );

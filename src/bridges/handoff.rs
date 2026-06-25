@@ -6,8 +6,8 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 pub struct HandoffBridge;
 
@@ -114,7 +114,7 @@ fn handoff_pull(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String,
 
 /// Jail-Resolve eines Ledger-Pfads relativ zum Engine-Jail-Root.
 ///
-/// Delegates to `crate::core::pathjail::jail_path` — the canonical path jail
+/// Delegates to `crate::pathx::jail_path` — the canonical path jail
 /// (null-byte rejection, `path_jail=false` config bypass, session extra_roots
 /// via #403, not-yet-existing paths via `canonicalize_existing_ancestor`).
 /// An absolute `raw` makes `join` return `raw` itself (Rust path semantics),
@@ -122,7 +122,7 @@ fn handoff_pull(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String,
 /// inputs — identical to the graph.rs §7 idiom.
 fn resolve_jailed(ctx: &Rc<EngineContext>, raw: &str) -> Result<std::path::PathBuf, BridgeError> {
     let candidate = ctx.jail_root.join(raw);
-    crate::core::pathjail::jail_path(&candidate, &ctx.jail_root).map_err(|e| {
+    crate::pathx::jail_path(&candidate, &ctx.jail_root).map_err(|e| {
         // Normalise to "escapes jail" wording so callers get a consistent message.
         BridgeError::Resolve(format!("'{raw}' escapes jail: {e}"))
     })
@@ -131,7 +131,7 @@ fn resolve_jailed(ctx: &Rc<EngineContext>, raw: &str) -> Result<std::path::PathB
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
     fn headless_ctx() -> Rc<EngineContext> {

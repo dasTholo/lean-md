@@ -5,9 +5,9 @@
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use crate::core::protocol::CrpMode;
-use crate::lmd::engine::{EngineContext, render_body};
-use crate::lmd::header::{Consumer, parse_header};
+use crate::crp_proto::CrpMode;
+use crate::engine::{EngineContext, render_body};
+use crate::header::{Consumer, parse_header};
 
 const LMD_BRAINSTORM_BODY: &str =
     include_str!("../../../lean-md/skills/lmd-brainstorm/body.lmd.md");
@@ -59,7 +59,7 @@ pub fn render_skill(
         None => Ok(render_body(&ctx, body)),
         Some(p) => {
             // Populate phase_bodies from the full body, then render the isolated one.
-            crate::lmd::phases::capture_phase_bodies(&ctx, body);
+            crate::phases::capture_phase_bodies(&ctx, body);
             let isolated = ctx
                 .phase_body(p)
                 .ok_or_else(|| SkillRenderError::PhaseNotFound(p.to_string()))?;

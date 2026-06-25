@@ -41,7 +41,7 @@ mod tests {
     #[test]
     fn every_covered_directive_is_registered() {
         // §8 #12: every brainstorming-path directive must exist in the registry.
-        let reg = crate::lmd::bridges::default_registry();
+        let reg = crate::bridges::default_registry();
         for (step, directive, backing) in COVERAGE {
             assert!(
                 reg.get(directive).is_some(),

@@ -3,7 +3,7 @@
 //! derives from the canonical `core::tdd_schema` single source — this module
 //! only READS it (no `tools/`/`core/` edits, spec Phase-8 edit-jail).
 
-use crate::core::protocol::CrpMode;
+use crate::crp_proto::CrpMode;
 use crate::core::signatures::{Signature, extract_signatures};
 
 /// Output rules pulled from the canonical tdd-schema (`crp.output_rules`).
@@ -111,7 +111,7 @@ pub fn render_file_signatures(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::protocol::CrpMode;
+    use crate::crp_proto::CrpMode;
 
     #[test]
     fn output_rules_empty_for_off_nonempty_for_dense() {

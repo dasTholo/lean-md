@@ -12,8 +12,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 pub struct SymbolBridge;
 
@@ -96,7 +96,7 @@ fn nav(
         (path.to_string(), line, column)
     };
 
-    let abs = crate::core::path_resolve::resolve_tool_path(Some(root), None, &rel_path)
+    let abs = crate::pathx::resolve_tool_path(Some(root), None, &rel_path)
         .map_err(|e| BridgeError::Resolve(format!("path blocked by jail: {e}")))?;
 
     let mut obj = serde_json::Map::new();
@@ -132,10 +132,10 @@ fn overview(
         .positional(1)
         .or_else(|| args.get("path"))
         .ok_or(BridgeError::MissingArg("path"))?;
-    let abs = crate::core::path_resolve::resolve_tool_path(Some(root), None, path)
+    let abs = crate::pathx::resolve_tool_path(Some(root), None, path)
         .map_err(|e| BridgeError::Resolve(format!("path blocked by jail: {e}")))?;
 
-    if ctx.header.crp == crate::core::protocol::CrpMode::Off {
+    if ctx.header.crp == crate::crp_proto::CrpMode::Off {
         let obj = serde_json::json!({ "action": "symbols_overview" });
         return Ok(crate::tools::ctx_refactor::handle(&obj, root, &abs));
     }
@@ -147,7 +147,7 @@ fn overview(
         .and_then(|e| e.to_str())
         .unwrap_or("");
     let (rendered, sigs) =
-        crate::lmd::crp::render_file_signatures(&content, ext, ctx.header.crp, None);
+        crate::crp::render_file_signatures(&content, ext, ctx.header.crp, None);
     ctx.crp_sigs.borrow_mut().extend(sigs);
     Ok(rendered)
 }
@@ -301,11 +301,11 @@ fn line_from_cache(ctx: &Rc<EngineContext>, root: &str, rel: &str, ln: usize) ->
 /// hit (spec §3.4). Never `fresh`/`raw`. Callers that need many lines of the
 /// same file index into this string once instead of re-decompressing per line.
 fn file_content_from_cache(ctx: &Rc<EngineContext>, root: &str, rel: &str) -> Option<String> {
-    let abs = crate::core::path_resolve::resolve_tool_path(Some(root), None, rel).ok()?;
+    let abs = crate::pathx::resolve_tool_path(Some(root), None, rel).ok()?;
     {
         let mut cache = ctx.cache.borrow_mut();
         let _ =
-            crate::tools::ctx_read::handle(&mut cache, &abs, "full", crate::tools::CrpMode::Off);
+            crate::tools::ctx_read::handle(&mut cache, &abs, "full", crate::crp_proto::CrpMode::Off);
     }
     ctx.cache.borrow().get_full_content(&abs)
 }
@@ -313,14 +313,14 @@ fn file_content_from_cache(ctx: &Rc<EngineContext>, root: &str, rel: &str) -> Op
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
     fn ctx_at(root: PathBuf) -> Rc<EngineContext> {
         Rc::new(EngineContext::new(LeanMdHeader::default(), root))
     }
 
-    fn ctx_with_crp(root: PathBuf, crp: crate::core::protocol::CrpMode) -> Rc<EngineContext> {
+    fn ctx_with_crp(root: PathBuf, crp: crate::crp_proto::CrpMode) -> Rc<EngineContext> {
         let h = LeanMdHeader {
             crp,
             ..Default::default()
@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn overview_tdd_emits_symbols_and_collects_sigs() {
-        use crate::core::protocol::CrpMode;
+        use crate::crp_proto::CrpMode;
         let dir = std::env::temp_dir().join("lmd_symbol_overview_tdd");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("o.rs");
@@ -349,7 +349,7 @@ mod tests {
 
     #[test]
     fn overview_off_is_unchanged_handler_output() {
-        use crate::core::protocol::CrpMode;
+        use crate::crp_proto::CrpMode;
         let dir = std::env::temp_dir().join("lmd_symbol_overview_off");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("o.rs");

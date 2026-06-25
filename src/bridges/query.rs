@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
-use crate::lmd::header::ShellMode;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
+use crate::header::ShellMode;
 
 pub struct QueryBridge;
 
@@ -49,7 +49,7 @@ impl DirectiveBridge for QueryBridge {
             raw_output
         };
         let compressed =
-            crate::tools::ctx_shell::handle(cmd, &safe_output, exit, crate::tools::CrpMode::Off);
+            crate::tools::ctx_shell::handle(cmd, &safe_output, exit, crate::crp_proto::CrpMode::Off);
         Ok(crate::core::redaction::redact_text_if_enabled(&compressed))
     }
 }
@@ -57,9 +57,9 @@ impl DirectiveBridge for QueryBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::args::DirectiveArgs;
-    use crate::lmd::engine::EngineContext;
-    use crate::lmd::header::{LeanMdHeader, ShellMode};
+    use crate::args::DirectiveArgs;
+    use crate::engine::EngineContext;
+    use crate::header::{LeanMdHeader, ShellMode};
     use std::path::PathBuf;
 
     fn ctx_with_shell(mode: ShellMode) -> Rc<EngineContext> {

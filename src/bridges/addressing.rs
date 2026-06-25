@@ -9,7 +9,7 @@
 //! models are not interchangeable — see `symbol.rs::nav`.
 
 use super::BridgeError;
-use crate::lmd::args::DirectiveArgs;
+use crate::args::DirectiveArgs;
 
 /// Build the target-address map with `line=` REQUIRED for path addressing.
 /// This is the `@refactor` contract (every position op needs a cursor line).
@@ -46,7 +46,7 @@ pub(crate) fn build_target_with(
     }
 
     let path = args.get("path").ok_or(BridgeError::MissingArg("path"))?;
-    let abs = crate::core::path_resolve::resolve_tool_path(Some(root), None, path)
+    let abs = crate::pathx::resolve_tool_path(Some(root), None, path)
         .map_err(|e| BridgeError::Resolve(format!("path blocked by jail: {e}")))?;
 
     match args.get("line") {

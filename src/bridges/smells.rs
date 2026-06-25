@@ -9,8 +9,8 @@
 use std::rc::Rc;
 
 use super::{BridgeError, DirectiveBridge};
-use crate::lmd::args::DirectiveArgs;
-use crate::lmd::engine::EngineContext;
+use crate::args::DirectiveArgs;
+use crate::engine::EngineContext;
 
 pub struct SmellsBridge;
 
@@ -43,7 +43,7 @@ impl DirectiveBridge for SmellsBridge {
         // `path` is an optional FS filter; jail-resolve when present (design §4.4).
         let resolved_path: Option<String> = match args.get("path") {
             Some(p) => Some(
-                crate::core::path_resolve::resolve_tool_path(Some(root), None, p)
+                crate::pathx::resolve_tool_path(Some(root), None, p)
                     .map_err(|e| BridgeError::Resolve(format!("path blocked by jail: {e}")))?,
             ),
             None => None,
@@ -62,7 +62,7 @@ impl DirectiveBridge for SmellsBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lmd::header::LeanMdHeader;
+    use crate::header::LeanMdHeader;
     use std::path::PathBuf;
 
     fn ctx_at(root: PathBuf) -> Rc<EngineContext> {
