@@ -66,12 +66,59 @@ pub fn default_backend(project_root: &str) -> Box<dyn CodeIntelBackend> {
     #[cfg(feature = "mcp")]
     if std::env::var("LEAN_MD_BACKEND").as_deref() == Ok("mcp") {
         if let Ok(endpoint) = std::env::var("LEAN_MD_MCP_ENDPOINT") {
-            return Box::new(mcp::McpBackend::new(endpoint, project_root.to_string()));
+            // Fall back to the stateless CLI backend if the endpoint is
+            // unreachable/malformed, so a bad LEAN_MD_MCP_ENDPOINT never bricks
+            // rendering — it just loses the warm-connection optimization.
+            if let Ok(be) = mcp::McpBackend::new(endpoint, project_root.to_string()) {
+                return Box::new(be);
+            }
         }
     }
     Box::new(CliBackend {
         project_root: project_root.to_string(),
     })
+}
+
+/// Opt-in MCP backend (spec §3.2): warm connection via lean-ctx-client against
+/// a reachable lean-ctx MCP/HTTP endpoint. Precondition: that endpoint runs
+/// `tool_profile = power` (all code-intel ctx_* exposed).
+#[cfg(feature = "mcp")]
+pub mod mcp {
+    use super::{BackendError, CodeIntelBackend};
+    use lean_ctx_client::LeanCtxClient;
+
+    pub struct McpBackend {
+        client: LeanCtxClient,
+        project_root: String,
+    }
+
+    impl McpBackend {
+        /// Connect to a lean-ctx MCP/HTTP endpoint. `LeanCtxClient::new`
+        /// validates + normalizes the base URL, so a malformed endpoint fails
+        /// here rather than on first call.
+        pub fn new(endpoint: String, project_root: String) -> Result<Self, BackendError> {
+            let client =
+                LeanCtxClient::new(&endpoint).map_err(|e| BackendError::Io(e.to_string()))?;
+            Ok(Self {
+                client,
+                project_root,
+            })
+        }
+    }
+
+    impl CodeIntelBackend for McpBackend {
+        fn call(&self, tool: &str, mut args: serde_json::Value) -> Result<String, BackendError> {
+            // Pin project_root so the server jails against the render root,
+            // matching CliBackend's --project-root (byte-parity, spec §8 #3).
+            if let serde_json::Value::Object(ref mut m) = args {
+                m.entry("project_root".to_string())
+                    .or_insert_with(|| self.project_root.clone().into());
+            }
+            self.client
+                .call_tool_text(tool, Some(args), None)
+                .map_err(|e| BackendError::Io(e.to_string()))
+        }
+    }
 }
 
 #[cfg(test)]
