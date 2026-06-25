@@ -1,7 +1,9 @@
 //! `@graph` Router bridge → outbound code-intelligence via ctx_graph / ctx_callgraph
 //! backend calls (spec §4.5). 7 ops, no local index:
-//! dependents/dependencies/related/context/recent-neighbors → ctx_graph,
+//! dependents/related/context/recent-neighbors → ctx_graph,
 //! callers/callees → ctx_callgraph.
+//! `dependencies` returns a clear error: ctx_graph has no forward-deps action
+//! (only `related`=bidirectional, `impact`=reverse); use `related` or `dependents` instead.
 use std::rc::Rc;
 
 use serde_json::json;
@@ -37,16 +39,12 @@ impl DirectiveBridge for GraphBridge {
                     )
                     .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
             }
-            // ctx_graph action=related — forward-dependency graph
+            // ctx_graph has no forward-deps action — only `related` (bidirectional),
+            // `impact` (reverse/blast-radius), `neighbors`, `context`, etc.
+            // Wiring `dependencies` to `action=related` was a lie; returning a clear
+            // error is more honest than silently giving bidirectional results.
             "dependencies" => {
-                let target = args.positional(1).ok_or(BridgeError::MissingArg("path"))?;
-                Ok(ctx
-                    .backend
-                    .call(
-                        "ctx_graph",
-                        json!({"action":"related","path":target,"depth":depth,"project_root":root}),
-                    )
-                    .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
+                Ok("ERROR: BACKEND_REQUIRED: @graph dependencies needs ctx_graph forward-deps (unavailable — ctx_graph has no forward-deps action; use @graph related for bidirectional or @graph dependents for reverse)".to_string())
             }
             // ctx_graph action=related — bidirectional file relationships
             "related" => {

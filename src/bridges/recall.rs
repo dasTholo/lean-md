@@ -104,14 +104,17 @@ mod tests {
     }
 
     #[test]
-    fn headless_recall_is_empty() {
+    fn headless_recall_returns_backend_envelope_or_empty() {
         // No backend reachable headless ⇒ BACKEND_REQUIRED envelope.
-        // Bridge always calls outbound; headless CliBackend fails → envelope Ok.
+        // `@recall` is a read directive; contract: Ok(string) where string is
+        // either empty OR contains "BACKEND"/"ERROR" prefix (no arbitrary text).
         let ctx = headless_ctx();
         let out = RecallBridge
             .execute(&ctx, &DirectiveArgs::parse("query=anything"))
             .unwrap();
-        // Must return Ok (never Err/panic); envelope content is backend-dependent.
-        let _ = out;
+        assert!(
+            out.is_empty() || out.contains("BACKEND") || out.contains("ERROR"),
+            "headless @recall must return empty or BACKEND/ERROR envelope, got: {out:?}"
+        );
     }
 }

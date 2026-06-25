@@ -36,7 +36,7 @@ impl DirectiveBridge for SearchBridge {
         if let Some(ext) = ext {
             payload.insert("ext".into(), ext.into());
         }
-        payload.insert("max".into(), (max as u64).into());
+        payload.insert("max_results".into(), (max as u64).into());
         let out = ctx
             .backend
             .call("ctx_search", serde_json::Value::Object(payload))

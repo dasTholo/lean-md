@@ -122,9 +122,11 @@ mod tests {
     }
 
     #[test]
-    fn headless_remember_is_noop_empty_output() {
-        // No backend reachable headless ⇒ BACKEND_REQUIRED envelope (not empty).
-        // The bridge always calls outbound; headless CliBackend fails → envelope.
+    fn headless_remember_returns_backend_envelope_or_empty() {
+        // No backend reachable headless ⇒ BACKEND_REQUIRED envelope.
+        // `@remember` is a side-effect directive (write-only); some backend
+        // impls may return empty string on success.  Contract: Ok(string) where
+        // string is either empty OR starts with "ERROR:"/"BACKEND" prefix.
         let ctx = headless_ctx();
         let out = RememberBridge
             .execute(
@@ -133,10 +135,9 @@ mod tests {
             )
             .unwrap();
         assert!(
-            out.contains("BACKEND_REQUIRED") || out.is_empty() || !out.is_empty(),
-            "headless @remember must return Ok (envelope or result), got: {out:?}"
+            out.is_empty() || out.contains("BACKEND") || out.contains("ERROR"),
+            "headless @remember must return empty or BACKEND/ERROR envelope, got: {out:?}"
         );
-        // The call must not panic or return Err.
     }
 
     #[test]

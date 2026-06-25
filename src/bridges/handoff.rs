@@ -124,15 +124,18 @@ mod tests {
     }
 
     #[test]
-    fn headless_create_is_deterministic_noop() {
+    fn headless_create_returns_backend_envelope_or_empty() {
         // No backend reachable headless ⇒ BACKEND_REQUIRED envelope.
-        // Bridge always calls outbound; headless CliBackend fails → envelope Ok.
+        // `@handoff create` is a side-effect directive; contract: Ok(string)
+        // where string is either empty OR contains "BACKEND"/"ERROR" prefix.
         let ctx = headless_ctx();
         let out = HandoffBridge
             .execute(&ctx, &DirectiveArgs::parse("create"))
             .unwrap();
-        // Must return Ok (never Err/panic); envelope content is backend-dependent.
-        let _ = out;
+        assert!(
+            out.is_empty() || out.contains("BACKEND") || out.contains("ERROR"),
+            "headless @handoff create must return empty or BACKEND/ERROR envelope, got: {out:?}"
+        );
     }
 
     #[test]
