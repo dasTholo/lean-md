@@ -6,15 +6,6 @@ use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::Arc;
-
-use tokio::sync::RwLock;
-
-use crate::core::session::SessionState;
-
-use crate::core::cache::SessionCache;
-use crate::core::call_graph::{CallGraph, CallGraphInputs};
-use crate::core::graph_index::{self, ProjectIndex};
 
 use super::bridges::{BridgeError, BridgeRegistry, default_registry};
 use super::fragments::FragmentRegistry;
@@ -23,39 +14,17 @@ use super::macros::MacroRegistry;
 use super::parser::lmd_parser_extension;
 use super::phases::PhaseScope;
 
-/// Optional handles into the process-global memory stores (spec §7). Present
-/// only on the MCP `ctx_md_*` path (Phase 9); absent in headless `render()` and
-/// golden tests. Absence ⇒ every memory-writing sink degrades to a no-op, so
-/// render output stays a pure deterministic function of (content, mode, task).
-///
-/// Knowledge + Gotcha stores are project-bound and load-by-root via
-/// `ctx.jail_root`, so they need no live handle here — only the
-/// `sinks.is_some()` gate. The Session store is behind an async `RwLock`, so its
-/// live handle is carried; sink writes use `blocking_write()` (the MCP handler
-/// runs the sync render under `spawn_blocking`).
-pub struct SinkHandles {
-    pub session_id: String,
-    pub session: Option<Arc<RwLock<SessionState>>>,
-    pub agent_id: Option<String>,
-}
-
 /// Per-render engine state shared (via `Rc`) with the renderer hook and bridges.
 pub struct EngineContext {
     pub header: LeanMdHeader,
     pub jail_root: PathBuf,
     pub fragments: FragmentRegistry,
     pub registry: BridgeRegistry,
-    /// ONE session cache shared by every `@read` in this render — warm across
-    /// re-reads so the 2nd read of a path is a ~13-tok cache-hit / auto-delta,
-    /// never a full re-dump, WITHOUT `fresh`/`raw` (spec §4.2a Read→Delta).
-    pub cache: RefCell<SessionCache>,
+    /// Outbound code-intelligence backend (graph, call-graph, refactor, etc.).
+    /// Headless: `default_backend`; tests: injectable via `with_backend`.
+    pub backend: Box<dyn crate::backend::CodeIntelBackend>,
     pub max_chain_depth: usize,
     depth: Cell<usize>,
-    /// Lazy per-render memo of the static graph index (one build, shared by
-    /// every `@graph` op in this render — §4.2a-analog).
-    graph_index: RefCell<Option<Rc<ProjectIndex>>>,
-    /// Lazy per-render memo of the call graph (built from `graph_index`).
-    call_graph: RefCell<Option<Rc<CallGraph>>>,
     /// Authored macro registry — populated by `macros::extract_definitions`
     /// during each `render_body` pre-pass (spec §2.2.1).
     pub macros: RefCell<MacroRegistry>,
@@ -75,44 +44,53 @@ pub struct EngineContext {
     pub(crate) phase_bodies: RefCell<HashMap<String, String>>,
     /// `@import` dedupe: a library file is loaded at most once per render.
     imported: RefCell<HashSet<PathBuf>>,
-    /// Memory-store sink handles (spec §7). `None` ⇒ no-op degradation.
-    pub sinks: Option<SinkHandles>,
     /// Phase-8 CRP: nesting guard so `apply_crp_hook` fires once — on the
     /// outermost `render_body` only (re-entrant @include/@dispatch must not
     /// each append a suffix).
     render_depth: Cell<usize>,
     /// Phase-8 CRP: signatures emitted by the symbol bridges during this render.
     /// Drained by `apply_crp_hook` to build ONE aggregated `tdd_legend` (E-4b).
-    pub(crate) crp_sigs: RefCell<Vec<crate::core::signatures::Signature>>,
+    pub(crate) crp_sigs: RefCell<Vec<crate::signatures::Signature>>,
 }
 
 impl EngineContext {
     pub fn new(header: LeanMdHeader, jail_root: PathBuf) -> Self {
+        let backend = crate::backend::default_backend(jail_root.to_str().unwrap_or("."));
         Self {
             header,
             jail_root,
             fragments: FragmentRegistry::with_builtins(),
             registry: default_registry(),
-            cache: RefCell::new(SessionCache::new()),
+            backend,
             max_chain_depth: 16,
             depth: Cell::new(0),
-            graph_index: RefCell::new(None),
-            call_graph: RefCell::new(None),
             macros: RefCell::new(MacroRegistry::new()),
             param_scope: RefCell::new(Vec::new()),
             phase_scope: RefCell::new(Vec::new()),
             phase_bodies: RefCell::new(HashMap::new()),
             imported: RefCell::new(HashSet::new()),
-            sinks: None,
             render_depth: Cell::new(0),
             crp_sigs: RefCell::new(Vec::new()),
         }
     }
-    /// Construct with memory sinks wired (MCP `ctx_md_*` path, Phase 9).
-    pub fn with_sinks(header: LeanMdHeader, jail_root: PathBuf, sinks: SinkHandles) -> Self {
-        let mut ctx = Self::new(header, jail_root);
-        ctx.sinks = Some(sinks);
-        ctx
+    /// Construct with an injected backend (tests / MCP `ctx_md_*` path).
+    pub fn with_backend(header: LeanMdHeader, jail_root: PathBuf, backend: Box<dyn crate::backend::CodeIntelBackend>) -> Self {
+        Self {
+            header,
+            jail_root,
+            fragments: FragmentRegistry::with_builtins(),
+            registry: default_registry(),
+            backend,
+            max_chain_depth: 16,
+            depth: Cell::new(0),
+            macros: RefCell::new(MacroRegistry::new()),
+            param_scope: RefCell::new(Vec::new()),
+            phase_scope: RefCell::new(Vec::new()),
+            phase_bodies: RefCell::new(HashMap::new()),
+            imported: RefCell::new(HashSet::new()),
+            render_depth: Cell::new(0),
+            crp_sigs: RefCell::new(Vec::new()),
+        }
     }
     /// Increment the include-chain depth; error past `max_chain_depth` (§7).
     pub fn enter(&self) -> Result<(), BridgeError> {
@@ -160,30 +138,6 @@ impl EngineContext {
         self.imported.borrow_mut().insert(path.to_path_buf())
     }
 
-    /// Lazy-build + memoize the static project index for this render.
-    pub fn index(&self) -> Rc<ProjectIndex> {
-        if let Some(existing) = self.graph_index.borrow().as_ref() {
-            return existing.clone();
-        }
-        let root = self.jail_root.to_str().unwrap_or(".");
-        let built = Rc::new(graph_index::load_or_build(root));
-        *self.graph_index.borrow_mut() = Some(built.clone());
-        built
-    }
-
-    /// Lazy-build + memoize the call graph (depends on `index()`).
-    pub fn call_graph(&self) -> Rc<CallGraph> {
-        if let Some(existing) = self.call_graph.borrow().as_ref() {
-            return existing.clone();
-        }
-        let index = self.index();
-        let root = self.jail_root.to_str().unwrap_or(".");
-        let inputs = CallGraphInputs::from_project_index(&index);
-        let built = Rc::new(CallGraph::load_or_build(root, &inputs));
-        let _ = built.save();
-        *self.call_graph.borrow_mut() = Some(built.clone());
-        built
-    }
 }
 
 /// Top-level entry: pre-scan the `@lean-md` header, then render the body.
