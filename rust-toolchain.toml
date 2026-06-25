@@ -1,0 +1,5 @@
+# Pinned to nightly: the Cranelift codegen backend (.cargo/config.toml,
+# [unstable] codegen-backend) is only available on nightly.
+[toolchain]
+channel = "nightly"
+components = ["rustc-codegen-cranelift-preview", "rustfmt", "clippy"]

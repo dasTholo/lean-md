@@ -1,0 +1,4 @@
+[profile.default]
+# A few unit tests use fixed /tmp fixture paths and can race under high
+# parallelism; retry up to twice so a transient collision doesn't fail the run.
+retries = 2

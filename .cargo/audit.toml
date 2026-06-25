@@ -1,0 +1,16 @@
+# cargo-audit policy. Mirrors the reviewed exceptions in `rust/deny.toml` so that
+# `cargo audit` and `cargo deny` agree on the same accepted advisories.
+# Every entry is a deliberate, documented decision — not a blanket suppression.
+[advisories]
+ignore = [
+    # bincode 2.x (RUSTSEC-2025-0141, "unmaintained"). The format is considered
+    # complete by upstream; we use it only for internal, versioned cache
+    # (de)serialization (BM25 index) — never on untrusted input.
+    "RUSTSEC-2025-0141",
+    # paste 1.0.15 (RUSTSEC-2024-0436, "unmaintained"). Build-time proc-macro
+    # pulled in transitively by tikv-jemalloc-ctl; no runtime attack surface.
+    "RUSTSEC-2024-0436",
+    # lettre (RUSTSEC-2026-0141). Only affects the Boring TLS backend; we build
+    # with rustls.
+    "RUSTSEC-2026-0141",
+]
