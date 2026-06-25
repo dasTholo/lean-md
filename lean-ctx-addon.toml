@@ -9,21 +9,21 @@ license = "Apache-2.0"
 categories = ["workflow"]
 keywords = ["markdown", "macros", "dispatch", "skills"]
 min_lean_ctx = "3.8.12"
-# verified: NICHT setzen — registry-controlled, im handgeschriebenen Manifest
-#           bedeutungslos. Trust verleiht die Registry, nicht der Eintrag.
+# verified: do NOT set — it is registry-controlled and meaningless in a
+#           hand-written manifest. Trust is conferred by the registry, not the entry.
 
 [mcp]
 transport = "stdio"
 command = "lean-md"
 args = ["mcp"]
-# sha256: leer lassen für community; für verified/paid-Tier den Binary-Pin setzen
-#         (`shasum -a 256 lean-md` → hex). Gateway verweigert Spawn bei Mismatch.
+# sha256: leave empty for community; for the verified/paid tier set the binary pin
+#         (`shasum -a 256 lean-md` → hex). The gateway refuses to spawn on mismatch.
 
-# [capabilities] (588799d): lean-md ist ein Callback-Addon — P2-Task6 routet JEDE
-# Code-Intel-Direktive outbound via backend.call("ctx_*"), d.h. es spawnt lean-ctx
-# zur Laufzeit. Deklaration hält den Audit ehrlich + zeigt dem Nutzer im Install-
-# Consent die volle Capability-Menge inkl. exec.
+# [capabilities] (588799d): lean-md is a callback addon — P2-Task6 routes EVERY
+# code-intel directive outbound via backend.call("ctx_*"), i.e. it spawns lean-ctx
+# at runtime. Declaring the capabilities keeps the audit honest and shows the user
+# the full capability set (including exec) in the install consent.
 [capabilities]
-network = "none"          # lokale Code-Intel braucht kein Netz
-filesystem = "read_write" # der gespawnte lean-ctx schreibt seinen Session-Cache
-exec = ["lean-ctx"]       # darf genau lean-ctx spawnen (declared+audited, nicht OS-enforced — 9fbe855e)
+network = "none"          # local code-intel needs no network
+filesystem = "read_write" # the spawned lean-ctx writes its session cache
+exec = ["lean-ctx"]       # may spawn exactly lean-ctx (declared+audited, not OS-enforced — 9fbe855e)
