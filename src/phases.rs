@@ -349,7 +349,7 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
                                     phase: phase_name,
                                     directive: name,
                                     line: src_line,
-                                    cause: format!("{e:?}"),
+                                    cause: format!("{e}"),
                                 });
                             }
                         }

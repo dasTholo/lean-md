@@ -63,6 +63,26 @@ impl From<crate::backend::BackendError> for BridgeError {
     }
 }
 
+impl std::fmt::Display for BridgeError {
+    /// Readable, byte-stable (#498) rendering — used in the `PHASE_ABORTED`
+    /// envelope (`phases.rs`). `Backend(e)` defers to `BackendError`'s own
+    /// `Display` (e.g. `backend exit 1: <stderr>`), prefixed `BACKEND_REQUIRED:`
+    /// so the historic envelope marker survives. No timestamps/counters.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BridgeError::MissingArg(a) => write!(f, "missing arg: {a}"),
+            BridgeError::Resolve(m) => write!(f, "resolve: {m}"),
+            BridgeError::Io(m) => write!(f, "io: {m}"),
+            BridgeError::DepthExceeded => f.write_str("include depth exceeded"),
+            BridgeError::ShellDenied => f.write_str("shell denied"),
+            BridgeError::ShellRejected(m) => write!(f, "shell rejected: {m}"),
+            BridgeError::Backend(e) => write!(f, "BACKEND_REQUIRED: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for BridgeError {}
+
 pub trait DirectiveBridge {
     fn name(&self) -> &'static str;
     fn execute(&self, ctx: &Rc<EngineContext>, args: &DirectiveArgs)
