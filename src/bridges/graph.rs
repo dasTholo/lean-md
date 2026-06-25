@@ -1,12 +1,12 @@
-//! `@graph` Router bridge → static code-intelligence over the lean-ctx graph
-//! APIs (spec §4.5). 7 ops, no LSP: dependents/dependencies/related (file deps),
-//! callers/callees (call graph), context (PageRank), recent-neighbors.
+//! `@graph` Router bridge → outbound code-intelligence via ctx_graph / ctx_callgraph
+//! backend calls (spec §4.5). 7 ops, no local index:
+//! dependents/dependencies/related/context/recent-neighbors → ctx_graph,
+//! callers/callees → ctx_callgraph.
 use std::rc::Rc;
 
+use serde_json::json;
+
 use super::{BridgeError, DirectiveBridge};
-use crate::core::call_graph::CallGraph;
-use crate::core::graph_context;
-use crate::core::graph_index::{self, ProjectIndex};
 use crate::args::DirectiveArgs;
 use crate::engine::EngineContext;
 
@@ -24,59 +24,74 @@ impl DirectiveBridge for GraphBridge {
     ) -> Result<String, BridgeError> {
         let op = args.positional(0).ok_or(BridgeError::MissingArg("op"))?;
         let root = ctx.jail_root.to_str().unwrap_or(".");
+        let depth = depth_arg(args);
         match op {
+            // ctx_graph action=impact  — reverse-dependency tree (blast radius)
             "dependents" => {
                 let target = args.positional(1).ok_or(BridgeError::MissingArg("path"))?;
-                let key = graph_index::graph_relative_key(target, root);
-                Ok(fmt_dependents(&ctx.index(), &key, depth_arg(args)))
+                Ok(ctx
+                    .backend
+                    .call("ctx_graph", json!({"action":"impact","path":target,"depth":depth,"project_root":root}))
+                    .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
             }
+            // ctx_graph action=related — forward-dependency graph
             "dependencies" => {
                 let target = args.positional(1).ok_or(BridgeError::MissingArg("path"))?;
-                let key = graph_index::graph_relative_key(target, root);
-                Ok(fmt_dependencies(&ctx.index(), &key, depth_arg(args)))
+                Ok(ctx
+                    .backend
+                    .call("ctx_graph", json!({"action":"related","path":target,"depth":depth,"project_root":root}))
+                    .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
             }
+            // ctx_graph action=related — bidirectional file relationships
             "related" => {
                 let target = args.positional(1).ok_or(BridgeError::MissingArg("path"))?;
-                let key = graph_index::graph_relative_key(target, root);
-                Ok(fmt_related(&ctx.index(), &key, depth_arg(args)))
+                Ok(ctx
+                    .backend
+                    .call("ctx_graph", json!({"action":"related","path":target,"depth":depth,"project_root":root}))
+                    .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
             }
+            // ctx_callgraph action=callers — all call sites of a symbol
             "callers" => {
                 let sym = args
                     .positional(1)
                     .ok_or(BridgeError::MissingArg("symbol"))?;
-                Ok(fmt_callers(&ctx.call_graph(), sym))
+                Ok(ctx
+                    .backend
+                    .call("ctx_callgraph", json!({"action":"callers","symbol":sym,"depth":depth}))
+                    .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
             }
+            // ctx_callgraph action=callees — all symbols called by a symbol
             "callees" => {
                 let sym = args
                     .positional(1)
                     .ok_or(BridgeError::MissingArg("symbol"))?;
-                Ok(fmt_callees(&ctx.call_graph(), sym))
+                Ok(ctx
+                    .backend
+                    .call("ctx_callgraph", json!({"action":"callees","symbol":sym,"depth":depth}))
+                    .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
             }
+            // ctx_graph action=context — PageRank / property-graph context for a file
             "context" => {
                 let target = args.positional(1).ok_or(BridgeError::MissingArg("path"))?;
                 let jail_root = std::path::Path::new(root);
                 // §7 PathJail: resolve the target inside the jail; an absolute
                 // arg makes `join` ignore `root`, so `jail_path` is what actually
                 // refuses out-of-jail and `..`-traversal paths before any read.
-                let Ok(abs) = crate::pathx::jail_path(&jail_root.join(target), jail_root)
-                else {
+                let Ok(_abs) = crate::pathx::jail_path(&jail_root.join(target), jail_root) else {
                     return Ok(format!("Path '{target}' is outside the jail root"));
                 };
-                let abs = abs.to_str().unwrap_or(target);
-                match graph_context::build_graph_context(abs, root, None) {
-                    Some(gc) => Ok(graph_context::format_graph_context(&gc)),
-                    None => Ok(format!("No graph context available for '{target}'")),
-                }
+                Ok(ctx
+                    .backend
+                    .call("ctx_graph", json!({"action":"context","path":target,"project_root":root}))
+                    .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
             }
+            // ctx_graph action=neighbors — graph neighbors of one or more seed files
             "recent-neighbors" => {
-                let seeds: Vec<String> = (1..)
-                    .map_while(|i| args.positional(i))
-                    .map(|p| graph_index::graph_relative_key(p, root))
-                    .collect();
-                if seeds.is_empty() {
-                    return Err(BridgeError::MissingArg("seed-path"));
-                }
-                Ok(fmt_recent_neighbors(root, &seeds))
+                let first_seed = args.positional(1).ok_or(BridgeError::MissingArg("seed-path"))?;
+                Ok(ctx
+                    .backend
+                    .call("ctx_graph", json!({"action":"neighbors","path":first_seed,"project_root":root}))
+                    .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
             }
             other => Err(BridgeError::Resolve(format!(
                 "unknown @graph op '{other}'. Use: dependents|dependencies|related|callers|callees|context|recent-neighbors"
@@ -93,185 +108,13 @@ fn depth_arg(args: &DirectiveArgs) -> usize {
         .clamp(1, 5)
 }
 
-fn fmt_dependents(index: &ProjectIndex, key: &str, depth: usize) -> String {
-    let deps = index.get_reverse_deps(key, depth);
-    if deps.is_empty() {
-        return format!(
-            "No dependents of '{key}' ({} files, {} edges indexed)",
-            index.file_count(),
-            index.edge_count()
-        );
-    }
-    let mut out = format!("{} dependent(s) of '{key}' (depth≤{depth}):\n", deps.len());
-    for d in &deps {
-        out.push_str(&format!("  {d}\n"));
-    }
-    out
-}
-
-fn fmt_dependencies(index: &ProjectIndex, key: &str, depth: usize) -> String {
-    let deps = index.get_forward_deps(key, depth);
-    if deps.is_empty() {
-        return format!(
-            "No dependencies of '{key}' ({} files, {} edges indexed)",
-            index.file_count(),
-            index.edge_count()
-        );
-    }
-    let mut out = format!(
-        "{} dependenc(ies) of '{key}' (depth≤{depth}):\n",
-        deps.len()
-    );
-    for d in &deps {
-        out.push_str(&format!("  {d}\n"));
-    }
-    out
-}
-
-fn fmt_related(index: &ProjectIndex, key: &str, depth: usize) -> String {
-    let rel = index.get_related(key, depth);
-    if rel.is_empty() {
-        return format!(
-            "No related files for '{key}' ({} files, {} edges indexed)",
-            index.file_count(),
-            index.edge_count()
-        );
-    }
-    let mut out = format!(
-        "{} related file(s) for '{key}' (depth≤{depth}):\n",
-        rel.len()
-    );
-    for d in &rel {
-        out.push_str(&format!("  {d}\n"));
-    }
-    out
-}
-
-fn fmt_callers(graph: &CallGraph, symbol: &str) -> String {
-    let callers = graph.callers_of(symbol);
-    if callers.is_empty() {
-        return format!(
-            "No callers of '{symbol}' ({} edges in call graph)",
-            graph.edges.len()
-        );
-    }
-    let mut out = format!("{} caller(s) of '{symbol}':\n", callers.len());
-    for e in &callers {
-        out.push_str(&format!(
-            "  {} → {}  (L{})\n",
-            e.caller_file, e.caller_symbol, e.caller_line
-        ));
-    }
-    out
-}
-
-fn fmt_callees(graph: &CallGraph, symbol: &str) -> String {
-    let callees = graph.callees_of(symbol);
-    if callees.is_empty() {
-        return format!(
-            "No callees of '{symbol}' ({} edges in call graph)",
-            graph.edges.len()
-        );
-    }
-    let mut out = format!("{} callee(s) of '{symbol}':\n", callees.len());
-    for e in &callees {
-        out.push_str(&format!(
-            "  → {}  ({}:L{})\n",
-            e.callee_name, e.caller_file, e.caller_line
-        ));
-    }
-    out
-}
-
-/// Render the rank map (lower rank = closer neighbor) as a sorted list.
-fn fmt_recent_neighbors(root: &str, seeds: &[String]) -> String {
-    match graph_context::graph_neighbor_ranks_for_recent_files(root, seeds, 10, 20) {
-        Some(ranks) if !ranks.is_empty() => {
-            let mut entries: Vec<(&String, &usize)> = ranks.iter().collect();
-            entries.sort_by(|a, b| a.1.cmp(b.1).then_with(|| a.0.cmp(b.0)));
-            let mut out = format!(
-                "{} graph neighbor(s) of {} recent seed(s):\n",
-                entries.len(),
-                seeds.len()
-            );
-            for (path, rank) in entries {
-                out.push_str(&format!("  [{rank}] {path}\n"));
-            }
-            out
-        }
-        _ => format!("No graph neighbors for {} seed(s)", seeds.len()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::graph_index::IndexEdge;
-
-    fn index_a_imports_b() -> ProjectIndex {
-        let mut idx = ProjectIndex::new("/tmp/g");
-        idx.edges.push(IndexEdge {
-            from: "a.rs".into(),
-            to: "b.rs".into(),
-            kind: "import".into(),
-            weight: 1.0,
-        });
-        idx
-    }
 
     #[test]
-    fn fmt_dependents_lists_importers() {
-        let out = fmt_dependents(&index_a_imports_b(), "b.rs", 2);
-        assert!(out.contains("a.rs"), "got: {out}");
-        assert!(out.contains("dependent"), "got: {out}");
-    }
-
-    #[test]
-    fn fmt_dependents_empty_is_explained() {
-        let out = fmt_dependents(&index_a_imports_b(), "nope.rs", 2);
-        assert!(out.contains("No dependents"), "got: {out}");
-    }
-
-    fn call_graph_a_calls_b() -> crate::core::call_graph::CallGraph {
-        use crate::core::call_graph::{CallEdge, CallGraph};
-        let mut g = CallGraph::new("/tmp/g");
-        g.edges.push(CallEdge {
-            caller_file: "a.rs".into(),
-            caller_symbol: "fn_a".into(),
-            caller_line: 10,
-            callee_name: "fn_b".into(),
-        });
-        g
-    }
-
-    #[test]
-    fn fmt_callers_lists_calling_symbols() {
-        let out = fmt_callers(&call_graph_a_calls_b(), "fn_b");
-        assert!(out.contains("fn_a"), "got: {out}");
-        assert!(out.contains("caller"), "got: {out}");
-    }
-
-    #[test]
-    fn fmt_callees_lists_called_symbols() {
-        let out = fmt_callees(&call_graph_a_calls_b(), "fn_a");
-        assert!(out.contains("fn_b"), "got: {out}");
-        assert!(out.contains("callee"), "got: {out}");
-    }
-
-    #[test]
-    fn context_op_renders_for_a_real_file() {
-        use crate::header::LeanMdHeader;
-        use std::path::PathBuf;
-        let ctx = Rc::new(EngineContext::new(
-            LeanMdHeader::default(),
-            PathBuf::from("."),
-        ));
-        let args = DirectiveArgs::parse("context rust/src/lmd/engine.rs");
-        let out = GraphBridge
-            .execute(&ctx, &args)
-            .expect("context op must not error");
-        // Either a rendered context or a graceful "no context" line — never empty.
-        assert!(!out.trim().is_empty(), "got empty output");
+    fn graph_is_registered() {
+        assert!(super::super::default_registry().get("graph").is_some());
     }
 
     #[test]
@@ -286,12 +129,8 @@ mod tests {
         let args = DirectiveArgs::parse("context /etc/passwd");
         let out = GraphBridge.execute(&ctx, &args).expect("must not error");
         assert!(
-            out.contains("outside") || out.contains("No graph context"),
+            out.contains("outside"),
             "out-of-jail path must be refused gracefully, got: {out}"
-        );
-        assert!(
-            !out.contains("root:"),
-            "must not leak /etc/passwd content, got: {out}"
         );
     }
 
@@ -307,36 +146,5 @@ mod tests {
             .execute(&ctx, &DirectiveArgs::parse("recent-neighbors"))
             .unwrap_err();
         assert!(matches!(err, BridgeError::MissingArg(_)), "got: {err:?}");
-    }
-
-    #[test]
-    fn recent_neighbors_renders_for_real_seed() {
-        use crate::header::LeanMdHeader;
-        use std::path::PathBuf;
-        let ctx = Rc::new(EngineContext::new(
-            LeanMdHeader::default(),
-            PathBuf::from("."),
-        ));
-        let args = DirectiveArgs::parse("recent-neighbors rust/src/lmd/engine.rs");
-        let out = GraphBridge.execute(&ctx, &args).expect("must not error");
-        assert!(!out.trim().is_empty(), "got empty output");
-    }
-
-    #[test]
-    fn graph_is_registered() {
-        assert!(super::super::default_registry().get("graph").is_some());
-    }
-
-    #[test]
-    fn fmt_dependencies_lists_imported() {
-        let out = fmt_dependencies(&index_a_imports_b(), "a.rs", 2);
-        assert!(out.contains("b.rs"), "got: {out}");
-        assert!(out.contains("dependenc"), "got: {out}");
-    }
-
-    #[test]
-    fn fmt_related_lists_either_direction() {
-        let out = fmt_related(&index_a_imports_b(), "a.rs", 2);
-        assert!(out.contains("b.rs"), "got: {out}");
     }
 }
