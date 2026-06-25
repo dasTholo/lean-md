@@ -307,7 +307,7 @@ pub fn apply_crp_hook(ctx: &Rc<EngineContext>, rendered: String) -> String {
                 out.push('\n');
             }
         } else {
-            let legend = crate::core::signatures::tdd_legend(&refs);
+            let legend = crate::signatures::tdd_legend(&refs);
             if !legend.is_empty() {
                 out.push_str("<!-- crp:legend -->\n");
                 out.push_str(&legend);

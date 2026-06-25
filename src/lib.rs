@@ -4,6 +4,7 @@
 
 pub mod args;
 pub mod audit;
+pub mod auto_findings;
 pub mod availability;
 pub mod backend;
 pub mod bridges;

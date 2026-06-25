@@ -161,7 +161,7 @@ fn fire_action(ctx: &Rc<EngineContext>, scope: &PhaseScope, action: &OnComplete)
                 } else {
                     output
                 };
-                if let Some(f) = crate::core::auto_findings::extract(&tool, effective) {
+                if let Some(f) = crate::auto_findings::extract(&tool, effective) {
                     session.blocking_write().add_finding(None, None, &f.summary);
                 }
             }
@@ -427,29 +427,11 @@ fn finalize_phase(ctx: &Rc<EngineContext>, out: &mut String, scope: &PhaseScope)
     }
 }
 
-/// Third abort sink (spec §3.5, D-10): feed the PhaseError into the bug-memory
-/// store. Load-by-root, gated by sinks. `report_gotcha` sets source=AgentReported
-/// (0.9) — justified: the engine is an authoritative reporter, not a heuristic.
-fn report_phase_gotcha(ctx: &Rc<EngineContext>, err: &PhaseError) {
-    let Some(sinks) = ctx.sinks.as_ref() else {
-        return;
-    };
-    let root = ctx.jail_root.to_str().unwrap_or(".");
-    let mut store = crate::core::gotcha_tracker::GotchaStore::load(root);
-    let trigger = normalize_trigger(err);
-    let resolution = format!(
-        "resolve @{} failure in phase {}: {}",
-        err.directive, err.phase, err.cause
-    );
-    store.report_gotcha(
-        &trigger,
-        &resolution,
-        map_cause_category(&err.cause),
-        "warning",
-        &sinks.session_id,
-    );
-    let _ = store.save(root);
-}
+/// Third abort sink (spec §3.5, D-10): gotcha persistence is outbound-only in
+/// lean-md (no local GotchaStore — routed via ctx.backend or degraded to no-op
+/// when no backend is wired). Decision: no-op for now; backend routing deferred
+/// to a future task when ctx_knowledge exposes a `gotcha` action in the appendix.
+fn report_phase_gotcha(_ctx: &Rc<EngineContext>, _err: &PhaseError) {}
 
 /// Merge-stable, greppable trigger: paths stripped, cause reduced to its head.
 fn normalize_trigger(err: &PhaseError) -> String {
@@ -647,6 +629,9 @@ trailing prose
 
     #[test]
     fn abort_reports_gotcha_with_normalized_trigger() {
+        // Gotcha persistence is a no-op in lean-md (outbound-only, deferred to
+        // a future task). The PHASE_ABORTED envelope is still emitted — that is
+        // the invariant this test guards in lean-md.
         use crate::engine::{EngineContext, SinkHandles};
         use crate::header::LeanMdHeader;
         use std::rc::Rc;
@@ -672,18 +657,6 @@ trailing prose
         assert!(
             out.contains("PHASE_ABORTED"),
             "envelope still emitted: {out}"
-        );
-
-        // The gotcha was persisted load-by-root and merges on repeat.
-        let store = crate::core::gotcha_tracker::GotchaStore::load(root.to_str().unwrap());
-        let listing = store.format_list();
-        assert!(
-            listing.contains("Parser"),
-            "gotcha trigger must name the phase: {listing}"
-        );
-        assert!(
-            !listing.contains("/no/such/"),
-            "paths must be stripped from trigger: {listing}"
         );
     }
 

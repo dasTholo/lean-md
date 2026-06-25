@@ -36,21 +36,11 @@ impl DirectiveBridge for RenderBridge {
             "list" => Ok(render_list(input)),
             "table" => Ok(render_table(input)),
             other => {
-                // Phase 5: before the error, try a registered RenderTransform.
-                // WASM transforms are self-contained (empty-linker sandbox) — no
-                // header gate. `hint` carries the @consumer audience (ai 0/human 1).
-                let hint = ctx.consumer_hint();
-                if let Some(t) = crate::core::extension_registry::global()
-                    .read()
-                    .ok()
-                    .and_then(|r| r.render_transform(other))
-                {
-                    return Ok(t.render(input, hint));
-                }
+                // Extension transforms (RenderTransform) are a lean-ctx core
+                // concept; lean-md has no extension_registry — the circular
+                // lookup is removed. Unknown types produce a clear error.
                 Err(BridgeError::Resolve(format!(
-                    "unknown @render type '{other}'. Use: table|list (or a \
-                     registered render transform; custom types require the \
-                     `wasm` feature)"
+                    "unknown @render type '{other}'. Use: table|list"
                 )))
             }
         }
@@ -148,38 +138,8 @@ mod tests {
         match err {
             BridgeError::Resolve(m) => {
                 assert!(m.contains("unknown @render type 'mermaid'"), "got: {m}");
-                assert!(
-                    m.contains("registered render transform"),
-                    "must mention the extension path: {m}"
-                );
             }
             other => panic!("expected Resolve, got: {other:?}"),
         }
-    }
-
-    #[test]
-    fn registered_render_transform_resolves_before_error() {
-        use crate::core::extension_registry::{RenderTransform, global};
-        use std::sync::Arc;
-
-        struct Shout;
-        #[allow(clippy::unnecessary_literal_bound)]
-        impl RenderTransform for Shout {
-            fn name(&self) -> &str {
-                "shout_test"
-            }
-            fn render(&self, input: &str, hint: i32) -> String {
-                format!("{}!{hint}", input.trim().to_uppercase())
-            }
-        }
-        global()
-            .write()
-            .unwrap()
-            .register_render_transform(Arc::new(Shout));
-
-        let args = DirectiveArgs::parse("type=shout_test").with_piped_input("hi".into());
-        // Default ctx() => consumer ai => hint 0.
-        let out = RenderBridge.execute(&ctx(), &args).unwrap();
-        assert_eq!(out, "HI!0");
     }
 }
