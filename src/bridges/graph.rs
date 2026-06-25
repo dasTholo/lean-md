@@ -37,7 +37,7 @@ impl DirectiveBridge for GraphBridge {
                         "ctx_graph",
                         json!({"action":"impact","path":target,"depth":depth,"project_root":root}),
                     )
-                    .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
+                    .map_err(BridgeError::Backend)?)
             }
             // ctx_graph has no forward-deps action — only `related` (bidirectional),
             // `impact` (reverse/blast-radius), `neighbors`, `context`, etc.
@@ -55,7 +55,7 @@ impl DirectiveBridge for GraphBridge {
                         "ctx_graph",
                         json!({"action":"related","path":target,"depth":depth,"project_root":root}),
                     )
-                    .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
+                    .map_err(BridgeError::Backend)?)
             }
             // ctx_callgraph action=callers — all call sites of a symbol
             "callers" => {
@@ -68,7 +68,7 @@ impl DirectiveBridge for GraphBridge {
                         "ctx_callgraph",
                         json!({"action":"callers","symbol":sym,"depth":depth}),
                     )
-                    .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
+                    .map_err(BridgeError::Backend)?)
             }
             // ctx_callgraph action=callees — all symbols called by a symbol
             "callees" => {
@@ -81,7 +81,7 @@ impl DirectiveBridge for GraphBridge {
                         "ctx_callgraph",
                         json!({"action":"callees","symbol":sym,"depth":depth}),
                     )
-                    .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
+                    .map_err(BridgeError::Backend)?)
             }
             // ctx_graph action=context — PageRank / property-graph context for a file
             "context" => {
@@ -99,7 +99,7 @@ impl DirectiveBridge for GraphBridge {
                         "ctx_graph",
                         json!({"action":"context","path":target,"project_root":root}),
                     )
-                    .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
+                    .map_err(BridgeError::Backend)?)
             }
             // ctx_graph action=neighbors — graph neighbors of one or more seed files
             "recent-neighbors" => {
@@ -112,7 +112,7 @@ impl DirectiveBridge for GraphBridge {
                         "ctx_graph",
                         json!({"action":"neighbors","path":first_seed,"project_root":root}),
                     )
-                    .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
+                    .map_err(BridgeError::Backend)?)
             }
             other => Err(BridgeError::Resolve(format!(
                 "unknown @graph op '{other}'. Use: dependents|dependencies|related|callers|callees|context|recent-neighbors"

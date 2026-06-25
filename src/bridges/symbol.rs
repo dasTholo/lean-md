@@ -106,7 +106,7 @@ fn nav(
     let out = ctx
         .backend
         .call("ctx_refactor", serde_json::Value::Object(obj))
-        .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+        .map_err(BridgeError::Backend)?;
     Ok(out)
 }
 
@@ -132,7 +132,7 @@ fn overview(
                 "ctx_refactor",
                 serde_json::json!({ "action": "symbols_overview", "path": abs }),
             )
-            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+            .map_err(BridgeError::Backend)?;
         return Ok(out);
     }
 

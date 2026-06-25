@@ -51,7 +51,7 @@ impl DirectiveBridge for RepomapBridge {
         let out = ctx
             .backend
             .call("ctx_repomap", serde_json::Value::Object(payload))
-            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+            .map_err(BridgeError::Backend)?;
         Ok(out)
     }
 }

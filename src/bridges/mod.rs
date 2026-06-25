@@ -49,6 +49,18 @@ pub enum BridgeError {
     /// `@query` command rejected by an inherited lean-ctx shell defense
     /// (strict-mode `$()`/backtick block or shell allowlist).
     ShellRejected(String),
+    /// A real outbound `ctx.backend.call(...)` failure (Spawn/NonZero/Io) — e.g.
+    /// `lean-ctx` unreachable or a PathJail reject (`NonZero{stderr}`). Distinct
+    /// from a tool-owned `ERROR:` envelope (tool exit 0): this variant propagates
+    /// as `Err` so a failing code-intel call inside a `@phase` aborts the phase
+    /// (I2). Display is a pure function of the `BackendError` content (#498).
+    Backend(crate::backend::BackendError),
+}
+
+impl From<crate::backend::BackendError> for BridgeError {
+    fn from(e: crate::backend::BackendError) -> Self {
+        BridgeError::Backend(e)
+    }
 }
 
 pub trait DirectiveBridge {

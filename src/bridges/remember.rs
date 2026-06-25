@@ -31,13 +31,7 @@ impl DirectiveBridge for RememberBridge {
             .get("key")
             .map_or_else(|| slug(content), str::to_string);
         let confidence = args.get("confidence").and_then(|s| s.parse::<f32>().ok());
-        Ok(knowledge_remember(
-            ctx,
-            category.as_deref(),
-            &key,
-            content,
-            confidence,
-        ))
+        knowledge_remember(ctx, category, &key, content, confidence).map_err(BridgeError::Backend)
     }
 }
 
@@ -49,29 +43,29 @@ pub(crate) const DEFAULT_KNOWLEDGE_CONFIDENCE: f32 = 0.8;
 /// Shared knowledge-write outbound call (also used by `@on complete remember`).
 /// `category` and `confidence` accept `None` to apply lmd-layer defaults
 /// (`DEFAULT_KNOWLEDGE_CATEGORY` / `DEFAULT_KNOWLEDGE_CONFIDENCE`).
-/// Always calls the backend; returns the envelope string on success or
-/// `"ERROR: BACKEND_REQUIRED: …"` on failure (consistent with other bridges).
+/// Returns the backend's tool output on success, or `Err(BackendError)` on a
+/// real backend failure (I2): the `@remember` bridge propagates that as
+/// `BridgeError::Backend` so a failing write inside a `@phase` aborts the phase.
+/// The fire-and-forget `@on complete remember` sink discards the `Err` instead.
 pub(crate) fn knowledge_remember(
     ctx: &Rc<EngineContext>,
     category: Option<&str>,
     key: &str,
     value: &str,
     confidence: Option<f32>,
-) -> String {
+) -> Result<String, crate::backend::BackendError> {
     let category = category.unwrap_or(DEFAULT_KNOWLEDGE_CATEGORY);
     let confidence = confidence.unwrap_or(DEFAULT_KNOWLEDGE_CONFIDENCE);
-    ctx.backend
-        .call(
-            "ctx_knowledge",
-            json!({
-                "action": "remember",
-                "category": category,
-                "key": key,
-                "value": value,
-                "confidence": confidence
-            }),
-        )
-        .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"))
+    ctx.backend.call(
+        "ctx_knowledge",
+        json!({
+            "action": "remember",
+            "category": category,
+            "key": key,
+            "value": value,
+            "confidence": confidence
+        }),
+    )
 }
 
 /// Deterministic key derived from content when `key=` is omitted: lowercase,
@@ -123,21 +117,22 @@ mod tests {
 
     #[test]
     fn headless_remember_returns_backend_envelope_or_empty() {
-        // No backend reachable headless ⇒ BACKEND_REQUIRED envelope.
-        // `@remember` is a side-effect directive (write-only); some backend
-        // impls may return empty string on success.  Contract: Ok(string) where
-        // string is either empty OR starts with "ERROR:"/"BACKEND" prefix.
+        // Post-I2: `@remember` routes outbound to ctx_knowledge. A real backend
+        // failure (lean-ctx absent / jail-refused) is now Err(BridgeError::Backend)
+        // so it aborts an enclosing @phase; an exit-0 backend yields Ok(empty |
+        // tool-owned envelope). Never a panic.
         let ctx = headless_ctx();
-        let out = RememberBridge
-            .execute(
-                &ctx,
-                &DirectiveArgs::parse("content=\"use nextest\" category=decision"),
-            )
-            .unwrap();
-        assert!(
-            out.is_empty() || out.contains("BACKEND") || out.contains("ERROR"),
-            "headless @remember must return empty or BACKEND/ERROR envelope, got: {out:?}"
-        );
+        match RememberBridge.execute(
+            &ctx,
+            &DirectiveArgs::parse("content=\"use nextest\" category=decision"),
+        ) {
+            Ok(out) => assert!(
+                out.is_empty() || out.contains("BACKEND") || out.contains("ERROR"),
+                "exit-0 @remember must be empty or a tool envelope, got: {out:?}"
+            ),
+            Err(BridgeError::Backend(_)) => {}
+            Err(other) => panic!("unexpected error: {other:?}"),
+        }
     }
 
     #[test]

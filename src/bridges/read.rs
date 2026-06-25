@@ -30,7 +30,7 @@ impl DirectiveBridge for ReadBridge {
                 "ctx_read",
                 serde_json::json!({ "path": path, "mode": mode }),
             )
-            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+            .map_err(BridgeError::Backend)?;
         Ok(out)
     }
 }
@@ -46,9 +46,10 @@ mod tests {
 
     #[test]
     fn read_dispatches_to_backend() {
-        // Without a real backend the call returns a BACKEND_REQUIRED envelope —
-        // but the bridge itself must not panic and must return Ok (6.12 wires
-        // a real backend; this test only checks the dispatch contract).
+        // Post-I2 dispatch contract: a successful backend exit-0 yields Ok (live
+        // content or a tool-owned envelope); a real backend failure (lean-ctx
+        // absent / jail-refused) yields Err(BridgeError::Backend) so a @read
+        // inside a @phase aborts. The bridge must never panic.
         let f = std::env::temp_dir().join("lmd_read_bridge.txt");
         std::fs::write(&f, "SENTINEL_LINE_42\n").unwrap();
         let ctx = Rc::new(EngineContext::new(
@@ -56,8 +57,11 @@ mod tests {
             PathBuf::from("."),
         ));
         let args = DirectiveArgs::parse(f.to_str().unwrap());
-        // Ok(…) — not Err — is the contract regardless of backend availability.
-        assert!(ReadBridge.execute(&ctx, &args).is_ok());
+        match ReadBridge.execute(&ctx, &args) {
+            Ok(_) => {}
+            Err(BridgeError::Backend(_)) => {}
+            Err(other) => panic!("unexpected error: {other:?}"),
+        }
     }
     #[test]
     fn missing_path_errors() {

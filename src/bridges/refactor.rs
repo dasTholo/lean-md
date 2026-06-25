@@ -149,7 +149,7 @@ impl DirectiveBridge for RefactorBridge {
         let out = ctx
             .backend
             .call("ctx_refactor", serde_json::Value::Object(obj))
-            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+            .map_err(BridgeError::Backend)?;
 
         Ok(out)
     }

@@ -776,6 +776,49 @@ trailing prose
     }
 
     #[test]
+    fn backend_error_in_phase_aborts_and_skips_on_complete() {
+        // I2 regression: a real BackendError (Spawn/NonZero/Io) from a code-intel
+        // bridge inside a @phase MUST abort the phase (Err propagates) and MUST
+        // NOT fire the @on complete sink. Before the I2 fix, every bridge flattened
+        // BackendError into Ok("ERROR: BACKEND_REQUIRED …"), so the phase saw no
+        // error and the sink fired falsely.
+        let calls = std::rc::Rc::new(RefCell::new(Vec::new()));
+        struct FailingBackend {
+            calls: std::rc::Rc<RefCell<Vec<(String, serde_json::Value)>>>,
+        }
+        impl CodeIntelBackend for FailingBackend {
+            fn call(&self, tool: &str, args: serde_json::Value) -> Result<String, BackendError> {
+                self.calls.borrow_mut().push((tool.to_string(), args));
+                // Mirrors a PathJail reject / headless spawn failure.
+                Err(BackendError::NonZero {
+                    code: 1,
+                    stderr: "path outside --project-root".to_string(),
+                })
+            }
+        }
+        let ctx = Rc::new(EngineContext::with_backend(
+            LeanMdHeader::default(),
+            std::env::temp_dir(),
+            Box::new(FailingBackend {
+                calls: calls.clone(),
+            }),
+        ));
+        let out = crate::engine::render_body(
+            &ctx,
+            "@phase \"P\"\n@read /etc/passwd\n@on complete task=\"done [100%]\"\n@phase-end\n",
+        );
+        assert!(
+            out.contains("PHASE_ABORTED"),
+            "a real BackendError in the phase body must abort the phase: {out}"
+        );
+        let calls = calls.borrow();
+        assert!(
+            find_call(&calls, "ctx_session", "task").is_none(),
+            "aborted phase (backend error) must NOT fire its @on complete task"
+        );
+    }
+
+    #[test]
     fn capture_auto_emits_findings_from_body_outputs() {
         // capture=auto scans body tool outputs and routes findings to outbound
         // ctx_session `finding` calls. The @search body output is produced by the

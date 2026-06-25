@@ -40,10 +40,9 @@ impl DirectiveBridge for RecallBridge {
             call_args["top_k"] = json!(k);
         }
 
-        Ok(ctx
-            .backend
+        ctx.backend
             .call("ctx_knowledge", call_args)
-            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
+            .map_err(BridgeError::Backend)
     }
 }
 
@@ -105,16 +104,18 @@ mod tests {
 
     #[test]
     fn headless_recall_returns_backend_envelope_or_empty() {
-        // No backend reachable headless ⇒ BACKEND_REQUIRED envelope.
-        // `@recall` is a read directive; contract: Ok(string) where string is
-        // either empty OR contains "BACKEND"/"ERROR" prefix (no arbitrary text).
+        // Post-I2: `@recall` routes outbound to ctx_knowledge. A real backend
+        // failure (lean-ctx absent / jail-refused) is now Err(BridgeError::Backend)
+        // so it aborts an enclosing @phase; an exit-0 backend yields Ok(empty |
+        // tool-owned envelope). Never a panic.
         let ctx = headless_ctx();
-        let out = RecallBridge
-            .execute(&ctx, &DirectiveArgs::parse("query=anything"))
-            .unwrap();
-        assert!(
-            out.is_empty() || out.contains("BACKEND") || out.contains("ERROR"),
-            "headless @recall must return empty or BACKEND/ERROR envelope, got: {out:?}"
-        );
+        match RecallBridge.execute(&ctx, &DirectiveArgs::parse("query=anything")) {
+            Ok(out) => assert!(
+                out.is_empty() || out.contains("BACKEND") || out.contains("ERROR"),
+                "exit-0 @recall must be empty or a tool envelope, got: {out:?}"
+            ),
+            Err(BridgeError::Backend(_)) => {}
+            Err(other) => panic!("unexpected error: {other:?}"),
+        }
     }
 }

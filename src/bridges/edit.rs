@@ -57,7 +57,7 @@ fn text_edit(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String, Br
     let out = ctx
         .backend
         .call("ctx_edit", serde_json::Value::Object(payload))
-        .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+        .map_err(BridgeError::Backend)?;
     Ok(out)
 }
 
@@ -99,7 +99,7 @@ fn symbolic_edit(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String
     let out = ctx
         .backend
         .call("ctx_refactor", serde_json::Value::Object(obj))
-        .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+        .map_err(BridgeError::Backend)?;
     Ok(out)
 }
 

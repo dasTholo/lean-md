@@ -35,7 +35,7 @@ impl DirectiveBridge for QueryBridge {
         let out = ctx
             .backend
             .call("ctx_shell", serde_json::json!({ "command": cmd }))
-            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+            .map_err(BridgeError::Backend)?;
         Ok(out)
     }
 }

@@ -40,10 +40,9 @@ impl DirectiveBridge for HandoffBridge {
 /// `@handoff create` → durables Ledger-Bundle via outbound ctx_handoff call.
 /// Routes to `ctx.backend.call("ctx_handoff", {"action":"create"})`.
 fn handoff_create(ctx: &Rc<EngineContext>) -> Result<String, BridgeError> {
-    Ok(ctx
-        .backend
+    ctx.backend
         .call("ctx_handoff", json!({"action": "create"}))
-        .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
+        .map_err(BridgeError::Backend)
 }
 
 /// `@handoff show path=<ledger>` → Read-only Render eines Bundles. Pfad wird
@@ -55,13 +54,12 @@ fn handoff_show(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String,
         .ok_or(BridgeError::MissingArg("path"))?;
     let path = resolve_jailed(ctx, raw)?;
     let path_str = path.to_string_lossy();
-    Ok(ctx
-        .backend
+    ctx.backend
         .call(
             "ctx_handoff",
             json!({"action": "show", "path": path_str.as_ref()}),
         )
-        .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
+        .map_err(BridgeError::Backend)
 }
 
 /// `@handoff pull path=<ledger>` → Bundle laden und Session-Snapshot anwenden
@@ -73,13 +71,12 @@ fn handoff_pull(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String,
         .ok_or(BridgeError::MissingArg("path"))?;
     let path = resolve_jailed(ctx, raw)?;
     let path_str = path.to_string_lossy();
-    Ok(ctx
-        .backend
+    ctx.backend
         .call(
             "ctx_handoff",
             json!({"action": "pull", "path": path_str.as_ref()}),
         )
-        .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}")))
+        .map_err(BridgeError::Backend)
 }
 
 /// Jail-Resolve eines Ledger-Pfads relativ zum Engine-Jail-Root.
@@ -125,17 +122,19 @@ mod tests {
 
     #[test]
     fn headless_create_returns_backend_envelope_or_empty() {
-        // No backend reachable headless ⇒ BACKEND_REQUIRED envelope.
-        // `@handoff create` is a side-effect directive; contract: Ok(string)
-        // where string is either empty OR contains "BACKEND"/"ERROR" prefix.
+        // Post-I2: `@handoff create` routes outbound to ctx_handoff. A real
+        // backend failure (lean-ctx absent / jail-refused) is now
+        // Err(BridgeError::Backend) so it aborts an enclosing @phase; an exit-0
+        // backend yields Ok(empty | tool-owned envelope). Never a panic.
         let ctx = headless_ctx();
-        let out = HandoffBridge
-            .execute(&ctx, &DirectiveArgs::parse("create"))
-            .unwrap();
-        assert!(
-            out.is_empty() || out.contains("BACKEND") || out.contains("ERROR"),
-            "headless @handoff create must return empty or BACKEND/ERROR envelope, got: {out:?}"
-        );
+        match HandoffBridge.execute(&ctx, &DirectiveArgs::parse("create")) {
+            Ok(out) => assert!(
+                out.is_empty() || out.contains("BACKEND") || out.contains("ERROR"),
+                "exit-0 @handoff create must be empty or a tool envelope, got: {out:?}"
+            ),
+            Err(BridgeError::Backend(_)) => {}
+            Err(other) => panic!("unexpected error: {other:?}"),
+        }
     }
 
     #[test]

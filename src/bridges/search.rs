@@ -40,7 +40,7 @@ impl DirectiveBridge for SearchBridge {
         let out = ctx
             .backend
             .call("ctx_search", serde_json::Value::Object(payload))
-            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+            .map_err(BridgeError::Backend)?;
         Ok(out)
     }
 }
@@ -62,19 +62,23 @@ mod tests {
 
     #[test]
     fn searches_via_ctx_search() {
-        // @search routes outbound to ctx_search. Dispatch contract: Ok(…) with the
-        // live hit (lean-ctx session present) or a BACKEND_REQUIRED envelope
-        // (headless / jail-refused) — never Err, never a panic.
+        // @search routes outbound to ctx_search. Post-I2 dispatch contract: Ok(live
+        // hit | tool-owned envelope) when the backend exits 0, OR
+        // Err(BridgeError::Backend) on a real backend failure (lean-ctx absent /
+        // jail-refused). Never a panic.
         let dir = std::env::temp_dir().join("lmd_search_bridge");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("hit.txt"), "fn target_marker_42() {}\n").unwrap();
         let args =
             DirectiveArgs::parse(&format!("target_marker_42 path={}", dir.to_str().unwrap()));
-        let out = SearchBridge.execute(&ctx(), &args).unwrap();
-        assert!(
-            out.contains("target_marker_42") || out.contains("BACKEND_REQUIRED"),
-            "got: {out}"
-        );
+        match SearchBridge.execute(&ctx(), &args) {
+            Ok(out) => assert!(
+                out.contains("target_marker_42") || out.contains("BACKEND_REQUIRED"),
+                "got: {out}"
+            ),
+            Err(BridgeError::Backend(_)) => {}
+            Err(other) => panic!("unexpected error: {other:?}"),
+        }
     }
 
     #[test]

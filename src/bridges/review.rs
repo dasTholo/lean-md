@@ -78,7 +78,7 @@ impl DirectiveBridge for ReviewBridge {
         let out = ctx
             .backend
             .call("ctx_review", serde_json::Value::Object(payload))
-            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+            .map_err(BridgeError::Backend)?;
         Ok(out)
     }
 }

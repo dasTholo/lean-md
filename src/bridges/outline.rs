@@ -41,7 +41,7 @@ impl DirectiveBridge for OutlineBridge {
             let out = ctx
                 .backend
                 .call("ctx_outline", serde_json::Value::Object(payload))
-                .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+                .map_err(BridgeError::Backend)?;
             return Ok(out);
         }
 
