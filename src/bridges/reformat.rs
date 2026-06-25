@@ -35,15 +35,13 @@ impl DirectiveBridge for ReformatBridge {
             obj.insert("optimize_imports".into(), true.into());
         }
 
-        let out = crate::tools::ctx_refactor::handle(&serde_json::Value::Object(obj), root, &abs);
-
-        // Cache coherence (spec §3.4): reformat MUTATES the file, so on success
-        // the shared cache is stale → clear. On the BACKEND_REQUIRED/ERROR
-        // envelope the file is untouched → keep the warm cache (no needless miss).
-        if reformat_succeeded(&out) {
-            ctx.cache.borrow_mut().clear();
+        if !abs.is_empty() {
+            obj.insert("path".into(), abs.clone().into());
         }
-
+        let out = ctx
+            .backend
+            .call("ctx_refactor", serde_json::Value::Object(obj))
+            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
         Ok(out)
     }
 }
@@ -166,26 +164,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn error_does_not_clear_cache() {
-        // Headless reformat returns BACKEND_REQUIRED → file untouched → the
-        // warm cache entry must survive (no needless miss). Mirrors
-        // refactor.rs::preview_never_clears_cache.
-        let dir = std::env::temp_dir().join("lmd_reformat_noclear");
-        std::fs::create_dir_all(&dir).unwrap();
-        let f = dir.join("r.rs");
-        std::fs::write(&f, "fn foo() {}\n").unwrap();
-        let ctx = ctx_at(dir.clone());
-
-        let path_str = f.to_str().unwrap();
-        ctx.cache.borrow_mut().store(path_str, "cached-content");
-
-        let args = DirectiveArgs::parse(&format!("path={path_str} line=1"));
-        let _out = ReformatBridge.execute(&ctx, &args).unwrap();
-
-        assert!(
-            ctx.cache.borrow().get(path_str).is_some(),
-            "BACKEND_REQUIRED reformat must NOT clear the cache"
-        );
-    }
+    // error_does_not_clear_cache removed: ctx.cache field removed in Task 6.5;
+    // cache coherence is now owned by the backend.
 }

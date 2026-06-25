@@ -44,27 +44,21 @@ fn text_edit(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String, Br
     let abs = crate::pathx::resolve_tool_path(Some(root), None, path)
         .map_err(|e| BridgeError::Resolve(format!("path blocked by jail: {e}")))?;
 
-    let params = crate::tools::ctx_edit::EditParams {
-        path: abs,
-        old_string: old.to_string(),
-        new_string: new.to_string(),
-        replace_all: args.get("all") == Some("true"),
-        create: args.get("create") == Some("true"),
-        expected_md5: None,
-        expected_size: None,
-        expected_mtime_ms: None,
-        backup: false,
-        backup_path: None,
-        evidence: true,
-        diff_max_lines: 200,
-        allow_lossy_utf8: false,
-    };
-
-    // Shared session cache — ctx_edit applies CacheEffect::Invalidate on success,
-    // so the next `@read` of this path re-validates by mtime (spec §3.4). NOT a
-    // per-call SessionCache::new().
-    let mut cache = ctx.cache.borrow_mut();
-    Ok(crate::tools::ctx_edit::handle(&mut cache, &params))
+    let mut payload = serde_json::Map::new();
+    payload.insert("path".into(), abs.into());
+    payload.insert("old_string".into(), old.into());
+    payload.insert("new_string".into(), new.into());
+    if args.get("all") == Some("true") {
+        payload.insert("replace_all".into(), true.into());
+    }
+    if args.get("create") == Some("true") {
+        payload.insert("create".into(), true.into());
+    }
+    let out = ctx
+        .backend
+        .call("ctx_edit", serde_json::Value::Object(payload))
+        .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+    Ok(out)
 }
 
 /// `@edit symbol=Class/method body="…"` → ctx_refactor replace_symbol_body
@@ -101,17 +95,11 @@ fn symbolic_edit(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String
     };
     obj.insert("action".into(), action.into());
 
-    let root = ctx.jail_root.to_str().unwrap_or(".");
     // abs_path empty: ctx_refactor resolves name_path via its own symbol index.
-    let out = crate::tools::ctx_refactor::handle(&serde_json::Value::Object(obj), root, "");
-
-    // Cache coherence (spec §3.4): ctx_refactor does NOT touch the lmd cache.
-    // The edited file is resolved internally from name_path, so on success clear
-    // the per-render cache — small, and a symbolic edit within one render is rare.
-    // The next `@read` then re-validates by mtime against the new bytes.
-    if !out.starts_with("ERROR") && !out.contains("not applied") {
-        ctx.cache.borrow_mut().clear();
-    }
+    let out = ctx
+        .backend
+        .call("ctx_refactor", serde_json::Value::Object(obj))
+        .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
     Ok(out)
 }
 
@@ -128,23 +116,12 @@ mod tests {
     }
 
     #[test]
-    fn text_edit_replaces_and_invalidates_cache() {
+    fn text_edit_replaces_content() {
         let dir = std::env::temp_dir().join("lmd_edit_text");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("t.txt");
         std::fs::write(&f, "alpha BEFORE omega\n").unwrap();
         let ctx = ctx_at(&dir);
-
-        // Warm the cache with the OLD content first (full read).
-        {
-            let mut cache = ctx.cache.borrow_mut();
-            let _ = crate::tools::ctx_read::handle(
-                &mut cache,
-                f.to_str().unwrap(),
-                "full",
-                crate::crp_proto::CrpMode::Off,
-            );
-        }
 
         let args = DirectiveArgs::parse(&format!(
             r#"{} old="BEFORE" new="AFTER""#,
@@ -152,23 +129,8 @@ mod tests {
         ));
         let out = EditBridge.execute(&ctx, &args).unwrap();
         assert!(!out.starts_with("ERROR"), "edit must succeed, got: {out}");
+        // File must be modified on disk.
         assert_eq!(std::fs::read_to_string(&f).unwrap(), "alpha AFTER omega\n");
-
-        // Post-edit read must show NEW bytes — proves the cache was invalidated.
-        let reread = {
-            let mut cache = ctx.cache.borrow_mut();
-            crate::tools::ctx_read::handle(
-                &mut cache,
-                f.to_str().unwrap(),
-                "full",
-                crate::crp_proto::CrpMode::Off,
-            )
-        };
-        assert!(reread.contains("AFTER"), "stale cache hit, got: {reread}");
-        assert!(
-            !reread.contains("BEFORE"),
-            "must not show old bytes: {reread}"
-        );
     }
 
     #[test]

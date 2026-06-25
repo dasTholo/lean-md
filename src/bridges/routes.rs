@@ -22,11 +22,21 @@ impl DirectiveBridge for RoutesBridge {
         ctx: &Rc<EngineContext>,
         args: &DirectiveArgs,
     ) -> Result<String, BridgeError> {
-        let root = ctx.jail_root.to_str().unwrap_or(".");
         let method = args.get("method"); // optional GET|POST|… filter
         let path_prefix = args.get("path"); // ROUTE prefix filter — NOT an FS path, no jail
 
-        Ok(crate::tools::ctx_routes::handle(method, path_prefix, root))
+        let mut payload = serde_json::Map::new();
+        if let Some(m) = method {
+            payload.insert("method".into(), m.into());
+        }
+        if let Some(p) = path_prefix {
+            payload.insert("path".into(), p.into());
+        }
+        let out = ctx
+            .backend
+            .call("ctx_routes", serde_json::Value::Object(payload))
+            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+        Ok(out)
     }
 }
 
@@ -55,7 +65,10 @@ mod tests {
         .unwrap();
         let root = dir.to_str().unwrap();
         // Build the graph so the route file appears in the indexed file list.
-        let _ = crate::tools::ctx_impact::handle("build", None, root, None, None);
+        let backend = crate::backend::default_backend(root);
+        let mut build_payload = serde_json::Map::new();
+        build_payload.insert("action".into(), "build".into());
+        let _ = backend.call("ctx_impact", serde_json::Value::Object(build_payload));
         dir
     }
 

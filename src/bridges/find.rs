@@ -37,17 +37,17 @@ impl DirectiveBridge for FindBridge {
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(10); // default: 10 (matches ctx_semantic_search registered wrapper)
 
-        Ok(crate::tools::ctx_semantic_search::handle(
-            query,
-            path,
-            top_k,
-            crate::crp_proto::CrpMode::Off,
-            None, // languages
-            None, // path_glob
-            Some(mode),
-            None, // workspace
-            None, // artifacts
-        ))
+        let mut payload = serde_json::Map::new();
+        payload.insert("query".into(), query.into());
+        payload.insert("action".into(), "search".into());
+        payload.insert("mode".into(), mode.into());
+        payload.insert("top_k".into(), (top_k as u64).into());
+        payload.insert("path".into(), path.into());
+        let out = ctx
+            .backend
+            .call("ctx_semantic_search", serde_json::Value::Object(payload))
+            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+        Ok(out)
     }
 }
 

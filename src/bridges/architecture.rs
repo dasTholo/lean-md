@@ -33,12 +33,18 @@ impl DirectiveBridge for ArchitectureBridge {
             }
         };
 
-        let root = ctx.jail_root.to_str().unwrap_or(".");
         let path = args.get("path"); // optional sub-scope
 
-        Ok(crate::tools::ctx_architecture::handle(
-            action, path, root, None, // format: backend default
-        ))
+        let mut payload = serde_json::Map::new();
+        payload.insert("action".into(), action.into());
+        if let Some(p) = path {
+            payload.insert("path".into(), p.into());
+        }
+        let out = ctx
+            .backend
+            .call("ctx_architecture", serde_json::Value::Object(payload))
+            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+        Ok(out)
     }
 }
 

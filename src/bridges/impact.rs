@@ -41,14 +41,17 @@ impl DirectiveBridge for ImpactBridge {
             .ok_or(BridgeError::MissingArg("path"))?;
         let depth = args.get("depth").and_then(|s| s.parse::<usize>().ok());
 
-        let root = ctx.jail_root.to_str().unwrap_or(".");
-        Ok(crate::tools::ctx_impact::handle(
-            action,
-            Some(path),
-            root,
-            depth,
-            None, // format: backend default
-        ))
+        let mut payload = serde_json::Map::new();
+        payload.insert("action".into(), action.into());
+        payload.insert("path".into(), path.into());
+        if let Some(d) = depth {
+            payload.insert("depth".into(), (d as u64).into());
+        }
+        let out = ctx
+            .backend
+            .call("ctx_impact", serde_json::Value::Object(payload))
+            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+        Ok(out)
     }
 }
 

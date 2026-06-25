@@ -49,13 +49,19 @@ impl DirectiveBridge for SmellsBridge {
             None => None,
         };
 
-        Ok(crate::tools::ctx_smells::handle(
-            action,
-            rule,
-            resolved_path.as_deref(),
-            root,
-            None, // format: backend default (text)
-        ))
+        let mut payload = serde_json::Map::new();
+        payload.insert("action".into(), action.into());
+        if let Some(r) = rule {
+            payload.insert("rule".into(), r.into());
+        }
+        if let Some(ref p) = resolved_path {
+            payload.insert("path".into(), p.clone().into());
+        }
+        let out = ctx
+            .backend
+            .call("ctx_smells", serde_json::Value::Object(payload))
+            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+        Ok(out)
     }
 }
 

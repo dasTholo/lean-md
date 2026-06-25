@@ -49,12 +49,15 @@ impl DirectiveBridge for InspectBridge {
             String::new()
         };
 
-        // Read-only: NEVER clear the cache.
-        Ok(crate::tools::ctx_refactor::handle(
-            &serde_json::Value::Object(obj),
-            root,
-            &abs,
-        ))
+        // Read-only: backend call only, no cache mutation.
+        if !abs.is_empty() {
+            obj.insert("path".into(), abs.clone().into());
+        }
+        let out = ctx
+            .backend
+            .call("ctx_refactor", serde_json::Value::Object(obj))
+            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+        Ok(out)
     }
 }
 
@@ -125,24 +128,6 @@ mod tests {
         assert!(!out.trim().is_empty(), "empty list output");
     }
 
-    #[test]
-    fn run_never_clears_cache() {
-        // @inspect is read-only — even mode=run must NOT clear the shared cache.
-        let dir = std::env::temp_dir().join("lmd_inspect_noclear");
-        std::fs::create_dir_all(&dir).unwrap();
-        let f = dir.join("i.rs");
-        std::fs::write(&f, "fn foo() {}\n").unwrap();
-        let ctx = ctx_at(dir.clone());
-
-        let path_str = f.to_str().unwrap();
-        ctx.cache.borrow_mut().store(path_str, "cached-content");
-
-        let args = DirectiveArgs::parse(&format!("run {path_str}"));
-        let _out = InspectBridge.execute(&ctx, &args).unwrap();
-
-        assert!(
-            ctx.cache.borrow().get(path_str).is_some(),
-            "read-only @inspect must NOT clear the cache"
-        );
-    }
+    // run_never_clears_cache removed: ctx.cache field removed in Task 6.5;
+    // cache coherence is now owned by the backend.
 }

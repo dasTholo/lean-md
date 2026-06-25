@@ -16,7 +16,7 @@ impl DirectiveBridge for ListBridge {
 
     fn execute(
         &self,
-        _ctx: &Rc<EngineContext>,
+        ctx: &Rc<EngineContext>,
         args: &DirectiveArgs,
     ) -> Result<String, BridgeError> {
         let path = args
@@ -27,7 +27,13 @@ impl DirectiveBridge for ListBridge {
             .get("depth")
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(2);
-        let (out, _n) = crate::tools::ctx_tree::handle(path, depth, false, true);
+        let mut payload = serde_json::Map::new();
+        payload.insert("path".into(), path.into());
+        payload.insert("depth".into(), (depth as u64).into());
+        let out = ctx
+            .backend
+            .call("ctx_tree", serde_json::Value::Object(payload))
+            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
         Ok(out)
     }
 }

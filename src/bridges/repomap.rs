@@ -21,7 +21,6 @@ impl DirectiveBridge for RepomapBridge {
         ctx: &Rc<EngineContext>,
         args: &DirectiveArgs,
     ) -> Result<String, BridgeError> {
-        let root = ctx.jail_root.to_str().unwrap_or(".");
         let max_tokens = args
             .get("max_tokens")
             .and_then(|s| s.parse::<usize>().ok())
@@ -39,12 +38,21 @@ impl DirectiveBridge for RepomapBridge {
             .unwrap_or_default();
 
         // session_files: none threaded from the engine in this phase (YAGNI).
-        Ok(crate::tools::ctx_repomap::handle(
-            root,
-            max_tokens,
-            &focus,
-            &[],
-        ))
+        let mut payload = serde_json::Map::new();
+        payload.insert("max_tokens".into(), (max_tokens as u64).into());
+        if !focus.is_empty() {
+            let focus_arr: serde_json::Value = focus
+                .into_iter()
+                .map(serde_json::Value::String)
+                .collect::<Vec<_>>()
+                .into();
+            payload.insert("focus_files".into(), focus_arr);
+        }
+        let out = ctx
+            .backend
+            .call("ctx_repomap", serde_json::Value::Object(payload))
+            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+        Ok(out)
     }
 }
 

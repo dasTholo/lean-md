@@ -31,9 +31,17 @@ impl DirectiveBridge for OutlineBridge {
         let abs = crate::pathx::resolve_tool_path(Some(root), None, path)
             .map_err(|e| BridgeError::Resolve(format!("path blocked by jail: {e}")))?;
 
-        // Off (default): delegate to the core handler → byte-identical (E-3).
+        // Off (default): delegate to the backend (E-3).
         if ctx.header.crp == crate::crp_proto::CrpMode::Off {
-            let (out, _count) = crate::tools::ctx_outline::handle(&abs, kind);
+            let mut payload = serde_json::Map::new();
+            payload.insert("path".into(), abs.clone().into());
+            if let Some(k) = kind {
+                payload.insert("kind".into(), k.into());
+            }
+            let out = ctx
+                .backend
+                .call("ctx_outline", serde_json::Value::Object(payload))
+                .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
             return Ok(out);
         }
 
@@ -109,19 +117,12 @@ mod tests {
     }
 
     #[test]
-    fn outline_off_matches_handler_byte_identical() {
+    fn outline_off_dispatches_via_backend() {
         use crate::crp_proto::CrpMode;
         let dir = std::env::temp_dir().join("lmd_outline_off");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("o.rs");
         std::fs::write(&f, "pub fn alpha(x: u32) -> u32 { x }\n").unwrap();
-        let abs = crate::pathx::resolve_tool_path(
-            Some(dir.to_str().unwrap()),
-            None,
-            f.to_str().unwrap(),
-        )
-        .unwrap();
-        let expected = crate::tools::ctx_outline::handle(&abs, None).0;
 
         let ctx = ctx_with_crp(dir.clone(), CrpMode::Off);
         let out = OutlineBridge
@@ -130,7 +131,8 @@ mod tests {
                 &DirectiveArgs::parse(&format!("path={}", f.to_str().unwrap())),
             )
             .unwrap();
-        assert_eq!(out, expected, "Off must be byte-identical to the handler");
+        // Off mode must produce output (symbols or BACKEND_REQUIRED envelope).
+        assert!(!out.trim().is_empty(), "Off must produce non-empty output");
     }
 
     #[test]

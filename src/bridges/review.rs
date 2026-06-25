@@ -67,12 +67,19 @@ impl DirectiveBridge for ReviewBridge {
             },
         };
 
-        Ok(crate::tools::ctx_review::handle(
-            action,
-            path_arg.as_deref(),
-            root,
-            depth,
-        ))
+        let mut payload = serde_json::Map::new();
+        payload.insert("action".into(), action.into());
+        if let Some(ref p) = path_arg {
+            payload.insert("path".into(), p.clone().into());
+        }
+        if let Some(d) = depth {
+            payload.insert("depth".into(), (d as u64).into());
+        }
+        let out = ctx
+            .backend
+            .call("ctx_review", serde_json::Value::Object(payload))
+            .unwrap_or_else(|e| format!("ERROR: BACKEND_REQUIRED: {e}"));
+        Ok(out)
     }
 }
 
