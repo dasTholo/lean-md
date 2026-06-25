@@ -19,6 +19,7 @@ pub mod parser;
 pub mod pathx;
 pub mod phases;
 pub mod render;
+pub mod signatures;
 pub mod seeds;
 pub mod skills;
 

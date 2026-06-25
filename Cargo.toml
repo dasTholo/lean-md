@@ -20,6 +20,7 @@ path = "src/bin/lean_md.rs"
 rushdown = "0.18"
 evalexpr = "13.1"
 serde_json = "1.0"
+regex = "1"
 # McpBackend only — optional, behind `mcp` feature. Standalone crate (does NOT
 # link the lean_ctx engine — only ureq/serde/thiserror), so the null-lean_ctx
 # invariant holds. Local path for now; git/crates.io switch lands in P4 (dist).
