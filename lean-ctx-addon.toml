@@ -1,0 +1,29 @@
+[addon]
+name = "lean-md"
+display_name = "lean-md"
+version = "2.0.0"
+description = "Macro/directive markdown renderer for lean-ctx context engineering."
+author = "dasTholo"
+homepage = "https://github.com/dasTholo/lean-md"
+license = "Apache-2.0"
+categories = ["workflow"]
+keywords = ["markdown", "macros", "dispatch", "skills"]
+min_lean_ctx = "3.8.12"
+# verified: NICHT setzen — registry-controlled, im handgeschriebenen Manifest
+#           bedeutungslos. Trust verleiht die Registry, nicht der Eintrag.
+
+[mcp]
+transport = "stdio"
+command = "lean-md"
+args = ["mcp"]
+# sha256: leer lassen für community; für verified/paid-Tier den Binary-Pin setzen
+#         (`shasum -a 256 lean-md` → hex). Gateway verweigert Spawn bei Mismatch.
+
+# [capabilities] (588799d): lean-md ist ein Callback-Addon — P2-Task6 routet JEDE
+# Code-Intel-Direktive outbound via backend.call("ctx_*"), d.h. es spawnt lean-ctx
+# zur Laufzeit. Deklaration hält den Audit ehrlich + zeigt dem Nutzer im Install-
+# Consent die volle Capability-Menge inkl. exec.
+[capabilities]
+network = "none"          # lokale Code-Intel braucht kein Netz
+filesystem = "read_write" # der gespawnte lean-ctx schreibt seinen Session-Cache
+exec = ["lean-ctx"]       # darf genau lean-ctx spawnen (declared+audited, nicht OS-enforced — 9fbe855e)
