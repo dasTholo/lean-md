@@ -39,7 +39,7 @@ impl DirectiveBridge for QueryBridge {
             return Err(BridgeError::ShellRejected(msg));
         }
         let cwd = ctx.jail_root.to_string_lossy().to_string();
-        let (raw_output, _exit) =
+        let (raw_output, exit) =
             crate::server::execute::execute_command_with_env(cmd, &cwd, &HashMap::new());
         // Secret-Redaction (only if enabled) — inherited, not reinvented (§7).
         let cfg = crate::core::config::Config::load();
@@ -49,7 +49,7 @@ impl DirectiveBridge for QueryBridge {
             raw_output
         };
         let compressed =
-            crate::tools::ctx_shell::handle(cmd, &safe_output, crate::tools::CrpMode::Off);
+            crate::tools::ctx_shell::handle(cmd, &safe_output, exit, crate::tools::CrpMode::Off);
         Ok(crate::core::redaction::redact_text_if_enabled(&compressed))
     }
 }
