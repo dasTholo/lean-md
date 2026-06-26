@@ -257,19 +257,26 @@ Standard-`nextest`). Liefergegenstand:
   dokumentieren — Transparenz statt stillem `ignored`.
 - **Akzeptanz:** Addon-Pfad == direkter `lean-md mcp`-Pfad (#4); `ctx_read` einer
   `.lmd.md` mit Addon == direktes `ctx_md_render`, ohne Addon → Rohtext (#5).
-- **Nachweis (2026-06-26):** #4 `addon_roundtrip` BLOCKED — `lean-ctx call
-  ctx_md_render` liefert in lean-ctx 3.8.13 `error: unknown tool 'ctx_md_render'`
-  (ebenso `lean-md::ctx_md_render` und `lean-md/ctx_md_render`); die CLI-`call`-
-  Route routet nicht zu Gateway-/Addon-Tools, nur zu lean-ctx-eigenen Built-ins.
-  Der lean-md MCP-Server selbst ist korrekt verdrahtet: direktes JSON-RPC
-  (`initialize` + `tools/call ctx_md_render`) liefert byte-identische Ausgabe zu
-  `lean-md render` (verifiziert 2026-06-26, Eingabe `@date\nroundtrip marker\n`
-  → `2026-06-26\nroundtrip marker\n`). #5 Delegation BLOCKED — `lean-ctx call
-  ctx_read` → `-32603: session not available` (kein Projekt-Session ohne aktive
-  MCP-Verbindung vom MCP-Client). CI-Strategie: `addon_roundtrip.rs`
-  `via_leanctx_call` muss redesigned werden — entweder `lean-md mcp` direkt via
-  JSON-RPC ansprechen (umgeht lean-ctx-call), oder warten bis lean-ctx Addon-Tools
-  via `lean-ctx call` exponiert. Kein v2-Blocker; Upstream-Folgeticket empfohlen.
+- **Nachweis (2026-06-26):** #4 **funktional bestätigt** über den lean-ctx
+  **`ctx_tools`-Downstream-Gateway** (MCP-Pfad): `ctx_tools {"action":"list"}` →
+  `lean-md [stdio, enabled] — 2 tool(s)`; `ctx_tools {"action":"find",
+  "query":"render lmd markdown"}` listet `lean-md::ctx_md_render` +
+  `lean-md::ctx_md_check`; `ctx_tools {"action":"call",
+  "tool":"lean-md::ctx_md_render","arguments":{"path":"<f>.lmd.md"}}` rendert
+  **byte-identisch** zu `lean-md render <f>.lmd.md`. #5 Delegation läuft denselben
+  Render-Pfad über den Gateway. Direkter `lean-md mcp` JSON-RPC ist ebenfalls
+  byte-identisch (verifiziert 2026-06-26).
+- **Korrektur eines Fehlbefunds:** Addon-Tools hängen am **`ctx_tools`**-Gateway,
+  **nicht** am `ctx_call`/`ctx_discover_tools`-Router (der nur lean-ctx-eigene
+  Tools listet) — daher das anfängliche `unknown tool`. Der frühere „CLI-`call`
+  routet nicht zu Addon-Tools / Test-Redesign nötig"-Schluss war falsch.
+- **Offen (TODO.md, lean-ctx-seitig):** CLI `lean-ctx call ctx_tools` paniced
+  (`no reactor running, must be called from a Tokio 1.x runtime`,
+  `rust/src/tools/ctx_tools.rs:37`). Daher bleibt der CLI-basierte
+  `addon_roundtrip.rs` (#4, nutzt `lean-ctx call`) blockiert, bis der CLI-Pfad
+  einen Tokio-Runtime aufsetzt; danach `via_leanctx_call` auf
+  `lean-ctx call ctx_tools {"action":"call","tool":"lean-md::ctx_md_render",…}`
+  umstellen. **Kein** v2-Blocker (MCP-Gateway-Pfad ist grün); Upstream-Fix in lean-ctx.
 
 ### 5.2 Dokumentation
 

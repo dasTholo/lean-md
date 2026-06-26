@@ -25,8 +25,9 @@ lean-ctx addon add ./lean-ctx-addon.toml     # wire it into the gateway
 ## Restart the MCP client/server
 
 **Required after `addon add`:** restart your MCP client/server so the gateway
-re-reads its catalog and the lean-md tools (`ctx_md_render` / `ctx_md_check`)
-become visible. This is the most common "tool not found" cause.
+re-reads its catalog and the lean-md tools become reachable through the
+**`ctx_tools`** gateway as `lean-md::ctx_md_render` / `lean-md::ctx_md_check`.
+This is the most common "tool not found" cause.
 
 ## What `addon add` writes (you maintain nothing by hand)
 
@@ -37,11 +38,29 @@ plus the declared `[capabilities]`) and records the install in
 
 ## Verify
 
+Direct (no gateway needed):
+
 ```sh
-lean-ctx call ctx_md_render --project-root . --json '{"path": "demo.lmd.md"}'
+lean-md render demo.lmd.md
 ```
 
-Expected: the rendered Markdown of `demo.lmd.md`, identical to `lean-md render demo.lmd.md`.
+Through the lean-ctx gateway, the addon is aggregated under the **`ctx_tools`**
+downstream gateway as `lean-md::ctx_md_render` / `lean-md::ctx_md_check` — **not**
+on the `ctx_call` / `ctx_discover_tools` router (those expose only lean-ctx's own
+tools). Confirm the wiring and run the round-trip from an MCP client:
+
+```sh
+lean-ctx addon list        # → ✓ lean-md … → gateway server `lean-md` (local)
+```
+
+```jsonc
+ctx_tools {"action":"list"}     // → lean-md [stdio, enabled] — 2 tool(s)
+ctx_tools {"action":"call","tool":"lean-md::ctx_md_render",
+           "arguments":{"path":"demo.lmd.md"}}
+```
+
+Expected: the rendered Markdown of `demo.lmd.md`, byte-identical to
+`lean-md render demo.lmd.md`.
 
 ## Backend selection (optional — defaults to zero-config CLI)
 
@@ -60,5 +79,9 @@ rendering. See the README's "Backend selection" table for details.
 ## Troubleshooting
 
 - **Tools not visible** → restart the MCP client/server (catalog re-read).
-- **Tool name has a `lean-md::` prefix** → see the gateway namespacing note in the
-  README; the addon path still works, only the visible tool name differs.
+- **`ctx_call` / `ctx_discover_tools` can't find `ctx_md_render`** → expected: that
+  router lists only lean-ctx's own tools. Addon tools live on the **`ctx_tools`**
+  downstream gateway as `lean-md::ctx_md_render` — invoke via
+  `ctx_tools {"action":"call","tool":"lean-md::ctx_md_render", …}`.
+- **Tool name carries the `lean-md::` prefix** → that is the gateway namespace
+  (`<server>::<tool>`); the prefixed handle is the one to call.

@@ -84,6 +84,17 @@ lean-ctx addon add ./lean-ctx-addon.toml
 > **After `addon add`:** restart your MCP client/server so the gateway catalog
 > is re-read and the lean-md tools become visible.
 
+The gateway aggregates the addon under the **`ctx_tools`** downstream gateway as
+`lean-md::ctx_md_render` / `lean-md::ctx_md_check` — **not** on the `ctx_call` /
+`ctx_discover_tools` router (those list only lean-ctx's own tools). From an MCP
+client:
+
+```jsonc
+ctx_tools {"action":"list"}     // → lean-md [stdio, enabled] — 2 tool(s)
+ctx_tools {"action":"call","tool":"lean-md::ctx_md_render",
+           "arguments":{"path":"demo.lmd.md"}}   // byte-identical to `lean-md render demo.lmd.md`
+```
+
 ## Backend selection
 
 lean-md calls lean-ctx code-intel tools via an outbound backend. Two backends

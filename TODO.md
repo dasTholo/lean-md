@@ -1,77 +1,72 @@
 # TODO
 
-## FIXME BUG: Gateway surfaced `[[gateway.servers]]`-Addon-Tools nicht im stdio-MCP
+## FIXME BUG: `lean-ctx call ctx_tools` (CLI) paniced — kein Tokio-Reactor
 
-**Status:** offen — blockiert die Live-Gates #4 (`addon_roundtrip`) und #5 (Delegation).
-**Umgebung:** lean-ctx 3.8.13 (official) als stdio-MCP-Server; lean-md addon v0.1.0.
-**Entdeckt:** 2026-06-26 (während lmd-v2-Finalisierung, Task 3/4).
+**Status:** offen — blockiert den CLI-basierten Live-Gate #4 (`addon_roundtrip.rs`).
+**Repo:** lean-ctx (lokaler Build `3.8.12-lmd`, branch `feat-lmd-v1`).
+**Ort:** `rust/src/tools/ctx_tools.rs:37`.
+**Entdeckt:** 2026-06-26 (lmd-v2-Finalisierung, Task 4).
 
 ### Symptom
 
-Nach `cargo install --path .` + `lean-ctx addon add ./lean-ctx-addon.toml` ist das
-Addon-Tool `lean-md::ctx_md_render` (und `lean-md::ctx_md_check`) auf **keinem**
-erreichbaren Weg im Live-Katalog des laufenden stdio-MCP-Servers:
+```
+lean-ctx call ctx_tools --project-root /home/tholo/Scripts/lean-md --json \
+  '{"action":"call","tool":"lean-md::ctx_md_render","arguments":{"path":"…lmd.md"}}'
+→ lean-ctx: unexpected error
+  Details: there is no reactor running, must be called from the context of a Tokio 1.x runtime
+  Location: src/tools/ctx_tools.rs:37
+  [exit:1]
+```
 
-- `ctx_call name="lean-md::ctx_md_render"` → `MCP error -32602: Unknown tool`
-- `ctx_call name="ctx_md_render"` (bare) → `Unknown tool`
-- `ctx_discover_tools query="md_render"` → `No tools found`
-- Claude-Code MCP `tools/list` (ToolSearch) → nicht vorhanden
-- CLI `lean-ctx call ctx_md_render --project-root … --json …` → `unknown tool`
-  (und `lean-ctx call ctx_read …` → `-32603: session not available`)
+Der CLI-`call`-Pfad ruft `ctx_tools` außerhalb eines Tokio-Runtimes auf (vermutlich
+`block_on`/`Handle::current()` ohne aktiven Reactor). Der MCP-Pfad ist nicht betroffen
+(läuft bereits im async-Runtime).
 
-### Was korrekt ist (also NICHT die Ursache)
+### Fix-Richtung
 
-- Addon installiert + enabled: `lean-ctx addon list` → `✓ lean-md v0.1.0 → gateway server lean-md (local)`;
-  `lean-ctx addon info lean-md` → `installed (gateway server lean-md, local)`.
-- Config-Eintrag korrekt: `~/.config/lean-ctx/config.toml` `[[gateway.servers]]`
-  (`name="lean-md"`, `transport="stdio"`, `enabled=true`, `command="lean-md"`, `args=["mcp"]`).
-- `[gateway.servers.capabilities]` stimmt mit dem Manifest überein
-  (`network="none"`, `filesystem="read_write"`, `exec=["lean-ctx"]`, `env=[]`).
-- `lean-md` ist in `shell_allowlist_extra` (spawnbar).
-- `[mcp].sha256` leer → community-tier, Gateway dürfte spawnen.
-- **Funktion selbst ist korrekt:** direkter `lean-md mcp` JSON-RPC
-  (`tools/call ctx_md_render`) rendert **byte-identisch** zu `lean-md render`
-  (#4 funktional bestätigt — exakt der Spawn `command="lean-md" args=["mcp"]`,
-  den der Gateway nutzen würde).
+- In `ctx_tools.rs:37` den Gateway-Call innerhalb eines Tokio-Runtimes ausführen
+  (eigenes `Runtime::new()?.block_on(...)` im CLI-Pfad, oder den CLI-`call`-Dispatch
+  generell in einen Runtime wrappen).
+- Danach: `lean-ctx call ctx_tools {"action":"call","tool":"lean-md::ctx_md_render",…}`
+  muss byte-identisch zu `lean-md render <file>` liefern.
 
-### Root-Cause (belegt via debug_log)
+---
 
-Mit `debug_log=true` + Server-Neustart + `ctx_call lean-md::ctx_md_render`:
-das Debug-Log zeigt **nur** den fehlgeschlagenen Routing-Call
-(`ERROR -32602 Unknown tool`) und **keinerlei** Gateway-Spawn-Versuch für lean-md
-(kein Spawn, kein Capability-Check, kein Fehler).
+## Folge: Test `addon_roundtrip.rs` nutzt den falschen Aufrufweg
 
-∴ Der **stdio**-MCP-Server konsumiert `[[gateway.servers]]` gar nicht — er
-spawnt/proxied externe Addon-Server nicht in seinen Live-Tool-Katalog. Der in
-`doctor` gemeldete „ctx_call gateway" ist rein der lean-ctx-**interne**
-non-core-Tool-Router, nicht ein Proxy für externe Addon-Server.
+**Repo:** lean-md. **Datei:** `tests/addon_roundtrip.rs` (`#[ignore]`).
 
-**Hypothese (offen):** Addon-Proxying greift evtl. nur unter `lean-ctx serve`
-(HTTP-Gateway), nicht im stdio-MCP — oder es ist in 3.8.13 stdio ein
-unimplementierter/fehlender Pfad.
+Der Test ruft `lean-ctx call ctx_md_render` direkt auf — das ist **nicht** der
+Gateway-Weg. Addon-Tools hängen am **`ctx_tools`-Downstream-Gateway**, nicht am
+`ctx_call`/`ctx_discover_tools`-Router (die nur lean-ctx-eigene 77 Tools abdecken).
 
-### Repro
+Korrekter Aufruf (sobald obiger CLI-Bug gefixt ist):
 
-1. `cargo install --path /home/tholo/Scripts/lean-md`
-2. `lean-ctx addon add /home/tholo/Scripts/lean-md/lean-ctx-addon.toml`
-3. MCP-Server neu starten (`lean-ctx config apply`, dann Client reconnect)
-4. `ctx_call name="lean-md::ctx_md_render" {"path":"…lmd.md"}` → `Unknown tool`
+```
+lean-ctx call ctx_tools --project-root . --json \
+  '{"action":"call","tool":"lean-md::ctx_md_render","arguments":{"path":"<f>.lmd.md"}}'
+```
 
-### Nächste Schritte
+- [ ] Nach CLI-Fix: `via_leanctx_call` in `addon_roundtrip.rs` auf den
+      `ctx_tools action=call`-Pfad umstellen (Tool-Handle `lean-md::ctx_md_render`).
+- [ ] Dann `cargo nextest run --test addon_roundtrip --run-ignored ignored-only` grün.
+- [ ] Spec §5.1.2 mit echtem Nachweis aktualisieren.
 
-- [ ] In lokalem lean-ctx-Build prüfen: spawnt/proxied der **stdio**-MCP-Server
-      `[[gateway.servers]]`? (vs. nur `lean-ctx serve` HTTP)
-- [ ] Falls stdio-Proxying fehlt: implementieren ODER `addon add` muss klar
-      kommunizieren, dass Addon-Tools nur im HTTP-`serve`-Gateway sichtbar sind.
-- [ ] Hinweis: laufender Daemon/Server muss vom **neuen** Binary neu starten
-      (`lean-ctx stop` + reconnect); systemd-Unit ggf. auf neues Binary zeigen
-      lassen — sonst kommt der alte Daemon zurück.
-- [ ] Nach Fix: Live-Gates #4 (`addon_roundtrip --run-ignored ignored-only`)
-      und #5 (Delegation) real grün fahren; Spec §5.1.2 mit echtem Nachweis
-      aktualisieren.
+---
+
+## Verifiziert OK (kein Bug)
+
+- Gateway **funktioniert** via MCP `ctx_tools`:
+  - `ctx_tools action=list` → `lean-md [stdio, enabled] — 2 tool(s)`.
+  - `ctx_tools action=find query="render lmd markdown"` → listet
+    `lean-md::ctx_md_render` + `lean-md::ctx_md_check`.
+  - `ctx_tools action=call tool="lean-md::ctx_md_render" {"path":…}` rendert
+    **byte-identisch** zu `lean-md render <file>` → **Gate #4 funktional bestätigt
+    (MCP-Gateway-Pfad)**.
+- Addon installiert+enabled+capabilities-korrekt; `lean-md mcp` JSON-RPC korrekt.
+- Namespacing: Gateway-Handle ist `lean-md::ctx_md_render` (Prefix bestätigt, live).
 
 ### Verweise
 
-- Spec: `docs/lean-md/specs/2026-06-26-lean-md-standalone-addon-design.md` §5.1.1/§5.1.2
-- Test: `tests/addon_roundtrip.rs` (`#[ignore]`, nutzt `lean-ctx call ctx_md_render`)
-- Manifest: `lean-ctx-addon.toml`
+- lean-ctx: `rust/src/tools/ctx_tools.rs:37`
+- lean-md: `tests/addon_roundtrip.rs`, Spec §5.1.1/§5.1.2
