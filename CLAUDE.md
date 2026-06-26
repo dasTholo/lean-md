@@ -12,6 +12,9 @@
 > Not repeated here — only project deltas below.
 
 - **Tests**: always `cargo nextest run`, never `cargo test`
+- **Shell — no `&&`/`||`/`;` chaining**: every command is its own invocation.
+  Replace `cd <dir> && cargo …` with `cargo … --manifest-path <dir>/Cargo.toml`;
+  resolve conditional gates into separate steps with an explicit "Expected:" check.
 - **Deferred-tool reflex:** see `~/.claude/CLAUDE.md` Hard Rules — always
   `ToolSearch(query="select:...")` before any Bash workaround.
 - **Before `git add`** (per changed file): `cargo fmt` (this is a standalone

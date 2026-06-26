@@ -6,7 +6,7 @@ rust-version = "1.96"
 license = "Apache-2.0"
 description = "Macro/directive markdown renderer for lean-ctx context engineering."
 homepage = "https://github.com/dasTholo/lean-md"
-include = ["src/**/*.rs", "content/**/*.lmd.md", "content/**/*.md", "Cargo.toml", "README.md", "docs/CONTRACT.md"]
+include = ["src/**/*.rs", "content/**/*.lmd.md", "content/**/*.md", "Cargo.toml", "README.md", "INSTALL.md", "LICENSE", "docs/CONTRACT.md"]
 
 [lib]
 name = "lean_md"

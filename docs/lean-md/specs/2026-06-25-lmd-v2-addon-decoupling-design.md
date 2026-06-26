@@ -265,7 +265,7 @@ Kontrakt geformt.
 [addon]
 name = "lean-md"          # Slug [a-z0-9-], wird zum Gateway-Server-Namen
 display_name = "lean-md"
-version = "2.0.0"          # free-form
+version = "0.1.0"          # free-form
 description = "Macro/directive markdown renderer for lean-ctx context engineering."
 author = "dasTholo"
 homepage = "https://github.com/dasTholo/lean-md"
