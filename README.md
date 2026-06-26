@@ -5,6 +5,61 @@ Standalone macro/directive markdown renderer. The render core runs in-process
 `backend.call("ctx_*")` — lean-ctx acts as the code-intel backend, not a hard
 runtime dependency of the renderer itself.
 
+## What it does
+
+`.lmd.md` is Markdown with directives. The render core (`rushdown` + `evalexpr`)
+evaluates macros, conditionals (`@if`/`@consumer`), expressions (`{{ }}`) and
+layout fully in-process — a code-intel-free document renders standalone, with no
+running lean-ctx. Code-intel directives (`@edit`, `@symbol`, `@refactor`, `@graph`,
+…) are dispatched **outbound** to lean-ctx via the `CodeIntelBackend` (CLI default,
+MCP opt-in), so lean-md never parses code locally.
+
+## CLI
+
+```sh
+lean-md render <file.lmd.md> [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md]
+lean-md check  <file.lmd.md>
+lean-md mcp                      # stdio JSON-RPC 2.0 MCP server (ctx_md_render / ctx_md_check)
+```
+
+- `render` evaluates the document and prints Markdown (`-o` writes to a file).
+  `--consumer=human` narrates directives as prose; `--crp` selects the output
+  density (token-compressed rendering protocol).
+- `check` parse-checks a source and reports header config + directive count.
+- `mcp` serves `ctx_md_render` / `ctx_md_check` over stdio — this is the entry
+  point the addon wiring spawns (`command = "lean-md"`, `args = ["mcp"]`).
+
+## Directives (overview)
+
+Render/expression: `@if` / `@consumer`, `{{ expr }}`, `@define` / `@call` / `@import`,
+pipes + `@render`. Read/search: `@read`, `@search`, `@list`, `@query`, `@find`,
+`@count`, `@env`, `@date`. Code-intel (outbound): `@edit`, `@symbol`, `@refactor`,
+`@reformat`, `@inspect`, `@graph`, `@repomap`, `@impact`, `@architecture`, `@outline`,
+`@smells`, `@review`, `@routes`. Workflow: `@phase`, `@dispatch`, `@handoff`,
+`@remember`, `@recall`.
+
+Full gloss: [`content/gloss/directives.lmd.md`](content/gloss/directives.lmd.md).
+
+## Quickstart
+
+```sh
+cat > demo.lmd.md <<'EOF'
+@lean-md
+consumer: ai
+
+@if consumer == "ai"
+Hello {{ consumer }} — this rendered standalone, no lean-ctx needed.
+@if-end
+EOF
+lean-md render demo.lmd.md
+```
+
+## Skills
+
+lean-md ships an embedded pilot skill (`content/skills/lmd-brainstorm/`). The MCP
+server renders it on demand via `ctx_md_render` with `skill=<name>` / `phase=<name>`
+addressing against the binary-embedded body.
+
 ## Install as a lean-ctx addon
 
 From the registry (once listed):
