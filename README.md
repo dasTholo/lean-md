@@ -1,5 +1,9 @@
 # lean-md
 
+> ⚠️ **Work in progress.** Only the foundation (the render core and addon wiring)
+> is in place so far. Creating or executing plans via skills is **not yet
+> possible**.
+
 Standalone macro/directive markdown renderer. The render core runs in-process
 (rushdown parser + evalexpr expressions); code-intel is outbound via
 `backend.call("ctx_*")` — lean-ctx acts as the code-intel backend, not a hard
