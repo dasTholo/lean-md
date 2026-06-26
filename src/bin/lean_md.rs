@@ -25,9 +25,10 @@ fn load_file(path: &str) -> (String, std::path::PathBuf) {
             std::process::exit(1);
         }
     };
-    let jail = std::path::Path::new(path)
-        .parent()
-        .map_or_else(|| std::path::PathBuf::from("."), std::path::Path::to_path_buf);
+    let jail = std::path::Path::new(path).parent().map_or_else(
+        || std::path::PathBuf::from("."),
+        std::path::Path::to_path_buf,
+    );
     (source, jail)
 }
 
@@ -165,7 +166,7 @@ fn tool_defs() -> Value {
         {
             "name": "ctx_md_render",
             "description": "Render an lmd (.lmd.md) plan/spec to Markdown. consumer=human narrates \
-directives as prose (readable plan); consumer/crp override the source header.",
+    directives as prose (readable plan); consumer/crp override the source header.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -179,7 +180,7 @@ directives as prose (readable plan); consumer/crp override the source header.",
         {
             "name": "ctx_md_check",
             "description": "Parse-check an lmd (.lmd.md) source: reports header config and directive \
-count without executing anything.",
+    count without executing anything.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -200,11 +201,11 @@ fn mcp_load_source(params: &Value) -> Result<(String, std::path::PathBuf), Strin
         .get("path")
         .and_then(Value::as_str)
         .ok_or_else(|| "missing 'path' or 'content' parameter".to_string())?;
-    let source = std::fs::read_to_string(path)
-        .map_err(|e| format!("ctx_md: read {path}: {e}"))?;
-    let jail = std::path::Path::new(path)
-        .parent()
-        .map_or_else(|| std::path::PathBuf::from("."), std::path::Path::to_path_buf);
+    let source = std::fs::read_to_string(path).map_err(|e| format!("ctx_md: read {path}: {e}"))?;
+    let jail = std::path::Path::new(path).parent().map_or_else(
+        || std::path::PathBuf::from("."),
+        std::path::Path::to_path_buf,
+    );
     Ok((source, jail))
 }
 
@@ -257,8 +258,9 @@ fn cmd_mcp() {
         let is_notification = req.get("id").is_none();
 
         let resp = match method {
-            "initialize" => {
-                rpc_ok(&id, json!({
+            "initialize" => rpc_ok(
+                &id,
+                json!({
                     "protocolVersion": "2024-11-05",
                     "serverInfo": {
                         "name": "lean-md",
@@ -267,56 +269,58 @@ fn cmd_mcp() {
                     "capabilities": {
                         "tools": {}
                     }
-                }))
-            }
+                }),
+            ),
 
             "notifications/initialized" => {
                 // notification — no response
                 continue;
             }
 
-            "tools/list" => {
-                rpc_ok(&id, json!({ "tools": tool_defs() }))
-            }
+            "tools/list" => rpc_ok(&id, json!({ "tools": tool_defs() })),
 
             "tools/call" => {
                 let name = params.get("name").and_then(Value::as_str).unwrap_or("");
                 let args = params.get("arguments").cloned().unwrap_or(Value::Null);
 
                 match name {
-                    "ctx_md_render" => {
-                        match mcp_load_source(&args) {
-                            Ok((source, jail)) => {
-                                let consumer = args.get("consumer")
+                    "ctx_md_render" => match mcp_load_source(&args) {
+                        Ok((source, jail)) => {
+                            let consumer =
+                                args.get("consumer")
                                     .and_then(Value::as_str)
                                     .and_then(|s| match s.trim() {
                                         "human" => Some(Consumer::Human),
                                         "ai" => Some(Consumer::Ai),
                                         _ => None,
                                     });
-                                let crp = args.get("crp")
-                                    .and_then(Value::as_str)
-                                    .and_then(|s| CrpMode::parse(s));
-                                let rendered = do_render(&source, jail, consumer, crp);
-                                rpc_ok(&id, json!({
+                            let crp = args
+                                .get("crp")
+                                .and_then(Value::as_str)
+                                .and_then(|s| CrpMode::parse(s));
+                            let rendered = do_render(&source, jail, consumer, crp);
+                            rpc_ok(
+                                &id,
+                                json!({
                                     "content": [{ "type": "text", "text": rendered }]
-                                }))
-                            }
-                            Err(e) => rpc_err(&id, -32602, &e),
+                                }),
+                            )
                         }
-                    }
+                        Err(e) => rpc_err(&id, -32602, &e),
+                    },
 
-                    "ctx_md_check" => {
-                        match mcp_load_source(&args) {
-                            Ok((source, _jail)) => {
-                                let summary = do_check(&source);
-                                rpc_ok(&id, json!({
+                    "ctx_md_check" => match mcp_load_source(&args) {
+                        Ok((source, _jail)) => {
+                            let summary = do_check(&source);
+                            rpc_ok(
+                                &id,
+                                json!({
                                     "content": [{ "type": "text", "text": summary }]
-                                }))
-                            }
-                            Err(e) => rpc_err(&id, -32602, &e),
+                                }),
+                            )
                         }
-                    }
+                        Err(e) => rpc_err(&id, -32602, &e),
+                    },
 
                     other => rpc_err(&id, -32601, &format!("unknown tool: {other}")),
                 }

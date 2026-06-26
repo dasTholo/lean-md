@@ -257,6 +257,19 @@ Standard-`nextest`). Liefergegenstand:
   dokumentieren — Transparenz statt stillem `ignored`.
 - **Akzeptanz:** Addon-Pfad == direkter `lean-md mcp`-Pfad (#4); `ctx_read` einer
   `.lmd.md` mit Addon == direktes `ctx_md_render`, ohne Addon → Rohtext (#5).
+- **Nachweis (2026-06-26):** #4 `addon_roundtrip` BLOCKED — `lean-ctx call
+  ctx_md_render` liefert in lean-ctx 3.8.13 `error: unknown tool 'ctx_md_render'`
+  (ebenso `lean-md::ctx_md_render` und `lean-md/ctx_md_render`); die CLI-`call`-
+  Route routet nicht zu Gateway-/Addon-Tools, nur zu lean-ctx-eigenen Built-ins.
+  Der lean-md MCP-Server selbst ist korrekt verdrahtet: direktes JSON-RPC
+  (`initialize` + `tools/call ctx_md_render`) liefert byte-identische Ausgabe zu
+  `lean-md render` (verifiziert 2026-06-26, Eingabe `@date\nroundtrip marker\n`
+  → `2026-06-26\nroundtrip marker\n`). #5 Delegation BLOCKED — `lean-ctx call
+  ctx_read` → `-32603: session not available` (kein Projekt-Session ohne aktive
+  MCP-Verbindung vom MCP-Client). CI-Strategie: `addon_roundtrip.rs`
+  `via_leanctx_call` muss redesigned werden — entweder `lean-md mcp` direkt via
+  JSON-RPC ansprechen (umgeht lean-ctx-call), oder warten bis lean-ctx Addon-Tools
+  via `lean-ctx call` exponiert. Kein v2-Blocker; Upstream-Folgeticket empfohlen.
 
 ### 5.2 Dokumentation
 
