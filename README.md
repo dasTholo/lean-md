@@ -74,6 +74,9 @@ From a local clone:
 lean-ctx addon add ./lean-ctx-addon.toml
 ```
 
+> For prerequisites, the full local-build flow, what `addon add` writes, and
+> troubleshooting, see [`INSTALL.md`](INSTALL.md).
+
 > **After `addon add`:** restart your MCP client/server so the gateway catalog
 > is re-read and the lean-md tools become visible.
 
