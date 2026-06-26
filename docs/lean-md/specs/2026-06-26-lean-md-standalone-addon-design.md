@@ -234,6 +234,11 @@ byte-identisch zum Phase-9-Namen)?
   bleiben unverändert.
 - **Verifikation:** nach `lean-ctx addon add ./lean-ctx-addon.toml` + Server-Neustart
   den real exponierten Tool-Namen via `ctx_tools`/Gateway-Katalog prüfen.
+- **Befund (2026-06-26):** Der Gateway exponiert das Tool als `lean-md::ctx_md_render` —
+  Prefix erzwungen (Quelle: `rust/src/core/gateway/catalog.rs`,
+  `format!("{}::{}", server.name, tool)`). Transparenter Namespace ist nicht möglich,
+  da lean-ctx den Namespace hart einbaut → Task 4 passt die Test-Toolnamen an +
+  Upstream-Folgeticket; **kein** v2-Blocker.
 - **Falls Prefix erzwungen:** Test-Toolnamen in `addon_roundtrip.rs` / Delegation-Gate
   anpassen + Upstream-Folgeticket; **kein** v2-Blocker.
 
