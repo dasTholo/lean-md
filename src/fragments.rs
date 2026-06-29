@@ -155,8 +155,8 @@ mod tests {
         assert!(out.contains("@symbol"), "hard-rules must name @symbol");
         assert!(out.contains("@edit"), "hard-rules must name @edit");
         assert!(
-            out.contains("ctx_symbol"),
-            "hard-rules must name ctx_symbol for *.rs"
+            out.contains("ctx_search:symbol"),
+            "hard-rules must name ctx_search:symbol for *.rs (@symbol backing)"
         );
     }
 
