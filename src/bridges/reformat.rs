@@ -102,18 +102,70 @@ mod tests {
     }
 
     #[test]
-    fn returns_backend_required_envelope_headless() {
-        let dir = std::env::temp_dir().join("lmd_reformat_degrade");
+    fn dispatches_reformat_and_passes_output_through() {
+        // lean-md contract: the bridge dispatches `ctx_refactor action=reformat`
+        // with the resolved path and returns the backend output verbatim. Whether
+        // the backend degrades headless (BACKEND_REQUIRED), reformats via a live
+        // JetBrains IDE, or via a local rustfmt fallback is lean-ctx's contract —
+        // not lean-md's. So we inject a stub backend and assert only dispatch +
+        // pass-through (no dependency on lean-ctx version / rustfmt / running IDE).
+        use crate::backend::{BackendError, CodeIntelBackend};
+        use std::cell::RefCell;
+
+        struct StubBackend {
+            calls: Rc<RefCell<Vec<(String, serde_json::Value)>>>,
+        }
+        impl CodeIntelBackend for StubBackend {
+            fn call(&self, tool: &str, args: serde_json::Value) -> Result<String, BackendError> {
+                self.calls.borrow_mut().push((tool.to_string(), args));
+                Ok("STUB_REFORMAT_OK".to_string())
+            }
+        }
+
+        let dir = std::env::temp_dir().join("lmd_reformat_dispatch");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("r.rs");
         std::fs::write(&f, "fn foo() {}\n").unwrap();
-        let ctx = ctx_at(dir.clone());
+
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let ctx = Rc::new(EngineContext::with_backend(
+            LeanMdHeader::default(),
+            dir.clone(),
+            Box::new(StubBackend {
+                calls: calls.clone(),
+            }),
+        ));
 
         let args = DirectiveArgs::parse(&format!("path={} line=1", f.to_str().unwrap()));
         let out = ReformatBridge.execute(&ctx, &args).unwrap();
+
+        // Pass-through: the bridge returns the backend output verbatim.
+        assert_eq!(
+            out, "STUB_REFORMAT_OK",
+            "bridge must pass backend output through verbatim, got: {out}"
+        );
+
+        // Dispatch: exactly one ctx_refactor call, action=reformat, resolved path.
+        let calls = calls.borrow();
+        let (tool, sent) = calls
+            .first()
+            .expect("bridge must dispatch exactly one backend call");
+        assert_eq!(
+            tool, "ctx_refactor",
+            "reformat must dispatch to ctx_refactor"
+        );
+        assert_eq!(
+            sent.get("action").and_then(serde_json::Value::as_str),
+            Some("reformat"),
+            "must set action=reformat"
+        );
+        let path = sent
+            .get("path")
+            .and_then(serde_json::Value::as_str)
+            .expect("must dispatch a resolved path");
         assert!(
-            out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
-            "headless reformat must degrade cleanly, got: {out}"
+            path.ends_with("r.rs"),
+            "must dispatch the resolved file path, got: {path}"
         );
     }
 
