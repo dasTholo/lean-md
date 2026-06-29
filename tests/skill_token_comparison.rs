@@ -119,11 +119,11 @@ fn collect_variant_b_is_deterministic() {
     let b = collect_variant_b(&stub, PathBuf::from("."));
     let names_a: Vec<_> = a
         .iter()
-        .map(|x| (x.name.clone(), x.tokens_cl100k))
+        .map(|x| (x.name.clone(), x.tokens_cl100k, x.tokens_o200k))
         .collect();
     let names_b: Vec<_> = b
         .iter()
-        .map(|x| (x.name.clone(), x.tokens_cl100k))
+        .map(|x| (x.name.clone(), x.tokens_cl100k, x.tokens_o200k))
         .collect();
     assert_eq!(names_a, names_b, "variant B must be byte-stable (#498)");
     let _ = std::fs::remove_dir_all(&dir);
