@@ -75,7 +75,7 @@ fn collect_variant_a_skips_missing_companion() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-use harness::{LMD_PHASES, collect_variant_b};
+use harness::{Artifact, LMD_PHASES, collect_variant_b};
 use std::path::PathBuf;
 
 #[test]
@@ -127,4 +127,48 @@ fn collect_variant_b_is_deterministic() {
         .collect();
     assert_eq!(names_a, names_b, "variant B must be byte-stable (#498)");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+use harness::{Metrics, TOOL_CALL_OVERHEAD_TOKENS, compute_metrics};
+
+fn art(name: &str, t: usize) -> Artifact {
+    Artifact {
+        name: name.to_string(),
+        tokens_cl100k: t,
+        tokens_o200k: t,
+    }
+}
+
+#[test]
+fn compute_metrics_core_and_breakeven() {
+    // A: SKILL.md=100, companion=50  → content 150
+    let a = vec![art("SKILL.md", 100), art("testing-anti-patterns.md", 50)];
+    // B: stub=10, 4 phases=20 each, companion=30
+    let b = vec![
+        art("SKILL.md (stub)", 10),
+        art("phase:red", 20),
+        art("phase:green", 20),
+        art("phase:refactor", 20),
+        art("phase:rationalizations", 20),
+        art("companion:testing-anti-patterns", 30),
+    ];
+
+    let m: Metrics = compute_metrics(&a, &b);
+
+    assert_eq!(m.a_content, 150);
+    assert_eq!(m.a_with_overhead, 150 + TOOL_CALL_OVERHEAD_TOKENS); // 1 load
+    // B full content = 10 + 80 + 30 = 120
+    assert_eq!(m.b_content, 120);
+    // B full overhead = 4 render calls (phases) + 1 companion render = 5
+    assert_eq!(m.b_with_overhead, 120 + 5 * TOOL_CALL_OVERHEAD_TOKENS);
+
+    // Cumulative (stub + k phases, companion excluded): k=1 → 10+20=30 content
+    assert_eq!(
+        m.b_cumulative[0],
+        (1, 30, 30 + 1 * TOOL_CALL_OVERHEAD_TOKENS)
+    );
+    assert_eq!(
+        m.b_cumulative[3],
+        (4, 90, 90 + 4 * TOOL_CALL_OVERHEAD_TOKENS)
+    );
 }

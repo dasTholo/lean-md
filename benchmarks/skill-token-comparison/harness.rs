@@ -104,3 +104,71 @@ pub fn collect_variant_b(stub_md: &Path, jail_root: PathBuf) -> Vec<Artifact> {
 
     arts
 }
+
+/// Estimated extra tokens per ctx_md_render roundtrip (tool-use block:
+/// name + {skill, phase} args + tool_result wrapper). Disclosed in SUMMARY.md
+/// and tunable — this is a model assumption, not a measured constant.
+pub const TOOL_CALL_OVERHEAD_TOKENS: usize = 40;
+
+/// Aggregated A/B comparison (all token sums in cl100k).
+#[derive(Debug, Clone)]
+pub struct Metrics {
+    pub a_content: usize,
+    pub a_with_overhead: usize,
+    pub b_content: usize,
+    pub b_with_overhead: usize,
+    /// (k, cumulative_content, cumulative_with_overhead) for k=1..=phase count.
+    /// Stub always included; companion excluded (on-demand only).
+    pub b_cumulative: Vec<(usize, usize, usize)>,
+}
+
+fn sum_cl100k(arts: &[Artifact]) -> usize {
+    arts.iter().map(|a| a.tokens_cl100k).sum()
+}
+
+/// Compute the core metric + cumulative break-even table.
+pub fn compute_metrics(variant_a: &[Artifact], variant_b: &[Artifact]) -> Metrics {
+    let a_content = sum_cl100k(variant_a);
+    let a_with_overhead = a_content + TOOL_CALL_OVERHEAD_TOKENS; // single skill load
+
+    let stub = variant_b
+        .iter()
+        .find(|a| a.name == "SKILL.md (stub)")
+        .map(|a| a.tokens_cl100k)
+        .unwrap_or(0);
+    let phases: Vec<usize> = variant_b
+        .iter()
+        .filter(|a| a.name.starts_with("phase:"))
+        .map(|a| a.tokens_cl100k)
+        .collect();
+    let companion: usize = variant_b
+        .iter()
+        .filter(|a| a.name.starts_with("companion:"))
+        .map(|a| a.tokens_cl100k)
+        .sum();
+
+    let b_content = stub + phases.iter().sum::<usize>() + companion;
+    // Full-build overhead = one render call per phase + one per companion.
+    let full_calls = phases.len()
+        + variant_b
+            .iter()
+            .filter(|a| a.name.starts_with("companion:"))
+            .count();
+    let b_with_overhead = b_content + full_calls * TOOL_CALL_OVERHEAD_TOKENS;
+
+    let mut b_cumulative = Vec::new();
+    let mut running = stub;
+    for (i, ph) in phases.iter().enumerate() {
+        let k = i + 1;
+        running += ph;
+        b_cumulative.push((k, running, running + k * TOOL_CALL_OVERHEAD_TOKENS));
+    }
+
+    Metrics {
+        a_content,
+        a_with_overhead,
+        b_content,
+        b_with_overhead,
+        b_cumulative,
+    }
+}
