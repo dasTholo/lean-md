@@ -13,7 +13,7 @@ When working on lean-md itself, prefer lean-ctx tooling for token savings:
 
 - **Reads/Search** → MCP tools (`ctx_read`, `ctx_search`) for caching + compression
 - **Shell commands** → `lean-ctx -c "…"` via CLI (preferred) or `ctx_shell` via MCP
-- **File editing** → `ctx_edit`; symbol nav / refactor / reformat via `ctx_refactor`/`ctx_symbol`
+- **File editing** → `ctx_edit`; symbol nav / refactor / reformat via `ctx_refactor`; symbol body by name via `ctx_search action=symbol`
 
 ## MCP tools
 
