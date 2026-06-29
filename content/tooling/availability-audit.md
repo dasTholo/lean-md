@@ -39,7 +39,11 @@ RED/GREEN-Verifikation ist Prosa-Anweisung im Body, kein Registry-Eintrag (trans
 
 | Workflow-Schritt | lmd-Direktive | lean-ctx-Backing |
 | red (baseline read) | `@read` | `ctx_read` |
+| green (tester dispatch) | `@dispatch` | fragment-compose |
 | companion (@include skill-authoring-core) | `@include` | fragment-compose |
 
-Test execution (subagent pressure scenarios) is prose-discipline, not a registered
-directive — recorded here for transparency.
+Die green-Phase dispatcht einen Tester-Subagenten, dessen Brief der Companion
+`testing/methodology` ist (`@dispatch skill="lmd-writing-skills"
+companion="testing/methodology" role=test`). Test execution (subagent pressure
+scenarios) bleibt Prosa-Disziplin, keine registrierte Direktive — transparent
+hier vermerkt.

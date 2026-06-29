@@ -34,8 +34,15 @@ pub const COVERAGE: &[(&str, &str, &str, &str)] = &[
     // Discipline companion pulls the trip-wire via `@include skill-authoring-core`.
     (
         "lmd-writing-skills",
-        "testing-skills-with-subagents",
+        "testing/methodology",
         "include",
+        "fragment-compose",
+    ),
+    // green-Phase dispatcht den Tester-Subagenten (Brief = testing/methodology).
+    (
+        "lmd-writing-skills",
+        "green",
+        "dispatch",
         "fragment-compose",
     ),
 ];
