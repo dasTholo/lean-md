@@ -21,7 +21,7 @@
 - **Before `git add`** (per changed file): `cargo fmt` (this is a standalone
   crate; `Cargo.toml` + `src/` live at the repo root).
 - **No worktrees** — work directly on the current branch
-- use **No Brief-/Report-Files**: ctx_session
+- **No Brief-/Report-Files**: ctx_session
 
 ## Subagent-Driven Execution
 
