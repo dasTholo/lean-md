@@ -4,22 +4,29 @@
 //! names tools intentionally NOT in the brainstorming path (transparency, not a
 //! silent hole). Byte-stable (#498).
 
-/// (workflow step, lmd directive name as in default_registry, lean-ctx backing).
-pub const COVERAGE: &[(&str, &str, &str)] = &[
-    ("explore", "read", "ctx_read"),
-    ("explore", "list", "ctx_tree"),
-    ("explore", "search", "ctx_search"),
-    ("explore", "find", "ctx_semantic_search"),
-    ("approaches", "graph", "graph_index"),
-    ("approaches", "impact", "ctx_impact"),
-    ("write-spec", "edit", "ctx_edit"),
-    ("write-spec", "remember", "ctx_knowledge"),
-    ("self-review", "review", "ctx_review"),
-    ("handoff", "dispatch", "fragment-compose"),
-    ("handoff", "handoff", "ctx_handoff"),
+/// (skill, workflow step, lmd directive name as in default_registry, lean-ctx backing).
+pub const COVERAGE: &[(&str, &str, &str, &str)] = &[
+    ("lmd-brainstorm", "explore", "read", "ctx_read"),
+    ("lmd-brainstorm", "explore", "list", "ctx_tree"),
+    ("lmd-brainstorm", "explore", "search", "ctx_search"),
+    ("lmd-brainstorm", "explore", "find", "ctx_semantic_search"),
+    ("lmd-brainstorm", "approaches", "graph", "graph_index"),
+    ("lmd-brainstorm", "approaches", "impact", "ctx_impact"),
+    ("lmd-brainstorm", "write-spec", "edit", "ctx_edit"),
+    ("lmd-brainstorm", "write-spec", "remember", "ctx_knowledge"),
+    ("lmd-brainstorm", "self-review", "review", "ctx_review"),
+    ("lmd-brainstorm", "handoff", "dispatch", "fragment-compose"),
+    ("lmd-brainstorm", "handoff", "handoff", "ctx_handoff"),
+    // TDD is prose-discipline + directive-arm: the RED phase reads the test/impl.
+    // Test execution (`ctx_shell "cargo nextest run"`) is NOT a registered
+    // directive — see GAP_LIST note below.
+    ("lmd-test-driven-development", "red", "read", "ctx_read"),
 ];
 
-/// Tools deliberately outside the brainstorming directive surface.
+/// Tools deliberately outside the brainstorming directive surface. Note: TDD's
+/// test execution (`ctx_shell "cargo nextest run"`) is also intentionally NOT a
+/// registered directive — it is raw shell, not a code-intel directive (TDD is
+/// prose-discipline). Recorded here for transparency, not added to the list.
 pub const GAP_LIST: &[&str] = &["ctx_benchmark", "ctx_package", "ctx_provider"];
 
 /// Deterministic, sorted rendering of the gap list (one tool per line).
@@ -42,12 +49,21 @@ mod tests {
     fn every_covered_directive_is_registered() {
         // §8 #12: every brainstorming-path directive must exist in the registry.
         let reg = crate::bridges::default_registry();
-        for (step, directive, backing) in COVERAGE {
+        for (skill, step, directive, backing) in COVERAGE {
             assert!(
                 reg.get(directive).is_some(),
-                "directive '{directive}' (step={step}, backing={backing}) not in default_registry()"
+                "directive '{directive}' (skill={skill}, step={step}, backing={backing}) not in default_registry()"
             );
         }
+    }
+
+    #[test]
+    fn coverage_carries_skill_dimension() {
+        // Both skills must appear; every TDD row's directive must be registered.
+        let skills: std::collections::HashSet<&str> =
+            COVERAGE.iter().map(|(skill, _, _, _)| *skill).collect();
+        assert!(skills.contains("lmd-brainstorm"));
+        assert!(skills.contains("lmd-test-driven-development"));
     }
 
     #[test]

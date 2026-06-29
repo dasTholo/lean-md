@@ -1,7 +1,7 @@
 # Tool-Verfügbarkeits-Audit — Brainstorming-Pfad (Phase 10)
 
 Coverage-Matrix: jeder Brainstorming-Workflow-Schritt → lmd-Direktive → lean-ctx-Backing.
-Quelle der Wahrheit ist `rust/src/lmd/availability.rs::COVERAGE` (dieser Doc-Text ist die
+Quelle der Wahrheit ist `src/availability.rs::COVERAGE` (dieser Doc-Text ist die
 menschenlesbare Projektion; das Gate prüft Registrierung gegen `default_registry()`).
 
 | Workflow-Schritt | lmd-Direktive | lean-ctx-Backing      |
@@ -23,3 +23,14 @@ menschenlesbare Projektion; das Gate prüft Registrierung gegen `default_registr
 - `ctx_benchmark` — Performance-Messung, kein Authoring-Schritt
 - `ctx_package` — Distribution, kein Authoring-Schritt
 - `ctx_provider` — externe Datenquellen, separater Pfad
+
+## lmd-test-driven-development — Coverage
+
+TDD ist Prosa-Disziplin (phasenweise gerendert), direktiv-arm:
+
+| Workflow-Schritt | lmd-Direktive | lean-ctx-Backing |
+| red              | `@read`       | `ctx_read`       |
+
+**Bewusster Gap:** Die Test-Ausführung (`ctx_shell "cargo nextest run"`) ist **keine**
+registrierte Direktive — sie läuft als rohes `ctx_shell`, nicht als Code-Intel-Direktive.
+RED/GREEN-Verifikation ist Prosa-Anweisung im Body, kein Registry-Eintrag (transparent, kein Loch).
