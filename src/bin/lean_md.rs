@@ -12,6 +12,7 @@
 use lean_md::crp_proto::CrpMode;
 use lean_md::engine::render_with_overrides;
 use lean_md::header::{Consumer, parse_header};
+use lean_md::skills::render_skill;
 use serde_json::{Value, json};
 
 // ─── Shared helpers ────────────────────────────────────────────────────────
@@ -63,6 +64,8 @@ struct RenderArgs {
     consumer: Option<Consumer>,
     crp: Option<CrpMode>,
     out: Option<String>,
+    skill: Option<String>,
+    phase: Option<String>,
 }
 
 fn parse_render_flags(rest: &[String]) -> RenderArgs {
@@ -84,6 +87,14 @@ fn parse_render_flags(rest: &[String]) -> RenderArgs {
             "-o" | "--out" => {
                 i += 1;
                 a.out = rest.get(i).cloned();
+            }
+            "--skill" => {
+                i += 1;
+                a.skill = rest.get(i).cloned();
+            }
+            "--phase" => {
+                i += 1;
+                a.phase = rest.get(i).cloned();
             }
             _ if !arg.starts_with('-') && a.file.is_none() => a.file = Some(arg.to_string()),
             _ => {}
@@ -118,6 +129,25 @@ fn main() {
 
 fn cmd_render(rest: &[String]) {
     let a = parse_render_flags(rest);
+    if let Some(skill) = a.skill.as_deref() {
+        let jail = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        match render_skill(skill, a.phase.as_deref(), a.consumer, a.crp, jail) {
+            Ok(rendered) => match a.out {
+                Some(out) => {
+                    if let Err(e) = std::fs::write(&out, &rendered) {
+                        eprintln!("lean-md render: write {out}: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                None => print!("{rendered}"),
+            },
+            Err(e) => {
+                eprintln!("lean-md render: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     let Some(file) = a.file else {
         eprintln!("lean-md render: missing <file.lmd.md>");
         std::process::exit(1);
@@ -173,7 +203,9 @@ fn tool_defs() -> Value {
                     "path":     { "type": "string", "description": "Path to a .lmd.md source" },
                     "content":  { "type": "string", "description": "Inline lmd source (alternative to path)" },
                     "consumer": { "type": "string", "description": "Override audience: ai|human" },
-                    "crp":      { "type": "string", "description": "Override CRP mode: tdd|compact|off" }
+                    "crp":      { "type": "string", "description": "Override CRP mode: tdd|compact|off" },
+                    "skill":    { "type": "string", "description": "Render an embedded lmd skill body by name (alternative to path/content)" },
+                    "phase":    { "type": "string", "description": "Render only this named phase of the skill (requires skill)" }
                 }
             }
         },
@@ -221,6 +253,50 @@ fn rpc_err(id: &Value, code: i64, message: &str) -> Value {
         "id": id,
         "error": { "code": code, "message": message }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_flags_parse_skill_and_phase() {
+        let a = parse_render_flags(&[
+            "--skill".to_string(),
+            "lmd-test-driven-development".to_string(),
+            "--phase".to_string(),
+            "red".to_string(),
+        ]);
+        assert_eq!(a.skill.as_deref(), Some("lmd-test-driven-development"));
+        assert_eq!(a.phase.as_deref(), Some("red"));
+    }
+
+    #[test]
+    fn skill_render_is_byte_stable_and_isolated() {
+        let jail = std::path::PathBuf::from(".");
+        let a = render_skill(
+            "lmd-test-driven-development",
+            Some("green"),
+            None,
+            None,
+            jail.clone(),
+        )
+        .unwrap();
+        let b = render_skill(
+            "lmd-test-driven-development",
+            Some("green"),
+            None,
+            None,
+            jail,
+        )
+        .unwrap();
+        assert_eq!(a, b, "render_skill must be deterministic (#498)");
+        assert!(a.contains("Verify GREEN"));
+        assert!(
+            !a.contains("Verify RED"),
+            "phase isolation in the exposed path"
+        );
+    }
 }
 
 fn cmd_mcp() {
@@ -284,8 +360,9 @@ fn cmd_mcp() {
                 let args = params.get("arguments").cloned().unwrap_or(Value::Null);
 
                 match name {
-                    "ctx_md_render" => match mcp_load_source(&args) {
-                        Ok((source, jail)) => {
+                    "ctx_md_render" => {
+                        if let Some(skill) = args.get("skill").and_then(Value::as_str) {
+                            let phase = args.get("phase").and_then(Value::as_str);
                             let consumer =
                                 args.get("consumer")
                                     .and_then(Value::as_str)
@@ -298,16 +375,42 @@ fn cmd_mcp() {
                                 .get("crp")
                                 .and_then(Value::as_str)
                                 .and_then(|s| CrpMode::parse(s));
-                            let rendered = do_render(&source, jail, consumer, crp);
-                            rpc_ok(
-                                &id,
-                                json!({
-                                    "content": [{ "type": "text", "text": rendered }]
-                                }),
-                            )
+                            let jail = std::env::current_dir()
+                                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+                            match render_skill(skill, phase, consumer, crp, jail) {
+                                Ok(rendered) => rpc_ok(
+                                    &id,
+                                    json!({ "content": [{ "type": "text", "text": rendered }] }),
+                                ),
+                                Err(e) => rpc_err(&id, -32602, &format!("{e}")),
+                            }
+                        } else {
+                            match mcp_load_source(&args) {
+                                Ok((source, jail)) => {
+                                    let consumer = args
+                                        .get("consumer")
+                                        .and_then(Value::as_str)
+                                        .and_then(|s| match s.trim() {
+                                            "human" => Some(Consumer::Human),
+                                            "ai" => Some(Consumer::Ai),
+                                            _ => None,
+                                        });
+                                    let crp = args
+                                        .get("crp")
+                                        .and_then(Value::as_str)
+                                        .and_then(|s| CrpMode::parse(s));
+                                    let rendered = do_render(&source, jail, consumer, crp);
+                                    rpc_ok(
+                                        &id,
+                                        json!({
+                                            "content": [{ "type": "text", "text": rendered }]
+                                        }),
+                                    )
+                                }
+                                Err(e) => rpc_err(&id, -32602, &e),
+                            }
                         }
-                        Err(e) => rpc_err(&id, -32602, &e),
-                    },
+                    }
 
                     "ctx_md_check" => match mcp_load_source(&args) {
                         Ok((source, _jail)) => {
