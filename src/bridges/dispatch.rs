@@ -35,22 +35,39 @@ impl DirectiveBridge for DispatchBridge {
         ctx: &Rc<EngineContext>,
         args: &DirectiveArgs,
     ) -> Result<String, BridgeError> {
-        let phase = args
-            .get("phase")
-            .or_else(|| args.positional(0))
-            .ok_or(BridgeError::MissingArg("phase"))?;
-
-        // (a) phasen-isolierter Body — Lookup im capture-Pre-Pass (C1).
-        let Some(raw_body) = ctx.phase_body(phase) else {
-            return Ok(format!("<!-- lmd: PHASE_NOT_FOUND '{phase}' -->\n"));
+        // Brief source (Spec Detail 3): exactly one of phase= OR skill=+companion=.
+        let phase = args.get("phase").or_else(|| args.positional(0));
+        let companion = args.get("companion");
+        let raw_body: std::borrow::Cow<'_, str> = match (phase, companion) {
+            (Some(_), Some(_)) => {
+                return Err(BridgeError::Resolve(
+                    "use exactly one of phase= or companion=".to_string(),
+                ));
+            }
+            (Some(p), None) => {
+                // (a) phasen-isolierter Body — Lookup im capture-Pre-Pass (C1).
+                let Some(body) = ctx.phase_body(p) else {
+                    return Ok(format!("<!-- lmd: PHASE_NOT_FOUND '{p}' -->\n"));
+                };
+                std::borrow::Cow::Owned(body)
+            }
+            (None, Some(c)) => {
+                let skill = args.get("skill").ok_or(BridgeError::MissingArg("skill"))?;
+                // (a') companion brief — embedded source, rendered work-lazy below.
+                let Some(body) = crate::skills::companion_body(skill, c) else {
+                    return Ok(format!("<!-- lmd: COMPANION_NOT_FOUND '{skill}/{c}' -->\n"));
+                };
+                std::borrow::Cow::Borrowed(body)
+            }
+            (None, None) => return Err(BridgeError::MissingArg("phase")),
         };
 
-        // role: dev|review, default dev.
+        // role: dev|review|test, default dev.
         let role = match args.get("role") {
-            Some(r @ ("dev" | "review")) => r,
+            Some(r @ ("dev" | "review" | "test")) => r,
             Some(other) => {
                 return Err(BridgeError::Resolve(format!(
-                    "unknown @dispatch role '{other}'. Use: dev|review"
+                    "unknown @dispatch role '{other}'. Use: dev|review|test"
                 )));
             }
             None => "dev",
@@ -276,6 +293,75 @@ mod tests {
         assert!(
             !out_absent.contains('\u{0}'),
             "NUL byte leaked in missing-to_agent output: {out_absent:?}"
+        );
+    }
+
+    #[test]
+    fn dispatch_companion_brief_composes_contract_methodology_bootstrap() {
+        let doc = "@dispatch skill=\"lmd-writing-skills\" companion=\"testing/methodology\" role=test to_agent=\"c\"\n";
+        let out = render(doc);
+        assert!(out.contains("Subagent Contract"), "contract missing: {out}");
+        assert!(out.contains("role=test"), "test role missing: {out}");
+        assert!(
+            out.contains("RED Phase"),
+            "methodology marker missing: {out}"
+        );
+        assert!(
+            out.contains("NO SKILL WITHOUT A FAILING TEST FIRST"),
+            "Iron Law via @include missing: {out}"
+        );
+        assert!(
+            out.contains("ToolSearch(query=\"select:mcp__lean-ctx__ctx_read"),
+            "bootstrap missing: {out}"
+        );
+    }
+
+    #[test]
+    fn dispatch_phase_source_still_works() {
+        let doc = "@phase \"P\"\n@read a.rs\n@phase-end\n\n@dispatch phase=\"P\" role=dev to_agent=\"c\"\n";
+        let out = render(doc);
+        assert!(out.contains("role=dev"), "phase path regressed: {out}");
+        assert!(out.contains("@read a.rs"), "work directive verbatim: {out}");
+    }
+
+    #[test]
+    fn dispatch_rejects_both_phase_and_companion() {
+        let doc = "@phase \"P\"\n@read a.rs\n@phase-end\n\n@dispatch phase=\"P\" skill=\"lmd-writing-skills\" companion=\"testing/methodology\" role=test to_agent=\"c\"\n";
+        let out = render(doc);
+        assert!(
+            out.contains("exactly one of phase= or companion="),
+            "both-given must Resolve-error: {out}"
+        );
+    }
+
+    #[test]
+    fn dispatch_companion_requires_skill() {
+        let doc = "@dispatch companion=\"testing/methodology\" role=test to_agent=\"c\"\n";
+        let out = render(doc);
+        assert!(
+            out.contains("skill") && (out.contains("MissingArg") || out.contains("missing")),
+            "companion= without skill= must MissingArg(skill): {out}"
+        );
+    }
+
+    #[test]
+    fn dispatch_unknown_companion_yields_envelope() {
+        let doc =
+            "@dispatch skill=\"lmd-writing-skills\" companion=\"nope\" role=test to_agent=\"c\"\n";
+        let out = render(doc);
+        assert!(
+            out.contains("COMPANION_NOT_FOUND 'lmd-writing-skills/nope'"),
+            "unknown companion must yield envelope, not abort: {out}"
+        );
+    }
+
+    #[test]
+    fn dispatch_test_role_substitutes() {
+        let doc = "@phase \"P\"\n@read a.rs\n@phase-end\n\n@dispatch phase=\"P\" role=test to_agent=\"c\"\n";
+        let out = render(doc);
+        assert!(
+            out.contains("role=test"),
+            "test role must substitute: {out}"
         );
     }
 }
