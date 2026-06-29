@@ -21,6 +21,14 @@ pub const COVERAGE: &[(&str, &str, &str, &str)] = &[
     // Test execution (`ctx_shell "cargo nextest run"`) is NOT a registered
     // directive — see GAP_LIST note below.
     ("lmd-test-driven-development", "red", "read", "ctx_read"),
+    // Companion (Spec #2): the testing-anti-patterns reference pulls the
+    // discipline block via `@include test-first-core` (the include directive).
+    (
+        "lmd-test-driven-development",
+        "testing-anti-patterns",
+        "include",
+        "fragment-compose",
+    ),
 ];
 
 /// Tools deliberately outside the brainstorming directive surface. Note: TDD's
@@ -72,6 +80,19 @@ mod tests {
         assert_eq!(
             gap_list_rendered(),
             "ctx_benchmark\nctx_package\nctx_provider\n"
+        );
+    }
+
+    #[test]
+    fn coverage_carries_companion_row() {
+        let has_companion = COVERAGE.iter().any(|(skill, step, directive, _)| {
+            *skill == "lmd-test-driven-development"
+                && *step == "testing-anti-patterns"
+                && *directive == "include"
+        });
+        assert!(
+            has_companion,
+            "COVERAGE must record the companion @include row"
         );
     }
 }
