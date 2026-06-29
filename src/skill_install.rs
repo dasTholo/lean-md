@@ -8,12 +8,26 @@ use std::path::{Path, PathBuf};
 
 const TDD_SKILL_MD: &str = include_str!("../content/skills/lmd-test-driven-development/SKILL.md");
 const BRAINSTORM_SKILL_MD: &str = include_str!("../content/skills/lmd-brainstorm/SKILL.md");
+const WRITING_SKILLS_SKILL_MD: &str = include_str!("../content/skills/lmd-writing-skills/SKILL.md");
 
 /// Installable lmd skills (name → embedded `SKILL.md` stub).
 pub const INSTALLABLE_SKILLS: &[(&str, &str)] = &[
     ("lmd-test-driven-development", TDD_SKILL_MD),
     ("lmd-brainstorm", BRAINSTORM_SKILL_MD),
+    ("lmd-writing-skills", WRITING_SKILLS_SKILL_MD),
 ];
+
+const WRITING_SKILLS_RENDER_GRAPHS: &str =
+    include_str!("../content/skills/lmd-writing-skills/render-graphs.js");
+
+/// Non-rendered helper files materialized verbatim into the installed skill dir
+/// (skill, filename, embedded content). Absent-only/idempotent like the SKILL.md
+/// stub (#498 byte-stable).
+const ASSETS: &[(&str, &str, &str)] = &[(
+    "lmd-writing-skills",
+    "render-graphs.js",
+    WRITING_SKILLS_RENDER_GRAPHS,
+)];
 
 /// Install target selector (Spec E11). `Local` is the default — env-independent,
 /// versionable, team-shareable. `Global` honors `CLAUDE_CONFIG_DIR`.
@@ -64,6 +78,11 @@ pub fn install_skill(name: &str, scope: Scope, project_root: &Path) -> std::io::
     std::fs::create_dir_all(&dir)?;
     let target = dir.join("SKILL.md");
     std::fs::write(&target, body)?;
+    for (skill, fname, content) in ASSETS {
+        if *skill == name {
+            std::fs::write(dir.join(fname), content)?;
+        }
+    }
     Ok(target)
 }
 
@@ -133,5 +152,28 @@ mod tests {
         let root = std::env::temp_dir();
         let err = install_skill("nope", Scope::Local, &root).unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn writing_skills_install_materializes_asset() {
+        let root = std::env::temp_dir().join(format!("lmd_ws_asset_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let skill_md = install_skill("lmd-writing-skills", Scope::Local, &root).unwrap();
+        let dir = skill_md.parent().unwrap();
+        let asset = dir.join("render-graphs.js");
+        assert!(
+            asset.exists(),
+            "render-graphs.js must be materialized next to SKILL.md"
+        );
+        let on_disk = std::fs::read_to_string(&asset).unwrap();
+        assert!(
+            on_disk.contains("extractDotBlocks"),
+            "asset content must be the render script"
+        );
+        // Idempotent: second install keeps the asset present.
+        install_skill("lmd-writing-skills", Scope::Local, &root).unwrap();
+        assert!(asset.exists());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
