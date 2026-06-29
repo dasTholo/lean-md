@@ -1,40 +1,40 @@
-# Skill-Token-Vergleich — Benchmark
+# Skill Token Comparison — Benchmark
 
-Neutrales A/B: **A** = `superpowers/test-driven-development` (Monolith),
-**B** = `lmd-test-driven-development` (Phasen-Rendering).
+Neutral A/B: **A** = `superpowers/test-driven-development` (monolith),
+**B** = `lmd-test-driven-development` (phased rendering).
 
-## Schicht A — deterministischer Trace (automatisiert)
+## Layer A — deterministic trace (automated)
 
     cargo run --example skill-token-comparison
 
-Rendert Variante B in-process, tokenisiert beide Varianten (tiktoken-rs:
-`cl100k_base` primär, `o200k_base` Parität) und schreibt `SUMMARY.md`
-(byte-stabil, #498). Test: `cargo nextest run skill_token_comparison`.
+Renders variant B in-process, tokenizes both variants (tiktoken-rs:
+`cl100k_base` primary, `o200k_base` parity) and writes `SUMMARY.md`
+(byte-stable, #498). Test: `cargo nextest run -E 'binary(skill_token_comparison)'`.
 
-Annahme `TOOL_CALL_OVERHEAD_TOKENS` (Roundtrip-Overhead pro `ctx_md_render`)
-ist in `harness.rs` benannt und im `SUMMARY.md` offengelegt — justierbar.
+The `TOOL_CALL_OVERHEAD_TOKENS` assumption (roundtrip overhead per
+`ctx_md_render`) is named in `harness.rs` and disclosed in `SUMMARY.md` — tunable.
 
-## Schicht B — Subagent-Validierung (manuell, mdai-adaptiert)
+## Layer B — subagent validation (manual, mdai-adapted)
 
-Dieselbe Mini-TDD-Aufgabe (eine kleine Funktion + ein Bugfix) wird je Variante
-gelöst, einmal pro Druck-Variante:
+The same mini TDD task (one small function + one bugfix) is solved per variant,
+once per pressure variant:
 
-| Variante | Bedeutung |
+| Variant | Meaning |
 |---|---|
-| `cold`      | keine Beschränkung, freie Bearbeitung |
-| `time`      | expliziter Zeitdruck im Prompt |
-| `authority` | Tech-Lead-Override im Prompt ("mach es direkt, ohne Zeremonie") |
+| `cold`      | no constraint, free hand |
+| `time`      | explicit time pressure in the prompt |
+| `authority` | tech-lead override in the prompt ("just do it directly, no ceremony") |
 
-Jeder Subagent-Report hält **verbatim** fest: welche Skill-Artefakte real
-geladen wurden (Variante B: welche Phasen tatsächlich gerendert wurden) und
-wie viele Tool-Calls anfielen. Die geladenen Artefakte werden mit derselben
-`harness`-Zählung nachgezählt → realer kumulierter Verbrauch.
+Each subagent report records **verbatim**: which skill artifacts were actually
+loaded (variant B: which phases were actually rendered) and how many tool calls
+occurred. The loaded artifacts are re-counted with the same `harness` counting
+→ real cumulative consumption.
 
-Reports ablegen unter:
+Place reports under:
 
     variant-A-superpowers/<cold|time|authority>.md
     variant-B-lmd/<cold|time|authority>.md
 
-Zweck: bestätigt/falsifiziert die Schicht-A-Hypothese — stoppen reale Agenten
-bei RED/GREEN (dann lädt B `refactor`/`rationalizations` nie), und ist der
-Tool-Call-Overhead kleiner als die eingesparten Inhalts-Tokens?
+Purpose: confirms/falsifies the Layer A hypothesis — do real agents stop at
+RED/GREEN (so B never loads `refactor`/`rationalizations`), and is the tool-call
+overhead smaller than the saved content tokens?
