@@ -580,17 +580,27 @@ mod tests {
         let jail = std::path::PathBuf::from(".");
         let cli = render_companion(
             "lmd-writing-skills",
-            "skill-anatomy",
+            "testing/methodology",
             None,
             None,
             jail.clone(),
         )
         .unwrap();
-        let again =
-            render_companion("lmd-writing-skills", "skill-anatomy", None, None, jail).unwrap();
+        let again = render_companion(
+            "lmd-writing-skills",
+            "testing/methodology",
+            None,
+            None,
+            jail,
+        )
+        .unwrap();
         assert_eq!(
             cli, again,
             "render_companion must be a deterministic function (#498)"
+        );
+        assert!(
+            cli.contains("RED Phase"),
+            "testing/methodology surface must render its methodology body"
         );
     }
 

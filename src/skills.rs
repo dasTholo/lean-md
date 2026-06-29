@@ -932,6 +932,39 @@ mod tests {
     }
 
     #[test]
+    fn green_phase_renders_tester_dispatch_block() {
+        let out = render_skill(
+            "lmd-writing-skills",
+            Some("green"),
+            None,
+            None,
+            std::path::PathBuf::from("."),
+        )
+        .unwrap();
+        // @dispatch materialised: contract + methodology marker + Iron Law + bootstrap.
+        assert!(out.contains("Subagent Contract"), "contract missing: {out}");
+        assert!(
+            out.contains("RED Phase"),
+            "methodology brief missing: {out}"
+        );
+        assert!(
+            out.contains("NO SKILL WITHOUT A FAILING TEST FIRST"),
+            "Iron Law via @include missing: {out}"
+        );
+        assert!(out.contains("role=test"), "test role missing: {out}");
+        // to_agent placeholder kept fillable (M-2 guard injects it literally).
+        assert!(
+            out.contains("to_agent={{ controller_id }}"),
+            "controller_id placeholder must survive verbatim: {out}"
+        );
+        // Phase isolation: refactor's re-dispatch hint must NOT leak into green.
+        assert!(
+            !out.contains("re-dispatch the same tester"),
+            "refactor content leaked into green: {out}"
+        );
+    }
+
+    #[test]
     fn writing_skills_testing_split_carries_all_original_sections() {
         let jail = std::path::PathBuf::from(".");
         let methodology = render_companion(

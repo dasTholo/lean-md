@@ -35,6 +35,11 @@ Micro-test the wording before full scenarios: one fresh-context sample per call,
 always a no-guidance control, 5+ reps, read every flagged match manually, treat
 variance as a metric (five interpretations across five reps = wording not binding).
 
+To pressure-test the skill you just wrote, dispatch a tester subagent whose brief
+is the full testing methodology:
+
+@dispatch skill="lmd-writing-skills" companion="testing/methodology" role=test to_agent="{{ controller_id }}"
+
 next: render phase "refactor".
 @phase-end
 
@@ -53,6 +58,10 @@ for EACH skill. Deploying untested skills = deploying untested code.
 
 For loophole-closing technique render the companion:
 `ctx_md_render(skill="lmd-writing-skills", companion="bulletproofing")`.
+
+After closing loopholes, re-dispatch the same tester
+(`@dispatch skill="lmd-writing-skills" companion="testing/methodology" role=test`)
+and re-verify the agent still complies under pressure.
 
 next: return to RED for the next skill, or ship.
 @phase-end
