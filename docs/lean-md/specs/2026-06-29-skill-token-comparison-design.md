@@ -76,49 +76,82 @@ drei Achsen, die wir erben — mit gezielten Änderungen:
 
 ## 4. Architektur
 
+Das Harness ist ein **in-process Rust-Programm** — kein Python, kein
+Subprozess. Begründung: lean-ctx zählt Tokens bereits mit `tiktoken-rs` (siehe
+§4.1), und lean-md exponiert das Phasen-Rendering als Bibliotheks-API
+(`lean_md::skills::render_skill` / `render_companion`, verifiziert in
+`src/skills.rs`). Beides läuft damit im selben Prozess → vollständig
+deterministisch, byte-stabil (#498), reproduzierbar ohne externe Toolchain.
+
 ```
 benchmarks/skill-token-comparison/
-  tokenize.py              # tiktoken cl100k_base — deterministische Token-Wahrheit
-  collect_static.py        # Schicht A: ruft `lean-md render` je Phase, zählt Artefakte
+  main.rs                  # Schicht A: rendert in-process + tokenisiert + schreibt SUMMARY.md
   variant-A-superpowers/   # Schicht B: Subagent-Reports (cold/time/authority)
   variant-B-lmd/           # Schicht B: Subagent-Reports (cold/time/authority)
   SUMMARY.md               # A/B-Vergleichstabellen (deterministisch, keine Timestamps im Body)
 ```
 
+Verdrahtung als Cargo-Example mit explizitem Pfad (hält Benchmarks unter
+`./benchmarks/` statt im default `examples/`):
+
+```toml
+# Cargo.toml
+[dev-dependencies]
+tiktoken-rs = "0.12"          # exakt die lean-ctx-Version (Cargo.toml:142)
+
+[[example]]
+name = "skill-token-comparison"
+path = "benchmarks/skill-token-comparison/main.rs"
+```
+
+Lauf: `cargo run --example skill-token-comparison` → schreibt `SUMMARY.md`.
 Begründung Ablage unter `./benchmarks/` (Repo-Root), nicht `docs/`: Benchmarks
-sind ausführbare Artefakte (Skripte + reproduzierbare Läufe), kein Fließtext.
+sind ausführbare Artefakte (Code + reproduzierbare Läufe), kein Fließtext.
 
-### 4.1 Komponente: `tokenize.py`
+### 4.1 Token-Zählung — `tiktoken-rs` als dev-dependency
 
-- Tokenizer: tiktoken `cl100k_base`. **Primäre Wahrheit.**
-- Begründung: lean-md hat **keinen eigenen Tokenizer** (verifiziert: 0 Treffer
-  für `tiktoken`/`count_tokens` in `src/`). Die `tokens saved`-Metrik stammt vom
-  **lean-ctx-Server** (separate Komponente) und ist Heuristik — daher nur
-  optionaler Quervergleich, nicht die Wahrheit.
-- Schnittstelle: zählt Tokens einer Datei oder eines Strings; deterministisch,
-  offline, kein Netzwerk, kein API-Key.
-- Bewusste Einschränkung: tiktoken ≠ exakter Claude-Tokenizer. Absolute Zahlen
-  weichen leicht ab; der **A/B-Trend** bleibt valide. Wird im `SUMMARY.md`
-  explizit vermerkt.
+lean-ctx zählt mit `tiktoken-rs = "0.12"` (`rust/src/core/tokens.rs`). Wir
+spiegeln dessen Ansatz minimal im Harness (kein moka/blake3-Cache — für einen
+One-Shot-Lauf YAGNI):
 
-### 4.2 Schicht A — Scripted Trace (deterministisch)
+```rust
+let bpe = tiktoken_rs::cl100k_base()?;          // Claude-Familie
+let tokens = bpe.encode_with_special_tokens(text).len();
+```
 
-`collect_static.py`:
+**Zwei Familien, zwei Spalten im Report:**
 
-- **Variante A**: tokenisiert `SKILL.md` komplett + `testing-anti-patterns.md`
-  (Companion nur gezählt, wenn der Skill-Text ihn referenziert / ein realer Lauf
-  ihn lädt → siehe §4.3).
-- **Variante B**: tokenisiert Stub-`SKILL.md` + Output von
-  `lean-md render --consumer=ai` je Phase (`red/green/refactor/rationalizations`)
-  + Companion `testing-anti-patterns.lmd.md`.
-- Pro Artefakt: Token-Count. Aggregiert zur **2-Zeilen-Kernmetrik** (§2) +
-  **Break-even-Phasenzahl**.
+- **`cl100k_base` — primäre Wahrheit.** Diese Skills werden von **Claude**
+  konsumiert; `core/tokens.rs` dokumentiert `Cl100k` als „within ~3% of Claude's
+  actual tokenizer" und `detect_tokenizer("opus"|"sonnet"|"claude") -> Cl100k`.
+- **`o200k_base` — Parität.** lean-ctx's eigenes Savings-Ledger zählt mit
+  `O200kBase` (`COUNTING_FAMILY`). Als zweite Spalte ausgewiesen, damit unsere
+  Zahlen mit dem lean-ctx-Ledger quervergleichbar sind.
+
+Bewusste Einschränkung: `cl100k_base` ~ Claude-Tokenizer (~3% Abweichung), nicht
+exakt. Der **A/B-Trend** bleibt unberührt; im `SUMMARY.md` explizit vermerkt.
+Die frühere `tokens saved`-Heuristik des lean-ctx-Servers wird **nicht** als
+Wahrheit benutzt.
+
+### 4.2 Schicht A — Scripted Trace (deterministisch, in-process)
+
+`main.rs`:
+
+- **Variante A**: liest `SKILL.md` (superpowers) komplett + `testing-anti-patterns.md`
+  vom Pfad und tokenisiert (Companion nur gezählt, wenn ein realer Lauf ihn lädt
+  -> §4.3). Der superpowers-Skill-Pfad ist eine benannte Konstante (Plugin-Cache;
+  im Report offengelegt).
+- **Variante B**: rendert in-process via
+  `render_skill("lmd-test-driven-development", Some(phase), Consumer::Ai, …)` je
+  Phase (`red/green/refactor/rationalizations`) + Stub-`SKILL.md` +
+  `render_companion(…, "testing-anti-patterns", …)`; tokenisiert jeden Output.
+- Pro Artefakt: Token-Count (beide Familien). Aggregiert zur
+  **2-Zeilen-Kernmetrik** (§2) + **Break-even-Phasenzahl**.
 - **Tool-Call-Overhead-Modell**: konstante Tokenzahl pro `ctx_md_render`-Roundtrip
-  (Tool-Schema-Anteil + Argumente + Wrapper). Der Wert wird als benannte
-  Konstante im Skript geführt und im `SUMMARY.md` offengelegt, damit das Modell
-  nachvollziehbar/justierbar ist.
+  (Tool-Schema-Anteil + Argumente + Wrapper). Als benannte Konstante im Code
+  geführt und im `SUMMARY.md` offengelegt — nachvollziehbar/justierbar.
 - Determinismus (#498): Output ist reine Funktion von (Datei-Inhalt, Phase,
-  CRP-Modus). Keine Timestamps/Zähler im Report-Body.
+  CRP-Modus, Tokenizer-Familie). Keine Timestamps/Zähler im Report-Body.
 
 ### 4.3 Schicht B — Subagent-Validierung (mdai-Stil)
 
@@ -127,8 +160,8 @@ sind ausführbare Artefakte (Skripte + reproduzierbare Läufe), kein Fließtext.
 - Jeder Subagent-Report hält **verbatim** fest, welche Skill-Artefakte real
   geladen wurden (Variante B: welche Phasen tatsächlich gerendert wurden) und
   wie viele Tool-Calls anfielen.
-- `tokenize.py` zählt die geladenen Artefakte nach → realer kumulierter
-  Verbrauch.
+- Das Harness (`main.rs`, dieselbe `tiktoken-rs`-Zählung wie Schicht A) zählt die
+  geladenen Artefakte nach → realer kumulierter Verbrauch.
 - Zweck: bestätigt oder falsifiziert die Schicht-A-Hypothese (§2.1) — insbes.
   ob reale Agenten bei RED/GREEN stoppen oder doch alle Phasen abrufen.
 - Reports landen unter `variant-A-superpowers/` bzw. `variant-B-lmd/`, benannt
@@ -149,17 +182,18 @@ A/B-Vergleichstabellen:
 ## 5. Abgrenzung (YAGNI)
 
 - **Keine** Latenz-/Wall-Clock-Messung (nur Tokens — so vom User bestätigt).
-- **Keine** Multi-Modell-Tokenizer-Matrix; ein Tokenizer (cl100k) genügt für den
-  Trend.
-- **Kein** eigener Rust-Tokenizer in lean-md (würde schwergewichtige Dependency
-  `tiktoken-rs` ziehen; Python-Skript ist pragmatischer und reicht für ein
-  Benchmark-Harness).
+- **Keine** Multi-Modell-Tokenizer-Matrix über cl100k/o200k hinaus; diese zwei
+  Familien (§4.1) genügen für Trend + lean-ctx-Parität.
+- **Kein** moka/blake3-Token-Cache (lean-ctx-Optimierung) — für einen
+  One-Shot-Benchmark unnötig.
+- **`tiktoken-rs` nur als `dev-dependency`** — die Render-Bibliothek `lean_md`
+  bleibt frei vom Tokenizer (kein Eintrag in `[dependencies]`).
 - **Kein** RED/GREEN-Rollen-Framing (neutrales A/B).
 
 ## 6. Erfolgskriterien
 
-- `collect_static.py` produziert byte-stabilen `SUMMARY.md`-Block bei
-  wiederholtem Lauf (gleiche Eingabe → gleiche Bytes).
+- `cargo run --example skill-token-comparison` produziert byte-stabilen
+  `SUMMARY.md`-Block bei wiederholtem Lauf (gleiche Eingabe → gleiche Bytes).
 - `SUMMARY.md` beantwortet eindeutig: (a) reiner Inhalt A vs. B, (b) inkl.
   Overhead A vs. B, (c) Break-even-Phasenzahl, (d) ob Schicht-B-Läufe die
   Hypothese stützen.
