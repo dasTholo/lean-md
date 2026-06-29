@@ -12,6 +12,7 @@
 use lean_md::crp_proto::CrpMode;
 use lean_md::engine::render_with_overrides;
 use lean_md::header::{Consumer, parse_header};
+use lean_md::skill_install::{Scope, install_skill, remove_skill};
 use lean_md::skills::render_skill;
 use serde_json::{Value, json};
 
@@ -113,12 +114,14 @@ fn main() {
         "render" => cmd_render(&args[1..]),
         "check" => cmd_check(&args[1..]),
         "mcp" => cmd_mcp(),
+        "skill" => cmd_skill(&args[1..]),
         _ => {
             eprintln!(
-                "Usage: lean-md <render|check|mcp> [args]\n\
+                "Usage: lean-md <render|check|mcp|skill> [args]\n\
                  \n  render <file.lmd.md> [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md]\
                  \n  check  <file.lmd.md>\
-                 \n  mcp                   (stdio JSON-RPC 2.0 MCP server)"
+                 \n  mcp                   (stdio JSON-RPC 2.0 MCP server)\
+                 \n  skill  <install|remove> <name> [--global|--local]"
             );
             std::process::exit(1);
         }
@@ -296,6 +299,41 @@ mod tests {
             !a.contains("Verify RED"),
             "phase isolation in the exposed path"
         );
+    }
+}
+
+fn cmd_skill(rest: &[String]) {
+    let sub = rest.first().map_or("", String::as_str);
+    let name = rest.iter().skip(1).find(|a| !a.starts_with('-'));
+    let scope = if rest.iter().any(|a| a == "--global") {
+        Scope::Global
+    } else {
+        Scope::Local
+    };
+    let Some(name) = name else {
+        eprintln!("lean-md skill: missing <name>");
+        std::process::exit(1);
+    };
+    let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    match sub {
+        "install" => match install_skill(name, scope, &project_root) {
+            Ok(target) => println!("installed {name} → {}", target.display()),
+            Err(e) => {
+                eprintln!("lean-md skill install: {e}");
+                std::process::exit(1);
+            }
+        },
+        "remove" => match remove_skill(name, scope, &project_root) {
+            Ok(()) => println!("removed {name}"),
+            Err(e) => {
+                eprintln!("lean-md skill remove: {e}");
+                std::process::exit(1);
+            }
+        },
+        other => {
+            eprintln!("lean-md skill: unknown subcommand '{other}' (install|remove)");
+            std::process::exit(1);
+        }
     }
 }
 

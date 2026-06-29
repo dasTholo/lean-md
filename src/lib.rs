@@ -23,6 +23,7 @@ pub mod phases;
 pub mod render;
 pub mod seeds;
 pub mod signatures;
+pub mod skill_install;
 pub mod skills;
 #[cfg(test)]
 mod test_env;
