@@ -15,6 +15,7 @@
 
 | Directive                                                               | Action / form                                                 | Routes to                   | Class        | Cache               |
 |-------------------------------------------------------------------------|---------------------------------------------------------------|-----------------------------|--------------|---------------------|
+| --- | --- | --- | --- | --- |
 | `@search` / `@list` / `@env` / `@date` / `@count` / `@query` / `@graph` | (base R-bridges)                                              | various `ctx_*`             | R            | read-only¹          |
 | `@edit`                                                                 | text / symbolic body edits                                    | `ctx_edit` / `ctx_refactor` | R            | clears on apply     |
 | `@symbol`                                                               | refs/def/impl/overview/…                                      | `ctx_refactor`+`ctx_search action=symbol` | R            | read-only           |
