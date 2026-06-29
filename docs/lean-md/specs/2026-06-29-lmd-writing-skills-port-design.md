@@ -33,25 +33,31 @@ schwerer, phasen-isolierter `body.lmd.md`, alles `include_str!`-embedded, gerend
 
 ## Architektur
 
+Ablage folgt der etablierten Schwester-Skill-Konvention: Companions in einem
+`companions/`-Unterordner, geteilte `@include`-Fragmente in `_includes/`.
+
 ```
 content/skills/lmd-writing-skills/
-  SKILL.md                              # dünner Discovery-Stub
-  body.lmd.md                           # phasen-isoliert: red / green / refactor / rationalizations
-  testing-skills-with-subagents.lmd.md  # Companion
-  anthropic-best-practices.lmd.md       # Companion
-  persuasion-principles.lmd.md          # Companion
-  skill-discovery-optimization.lmd.md   # Companion
-  bulletproofing.lmd.md                 # Companion
-  skill-anatomy.lmd.md                  # Companion
-  flowchart-conventions.lmd.md          # Companion
-  render-graphs.js                      # Asset (install-materialisiert, nicht gerendert)
-content/core/
-  skill-authoring-core.lmd.md           # NEU: geteiltes Trip-Wire-Fragment, @include je Phase
+  SKILL.md                                       # dünner Discovery-Stub
+  body.lmd.md                                    # phasen-isoliert: red / green / refactor / rationalizations
+  _includes/
+    skill-authoring-core.lmd.md                  # NEU: geteiltes Trip-Wire-Fragment, @include je Phase
+  companions/
+    testing-skills-with-subagents.lmd.md
+    anthropic-best-practices.lmd.md
+    persuasion-principles.lmd.md
+    skill-discovery-optimization.lmd.md
+    bulletproofing.lmd.md
+    skill-anatomy.lmd.md
+    flowchart-conventions.lmd.md
+  render-graphs.js                               # Asset (install-materialisiert, nicht gerendert)
 ```
 
 Verdrahtung in `src/skills.rs`: `include_str!`-Konstanten + Einträge in `SKILLS`
-und `COMPANIONS`. COVERAGE-Zeilen in `src/availability.rs`.
-Asset-Materialisierung in `src/skill_install.rs`.
+und `COMPANIONS`. Das Fragment wird per `@include skill-authoring-core` (blanker
+Name) aus `_includes/` aufgelöst — wie `test-first-core` bei der Schwester-Skill.
+COVERAGE-Zeilen in `src/availability.rs`. Asset-Materialisierung in
+`src/skill_install.rs`.
 
 ### Phasen (`body.lmd.md`)
 
