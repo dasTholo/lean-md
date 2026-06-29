@@ -1,7 +1,5 @@
 <!-- lmd-writing-skills body — rendered phase-by-phase via ctx_md_render -->
 
-NO SKILL WITHOUT A FAILING TEST FIRST
-
 @phase "red"
 @include skill-authoring-core
 

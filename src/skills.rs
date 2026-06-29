@@ -671,11 +671,17 @@ mod tests {
             skill_body("lmd-writing-skills").is_some(),
             "lmd-writing-skills must be in the SKILLS registry"
         );
+        let red = render_skill(
+            "lmd-writing-skills",
+            Some("red"),
+            None,
+            None,
+            std::path::PathBuf::from("."),
+        )
+        .unwrap();
         assert!(
-            all_skill_bodies()
-                .iter()
-                .any(|b| b.contains("NO SKILL WITHOUT A FAILING TEST FIRST")),
-            "writing-skills body must carry the Iron Law (via @include) — check rendering"
+            red.contains("NO SKILL WITHOUT A FAILING TEST FIRST"),
+            "writing-skills phase must carry the Iron Law via @include skill-authoring-core"
         );
     }
 
