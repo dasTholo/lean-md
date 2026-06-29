@@ -10,13 +10,26 @@ use crate::engine::{EngineContext, render_body};
 use crate::header::{Consumer, parse_header};
 
 const LMD_BRAINSTORM_BODY: &str = include_str!("../content/skills/lmd-brainstorm/body.lmd.md");
+const LMD_TEST_DRIVEN_DEVELOPMENT_BODY: &str =
+    include_str!("../content/skills/lmd-test-driven-development/body.lmd.md");
+
+/// Registry of embedded lmd skill bodies (name → binary-embedded body source).
+/// Replaces the hardcoded `match` so new skills are a one-line table entry
+/// (Spec E4 — companion column deferred to Spec #2).
+const SKILLS: &[(&str, &str)] = &[
+    ("lmd-brainstorm", LMD_BRAINSTORM_BODY),
+    (
+        "lmd-test-driven-development",
+        LMD_TEST_DRIVEN_DEVELOPMENT_BODY,
+    ),
+];
 
 /// Embedded body source for a known lmd skill, or `None` if unknown.
 pub fn skill_body(name: &str) -> Option<&'static str> {
-    match name {
-        "lmd-brainstorm" => Some(LMD_BRAINSTORM_BODY),
-        _ => None,
-    }
+    SKILLS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, body)| *body)
 }
 
 #[derive(Debug)]
@@ -109,5 +122,72 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(err, SkillRenderError::PhaseNotFound(_)));
+    }
+
+    #[test]
+    fn registry_resolves_both_skills() {
+        assert!(skill_body("lmd-brainstorm").is_some());
+        assert!(skill_body("lmd-test-driven-development").is_some());
+        assert!(skill_body("nope").is_none());
+    }
+
+    #[test]
+    fn tdd_phases_render_isolated_no_cross_leak() {
+        for (phase, marker, foreign) in [
+            ("red", "Verify RED", "Common Rationalizations"),
+            ("green", "Verify GREEN", "Verify RED"),
+            ("refactor", "only under green", "Verify GREEN"),
+            ("rationalizations", "Common Rationalizations", "Verify RED"),
+        ] {
+            let out = render_skill(
+                "lmd-test-driven-development",
+                Some(phase),
+                None,
+                None,
+                PathBuf::from("."),
+            )
+            .unwrap();
+            assert!(
+                out.contains(marker),
+                "phase {phase} missing its marker: {out}"
+            );
+            assert!(
+                !out.contains(foreign),
+                "phase {phase} leaked foreign content '{foreign}': {out}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_tdd_phase_includes_test_first_core() {
+        for phase in ["red", "green", "refactor", "rationalizations"] {
+            let out = render_skill(
+                "lmd-test-driven-development",
+                Some(phase),
+                None,
+                None,
+                PathBuf::from("."),
+            )
+            .unwrap();
+            assert!(
+                out.contains("NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"),
+                "phase {phase} must @include test-first-core (Iron Law marker): {out}"
+            );
+        }
+    }
+
+    #[test]
+    fn tdd_body_matches_seed_file_on_disk() {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let disk = std::fs::read_to_string(
+            std::path::Path::new(manifest)
+                .join("content/skills/lmd-test-driven-development/body.lmd.md"),
+        )
+        .unwrap();
+        assert_eq!(
+            skill_body("lmd-test-driven-development").unwrap(),
+            disk,
+            "embedded TDD body drifted from seed file"
+        );
     }
 }
