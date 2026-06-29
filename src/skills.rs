@@ -770,6 +770,10 @@ mod tests {
                 out.contains("NO SKILL WITHOUT A FAILING TEST FIRST"),
                 "discipline companion {n} must @include skill-authoring-core"
             );
+            assert!(
+                !out.contains("writing-skills directory"),
+                "discipline companion {n} must not reference the superpowers writing-skills directory (reference-closure)"
+            );
         }
     }
 
