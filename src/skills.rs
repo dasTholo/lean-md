@@ -805,4 +805,33 @@ mod tests {
             "green must not leak rationalizations"
         );
     }
+
+    #[test]
+    fn writing_skills_fidelity_all_surfaces_render_nonempty() {
+        let jail = std::path::PathBuf::from(".");
+        for p in ["red", "green", "refactor", "rationalizations"] {
+            let out =
+                render_skill("lmd-writing-skills", Some(p), None, None, jail.clone()).unwrap();
+            assert!(
+                out.trim().len() > 80,
+                "phase {p} rendered too thin — content lost?"
+            );
+        }
+        for c in [
+            "skill-anatomy",
+            "skill-discovery-optimization",
+            "bulletproofing",
+            "testing-skills-with-subagents",
+            "claude-md-testing-example",
+            "flowchart-conventions",
+            "anthropic-best-practices",
+            "persuasion-principles",
+        ] {
+            let out = render_companion("lmd-writing-skills", c, None, None, jail.clone()).unwrap();
+            assert!(
+                out.trim().len() > 80,
+                "companion {c} rendered too thin — content lost?"
+            );
+        }
+    }
 }
