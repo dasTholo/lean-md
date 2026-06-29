@@ -31,6 +31,7 @@ pub mod routes;
 pub mod search;
 pub mod smells;
 pub mod symbol;
+pub mod var;
 
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -144,6 +145,7 @@ pub fn default_registry() -> BridgeRegistry {
     reg.register(Box::new(routes::RoutesBridge));
     reg.register(Box::new(smells::SmellsBridge));
     reg.register(Box::new(render::RenderBridge));
+    reg.register(Box::new(var::VarBridge));
     reg
 }
 
