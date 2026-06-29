@@ -701,6 +701,55 @@ mod tests {
     }
 
     #[test]
+    fn rationalizations_carries_full_fidelity_set() {
+        let out = render_skill(
+            "lmd-test-driven-development",
+            Some("rationalizations"),
+            None,
+            None,
+            PathBuf::from("."),
+        )
+        .unwrap();
+        // Full 11-row Common Rationalizations — distinctive phrases beyond the old 4 (E12).
+        for needle in [
+            "Too simple to test",
+            "Tests after achieve the same goals",
+            "already manually tested",
+            "Sunk cost",
+            "Keep it as reference",
+            "explore first",
+            "hard to use",
+            "TDD will slow me down",
+            "Manual testing is faster",
+            "existing code has no tests",
+        ] {
+            assert!(
+                out.contains(needle),
+                "rationalizations missing '{needle}': {out}"
+            );
+        }
+        // When-Stuck table restored.
+        assert!(
+            out.contains("When Stuck"),
+            "When-Stuck section missing: {out}"
+        );
+        assert!(
+            out.contains("dependency injection"),
+            "When-Stuck must cover the mock-everything → DI cure: {out}"
+        );
+        // Debugging Integration restored.
+        assert!(
+            out.contains("Never fix a bug without a test"),
+            "Debugging Integration line missing: {out}"
+        );
+        // Phase isolation still holds (no green/red leak).
+        assert!(
+            !out.contains("Verify RED"),
+            "rationalizations leaked red phase: {out}"
+        );
+    }
+
+    #[test]
     fn phases_carry_next_pointers() {
         for (phase, needle) in [
             ("red", "next: render phase \"green\""),

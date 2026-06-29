@@ -48,13 +48,31 @@ next: render phase "red" for the next behavior.
 ## Common Rationalizations (Excuse | Reality)
 
 | Excuse | Reality |
-| "I'll test after." | Code-after-test is production code without a failing test. |
-| "It's too simple to break." | Simple code breaks; the test is cheap. |
-| "The test passed right away." | It never failed — no evidence it tests anything. |
-| "Refactor needs a quick prod tweak." | A prod tweak is new behavior — go back to RED. |
+| "Too simple to test." | Simple code breaks. The test takes 30 seconds. |
+| "I'll test after." | Tests written after pass immediately and prove nothing. |
+| "Tests after achieve the same goals." | Tests-after ask 'what does this do?'; tests-first ask 'what should this do?'. |
+| "I already manually tested it." | Ad-hoc is not systematic — no record, can't re-run. |
+| "Deleting hours of work is wasteful." | Sunk cost fallacy; keeping unverified code is technical debt. |
+| "Keep it as reference, write tests first." | You'll adapt it — that's testing after. Delete means delete. |
+| "I need to explore first." | Fine — throw the exploration away and start with TDD. |
+| "Hard to test means the design is unclear." | Listen to the test: hard to test = hard to use. |
+| "TDD will slow me down." | TDD is faster than debugging; pragmatic means test-first. |
+| "Manual testing is faster." | Manual doesn't prove edge cases, and you'll re-test every change. |
+| "The existing code has no tests." | You're improving it — add tests for the code you touch. |
 
 **Why order matters:** the failing test is the only proof the test exercises the behavior.
-**When stuck:** shrink the test until one tiny behavior is in scope, then RED → GREEN.
+
+## When Stuck
+
+| Problem | Solution |
+| Don't know how to test it. | Write the wished-for API; write the assertion first; ask your human partner. |
+| The test is too complicated. | The design is too complicated — simplify the interface. |
+| You must mock everything. | The code is too coupled — use dependency injection. |
+| The test setup is huge. | Extract helpers; still too complex? simplify the design. |
+
+## Debugging Integration
+
+Bug found? Write a failing test that reproduces it, then follow the cycle — the test proves the fix and prevents regression. Never fix a bug without a test.
 
 Verification checklist: test written first · RED observed · minimal GREEN · refactor under green.
 For testing anti-patterns (mocks, test-only methods, incomplete mocks), render the companion:
