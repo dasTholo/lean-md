@@ -223,7 +223,8 @@ fn tool_defs() -> Value {
                     "consumer": { "type": "string", "description": "Override audience: ai|human" },
                     "crp":      { "type": "string", "description": "Override CRP mode: tdd|compact|off" },
                     "skill":    { "type": "string", "description": "Render an embedded lmd skill body by name (alternative to path/content)" },
-                    "phase":    { "type": "string", "description": "Render only this named phase of the skill (requires skill)" }
+                    "phase":     { "type": "string", "description": "Render only this named phase of the skill (requires skill; mutually exclusive with companion)" },
+                    "companion": { "type": "string", "description": "Render a skill's named companion reference (requires skill; mutually exclusive with phase)" }
                 }
             }
         },
@@ -413,6 +414,7 @@ fn cmd_mcp() {
                     "ctx_md_render" => {
                         if let Some(skill) = args.get("skill").and_then(Value::as_str) {
                             let phase = args.get("phase").and_then(Value::as_str);
+                            let companion = args.get("companion").and_then(Value::as_str);
                             let consumer =
                                 args.get("consumer")
                                     .and_then(Value::as_str)
@@ -427,12 +429,20 @@ fn cmd_mcp() {
                                 .and_then(CrpMode::parse);
                             let jail = std::env::current_dir()
                                 .unwrap_or_else(|_| std::path::PathBuf::from("."));
-                            match render_skill(skill, phase, consumer, crp, jail) {
-                                Ok(rendered) => rpc_ok(
-                                    &id,
-                                    json!({ "content": [{ "type": "text", "text": rendered }] }),
-                                ),
-                                Err(e) => rpc_err(&id, -32602, &format!("{e}")),
+                            if phase.is_some() && companion.is_some() {
+                                rpc_err(&id, -32602, "phase and companion are mutually exclusive")
+                            } else {
+                                let result = match companion {
+                                    Some(c) => render_companion(skill, c, consumer, crp, jail),
+                                    None => render_skill(skill, phase, consumer, crp, jail),
+                                };
+                                match result {
+                                    Ok(rendered) => rpc_ok(
+                                        &id,
+                                        json!({ "content": [{ "type": "text", "text": rendered }] }),
+                                    ),
+                                    Err(e) => rpc_err(&id, -32602, &format!("{e}")),
+                                }
                             }
                         } else {
                             match mcp_load_source(&args) {
@@ -545,6 +555,32 @@ mod tests {
         assert!(
             !a.contains("Verify RED"),
             "phase isolation in the exposed path"
+        );
+    }
+
+    #[test]
+    fn mcp_companion_matches_cli_render_companion() {
+        // CLI==MCP (#498): both surfaces call render_companion → byte-identical.
+        let jail = std::path::PathBuf::from(".");
+        let cli = render_companion(
+            "lmd-test-driven-development",
+            "testing-anti-patterns",
+            None,
+            None,
+            jail,
+        )
+        .unwrap();
+        assert!(cli.contains("Anti-Pattern 1"));
+        assert!(cli.contains("NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"));
+    }
+
+    #[test]
+    fn tool_defs_expose_companion_param() {
+        let defs = tool_defs();
+        let schema = defs[0]["inputSchema"]["properties"].clone();
+        assert!(
+            schema.get("companion").is_some(),
+            "ctx_md_render must expose a 'companion' param: {schema}"
         );
     }
 }
