@@ -12,6 +12,8 @@ use crate::header::{Consumer, parse_header};
 const LMD_BRAINSTORM_BODY: &str = include_str!("../content/skills/lmd-brainstorm/body.lmd.md");
 const LMD_TEST_DRIVEN_DEVELOPMENT_BODY: &str =
     include_str!("../content/skills/lmd-test-driven-development/body.lmd.md");
+const LMD_WRITING_SKILLS_BODY: &str =
+    include_str!("../content/skills/lmd-writing-skills/body.lmd.md");
 const LMD_TESTING_ANTI_PATTERNS_COMPANION: &str = include_str!(
     "../content/skills/lmd-test-driven-development/companions/testing-anti-patterns.lmd.md"
 );
@@ -25,6 +27,7 @@ const SKILLS: &[(&str, &str)] = &[
         "lmd-test-driven-development",
         LMD_TEST_DRIVEN_DEVELOPMENT_BODY,
     ),
+    ("lmd-writing-skills", LMD_WRITING_SKILLS_BODY),
 ];
 
 /// Embedded body source for a known lmd skill, or `None` if unknown.
@@ -660,5 +663,48 @@ mod tests {
                 "phase {phase} missing next-pointer '{needle}': {out}"
             );
         }
+    }
+
+    #[test]
+    fn writing_skills_is_registered() {
+        assert!(
+            skill_body("lmd-writing-skills").is_some(),
+            "lmd-writing-skills must be in the SKILLS registry"
+        );
+        assert!(
+            all_skill_bodies()
+                .iter()
+                .any(|b| b.contains("NO SKILL WITHOUT A FAILING TEST FIRST")),
+            "writing-skills body must carry the Iron Law (via @include) — check rendering"
+        );
+    }
+
+    #[test]
+    fn writing_skills_phases_are_isolated() {
+        let jail = std::path::PathBuf::from(".");
+        let red =
+            render_skill("lmd-writing-skills", Some("red"), None, None, jail.clone()).unwrap();
+        let green = render_skill(
+            "lmd-writing-skills",
+            Some("green"),
+            None,
+            None,
+            jail.clone(),
+        )
+        .unwrap();
+        // Each phase carries the shared trip-wire...
+        assert!(red.contains("NO SKILL WITHOUT A FAILING TEST FIRST"));
+        assert!(green.contains("NO SKILL WITHOUT A FAILING TEST FIRST"));
+        // ...but NOT the other phase's unique heading (no cross-phase leak).
+        assert!(red.contains("RED — write the failing test first"));
+        assert!(
+            !red.contains("write the minimal skill"),
+            "red must not leak green"
+        );
+        assert!(green.contains("write the minimal skill"));
+        assert!(
+            !green.contains("Common Rationalizations for Skipping Testing"),
+            "green must not leak rationalizations"
+        );
     }
 }
