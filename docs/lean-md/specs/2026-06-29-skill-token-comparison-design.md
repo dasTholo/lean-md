@@ -133,6 +133,17 @@ exakt. Der **A/B-Trend** bleibt unberührt; im `SUMMARY.md` explizit vermerkt.
 Die frühere `tokens saved`-Heuristik des lean-ctx-Servers wird **nicht** als
 Wahrheit benutzt.
 
+**Kein `#[cfg]`-Gate nötig.** Der gesamte Tokenizer-Code lebt im
+`[[example]]`-Target (`benchmarks/skill-token-comparison/main.rs`).
+Cargo kompiliert Examples separat (nur bei `cargo build --examples` /
+`cargo run --example` / `cargo test`) und bundlet sie **nie** in den
+Lib-/Bin-`--release`-Build; `dev-dependencies` sind dort automatisch sichtbar.
+Ein `#[cfg(...)]`-Gate bräuchte man erst, wenn der Tokenizer in `src/` referenziert
+würde — dort sind dev-deps nur unter `#[cfg(test)]` verfügbar (normaler Lib-Code
+sieht sie nicht). **Der Implementierungsplan darf daher kein `cfg`-Gate einbauen**
+und den Helper nicht nach `src/` ziehen (YAGNI). So bleibt `lean_md`
+tokenizer-frei.
+
 ### 4.2 Schicht A — Scripted Trace (deterministisch, in-process)
 
 `main.rs`:

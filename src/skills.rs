@@ -558,6 +558,36 @@ mod tests {
     }
 
     #[test]
+    fn skill_md_stub_carries_orientation() {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let stub = std::fs::read_to_string(
+            std::path::Path::new(manifest)
+                .join("content/skills/lmd-test-driven-development/SKILL.md"),
+        )
+        .unwrap();
+        // Frontmatter trigger unchanged (SDO/discovery).
+        assert!(stub.contains(
+            "description: Use when implementing any feature or bugfix, before writing implementation code"
+        ));
+        // Orientation layer (E6).
+        assert!(stub.contains("NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"));
+        assert!(stub.contains("Where this runs"));
+        for call in [
+            "phase=\"red\"",
+            "phase=\"green\"",
+            "phase=\"refactor\"",
+            "phase=\"rationalizations\"",
+            "companion=\"testing-anti-patterns\"",
+        ] {
+            assert!(stub.contains(call), "stub missing render call '{call}'");
+        }
+        // Companion trigger (E7, upstream wording) + final rule + XOR.
+        assert!(stub.contains("When adding mocks or test utilities"));
+        assert!(stub.contains("never both"));
+        assert!(stub.contains("Otherwise → not TDD"));
+    }
+
+    #[test]
     fn tdd_render_is_byte_stable_with_config() {
         let root = std::env::temp_dir().join(format!("lmd_tdd_determinism_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
