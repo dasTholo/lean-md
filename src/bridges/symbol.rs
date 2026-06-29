@@ -38,12 +38,17 @@ impl DirectiveBridge for SymbolBridge {
         args: &DirectiveArgs,
     ) -> Result<String, BridgeError> {
         let op = args.positional(0).ok_or(BridgeError::MissingArg("op"))?;
+        let root = ctx.jail_root.to_str().unwrap_or(".");
+
+        if op == "body" {
+            return body(ctx, args, root);
+        }
+
         let action = map_op(op).ok_or_else(|| {
             BridgeError::Resolve(format!(
-                "unknown @symbol op '{op}'. Use: refs|def|impl|declaration|type-hierarchy|overview"
+                "unknown @symbol op '{op}'. Use: refs|def|impl|declaration|type-hierarchy|overview|body"
             ))
         })?;
-        let root = ctx.jail_root.to_str().unwrap_or(".");
 
         if action == "symbols_overview" {
             return overview(ctx, args, root);
@@ -71,8 +76,8 @@ fn nav(
     // is a local tool only; ctx_refactor exposes no equivalent action).
     if args.get("name").is_some() && args.get("line").is_none() {
         return Ok(
-            "ERROR: name= addressing requires line= (resolve_name_path is not available \
-             outbound; provide path= line= column= explicitly)"
+            "ERROR: name= addressing needs line= for nav ops (resolve_name_path is not \
+             available outbound). For a symbol body by name use '@symbol body name=…'."
                 .to_string(),
         );
     }
@@ -145,6 +150,34 @@ fn overview(
     let (rendered, sigs) = crate::crp::render_file_signatures(&content, ext, ctx.header.crp, None);
     ctx.crp_sigs.borrow_mut().extend(sigs);
     Ok(rendered)
+}
+
+/// `@symbol body name=X [file=…] [kind=fn|struct|class|trait|enum]` →
+/// `ctx_search action=symbol`. Fetches one symbol's AST-precise body by name —
+/// the replacement for the deprecated `ctx_symbol` tool. `path` is scoped to the
+/// jail root; `file` (if given) is jail-resolved to narrow the search. Output is
+/// returned verbatim from the backend (no local CRP), consistent with the nav ops.
+fn body(ctx: &Rc<EngineContext>, args: &DirectiveArgs, root: &str) -> Result<String, BridgeError> {
+    let name = args.get("name").ok_or(BridgeError::MissingArg("name"))?;
+
+    let mut obj = serde_json::Map::new();
+    obj.insert("action".into(), "symbol".into());
+    obj.insert("name".into(), name.into());
+    obj.insert("path".into(), root.into());
+    if let Some(file) = args.get("file") {
+        let abs = crate::pathx::resolve_tool_path(Some(root), None, file)
+            .map_err(|e| BridgeError::Resolve(format!("path blocked by jail: {e}")))?;
+        obj.insert("file".into(), abs.into());
+    }
+    if let Some(kind) = args.get("kind") {
+        obj.insert("kind".into(), kind.into());
+    }
+
+    let out = ctx
+        .backend
+        .call("ctx_search", serde_json::Value::Object(obj))
+        .map_err(BridgeError::Backend)?;
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -347,9 +380,105 @@ mod tests {
             .execute(&ctx, &DirectiveArgs::parse("impl name=SomeSymbol"))
             .unwrap();
         assert!(
-            out.contains("ERROR") && out.contains("line="),
-            "must explain name= requires line=: {out}"
+            out.contains("ERROR") && out.contains("line=") && out.contains("@symbol body"),
+            "must explain name= needs line= and point to @symbol body: {out}"
         );
+    }
+
+    /// Build an EngineContext whose backend records every outbound (tool, args).
+    #[allow(clippy::type_complexity)]
+    fn recording_ctx(
+        root: PathBuf,
+    ) -> (
+        Rc<EngineContext>,
+        std::rc::Rc<std::cell::RefCell<Vec<(String, serde_json::Value)>>>,
+    ) {
+        use crate::backend::{BackendError, CodeIntelBackend};
+        use std::cell::RefCell;
+        struct Rec {
+            calls: std::rc::Rc<RefCell<Vec<(String, serde_json::Value)>>>,
+        }
+        impl CodeIntelBackend for Rec {
+            fn call(&self, tool: &str, args: serde_json::Value) -> Result<String, BackendError> {
+                self.calls.borrow_mut().push((tool.to_string(), args));
+                Ok(String::new())
+            }
+        }
+        let calls = std::rc::Rc::new(RefCell::new(Vec::new()));
+        let ctx = Rc::new(EngineContext::with_backend(
+            LeanMdHeader::default(),
+            root,
+            Box::new(Rec {
+                calls: calls.clone(),
+            }),
+        ));
+        (ctx, calls)
+    }
+
+    #[test]
+    fn body_forwards_name_file_and_kind_to_ctx_search() {
+        let dir = std::env::temp_dir().join("lmd_symbol_body_fwd");
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("s.rs");
+        std::fs::write(&f, "pub fn target() {}\n").unwrap();
+        let (ctx, calls) = recording_ctx(dir.clone());
+        let args = DirectiveArgs::parse(&format!(
+            "body name=target file={} kind=fn",
+            f.to_str().unwrap()
+        ));
+        let out = SymbolBridge.execute(&ctx, &args).unwrap();
+        assert!(out.is_empty(), "recording backend returns empty: {out}");
+        let calls = calls.borrow();
+        let (tool, payload) = calls.first().expect("one outbound call recorded");
+        assert_eq!(tool, "ctx_search", "routes to ctx_search");
+        assert_eq!(
+            payload.get("action").and_then(|v| v.as_str()),
+            Some("symbol")
+        );
+        assert_eq!(payload.get("name").and_then(|v| v.as_str()), Some("target"));
+        assert_eq!(payload.get("kind").and_then(|v| v.as_str()), Some("fn"));
+        assert!(payload.get("file").is_some(), "file forwarded: {payload}");
+    }
+
+    #[test]
+    fn body_missing_name_errors() {
+        let ctx = ctx_at(PathBuf::from("."));
+        let err = SymbolBridge
+            .execute(&ctx, &DirectiveArgs::parse("body"))
+            .unwrap_err();
+        assert!(
+            matches!(err, BridgeError::MissingArg("name")),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn body_op_dispatches_not_unknown() {
+        // body must NOT hit the unknown-op path even without file=/kind=.
+        let dir = std::env::temp_dir().join("lmd_symbol_body_disp");
+        std::fs::create_dir_all(&dir).unwrap();
+        let (ctx, calls) = recording_ctx(dir.clone());
+        let args = DirectiveArgs::parse("body name=Widget");
+        let out = SymbolBridge.execute(&ctx, &args).unwrap();
+        assert!(!out.contains("unknown @symbol op"), "must dispatch: {out}");
+        let calls = calls.borrow();
+        let (tool, payload) = calls.first().expect("one call recorded");
+        assert_eq!(tool, "ctx_search");
+        assert_eq!(payload.get("name").and_then(|v| v.as_str()), Some("Widget"));
+        assert!(payload.get("file").is_none(), "no file when omitted");
+        assert!(payload.get("kind").is_none(), "no kind when omitted");
+    }
+
+    #[test]
+    fn unknown_op_message_lists_body() {
+        let ctx = ctx_at(PathBuf::from("."));
+        let err = SymbolBridge
+            .execute(&ctx, &DirectiveArgs::parse("frobnicate x.rs"))
+            .unwrap_err();
+        match err {
+            BridgeError::Resolve(m) => assert!(m.contains("body"), "op list names body: {m}"),
+            other => panic!("expected Resolve, got: {other:?}"),
+        }
     }
 
     #[test]
