@@ -611,6 +611,7 @@ trailing prose
     }
 
     /// Build an `EngineContext` whose backend records outbound calls.
+    #[allow(clippy::type_complexity)]
     fn recording_ctx(
         root: std::path::PathBuf,
     ) -> (

@@ -26,10 +26,10 @@ pub enum Scope {
 /// Global Claude state dir (Spec E11/R3): `CLAUDE_CONFIG_DIR` else `~/.claude`.
 /// ONLY the global target reacts to `CLAUDE_CONFIG_DIR`.
 pub fn claude_state_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("CLAUDE_CONFIG_DIR") {
-        if !dir.is_empty() {
-            return PathBuf::from(dir);
-        }
+    if let Ok(dir) = std::env::var("CLAUDE_CONFIG_DIR")
+        && !dir.is_empty()
+    {
+        return PathBuf::from(dir);
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home).join(".claude")

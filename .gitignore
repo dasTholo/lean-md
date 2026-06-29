@@ -1,3 +1,7 @@
 /target
 **/*.rs.bk
 /.idea/
+
+# lean-md runtime overlays + materialized skill stubs (Spec §6)
+.lean-ctx/lean-md/
+/.claude/skills/

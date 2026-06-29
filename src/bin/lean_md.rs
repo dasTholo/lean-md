@@ -258,50 +258,6 @@ fn rpc_err(id: &Value, code: i64, message: &str) -> Value {
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn render_flags_parse_skill_and_phase() {
-        let a = parse_render_flags(&[
-            "--skill".to_string(),
-            "lmd-test-driven-development".to_string(),
-            "--phase".to_string(),
-            "red".to_string(),
-        ]);
-        assert_eq!(a.skill.as_deref(), Some("lmd-test-driven-development"));
-        assert_eq!(a.phase.as_deref(), Some("red"));
-    }
-
-    #[test]
-    fn skill_render_is_byte_stable_and_isolated() {
-        let jail = std::path::PathBuf::from(".");
-        let a = render_skill(
-            "lmd-test-driven-development",
-            Some("green"),
-            None,
-            None,
-            jail.clone(),
-        )
-        .unwrap();
-        let b = render_skill(
-            "lmd-test-driven-development",
-            Some("green"),
-            None,
-            None,
-            jail,
-        )
-        .unwrap();
-        assert_eq!(a, b, "render_skill must be deterministic (#498)");
-        assert!(a.contains("Verify GREEN"));
-        assert!(
-            !a.contains("Verify RED"),
-            "phase isolation in the exposed path"
-        );
-    }
-}
-
 fn cmd_skill(rest: &[String]) {
     let sub = rest.first().map_or("", String::as_str);
     let name = rest.iter().skip(1).find(|a| !a.starts_with('-'));
@@ -412,7 +368,7 @@ fn cmd_mcp() {
                             let crp = args
                                 .get("crp")
                                 .and_then(Value::as_str)
-                                .and_then(|s| CrpMode::parse(s));
+                                .and_then(CrpMode::parse);
                             let jail = std::env::current_dir()
                                 .unwrap_or_else(|_| std::path::PathBuf::from("."));
                             match render_skill(skill, phase, consumer, crp, jail) {
@@ -436,7 +392,7 @@ fn cmd_mcp() {
                                     let crp = args
                                         .get("crp")
                                         .and_then(Value::as_str)
-                                        .and_then(|s| CrpMode::parse(s));
+                                        .and_then(CrpMode::parse);
                                     let rendered = do_render(&source, jail, consumer, crp);
                                     rpc_ok(
                                         &id,
@@ -477,5 +433,49 @@ fn cmd_mcp() {
 
         let _ = writeln!(out, "{}", resp);
         let _ = out.flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_flags_parse_skill_and_phase() {
+        let a = parse_render_flags(&[
+            "--skill".to_string(),
+            "lmd-test-driven-development".to_string(),
+            "--phase".to_string(),
+            "red".to_string(),
+        ]);
+        assert_eq!(a.skill.as_deref(), Some("lmd-test-driven-development"));
+        assert_eq!(a.phase.as_deref(), Some("red"));
+    }
+
+    #[test]
+    fn skill_render_is_byte_stable_and_isolated() {
+        let jail = std::path::PathBuf::from(".");
+        let a = render_skill(
+            "lmd-test-driven-development",
+            Some("green"),
+            None,
+            None,
+            jail.clone(),
+        )
+        .unwrap();
+        let b = render_skill(
+            "lmd-test-driven-development",
+            Some("green"),
+            None,
+            None,
+            jail,
+        )
+        .unwrap();
+        assert_eq!(a, b, "render_skill must be deterministic (#498)");
+        assert!(a.contains("Verify GREEN"));
+        assert!(
+            !a.contains("Verify RED"),
+            "phase isolation in the exposed path"
+        );
     }
 }
