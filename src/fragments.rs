@@ -22,6 +22,13 @@ const DISPATCH_CONTRACT: &str = include_str!("../content/core/dispatch-contract.
 const TEST_FIRST_CORE: &str =
     include_str!("../content/skills/lmd-test-driven-development/_includes/test-first-core.lmd.md");
 
+/// Built-in `skill-authoring-core` fragment — the writing-skills discipline
+/// trip-wires (Iron Law + letter==spirit + TDD mapping + WARUM pointer).
+/// Skill-owned seed, flat global name; `@include skill-authoring-core` pulls it
+/// into every isolated writing-skills phase.
+const SKILL_AUTHORING_CORE: &str =
+    include_str!("../content/skills/lmd-writing-skills/_includes/skill-authoring-core.lmd.md");
+
 #[derive(Debug)]
 pub enum ResolveError {
     NotFound(String),
@@ -41,6 +48,7 @@ impl FragmentRegistry {
         builtins.insert("hard-rules", HARD_RULES);
         builtins.insert("dispatch-contract", DISPATCH_CONTRACT);
         builtins.insert("test-first-core", TEST_FIRST_CORE);
+        builtins.insert("skill-authoring-core", SKILL_AUTHORING_CORE);
         Self { builtins }
     }
 
@@ -197,6 +205,17 @@ mod tests {
             tfc_builtin, tfc_disk,
             "test-first-core drifted from seed file"
         );
+
+        let sac_disk = std::fs::read_to_string(
+            std::path::Path::new(manifest)
+                .join("content/skills/lmd-writing-skills/_includes/skill-authoring-core.lmd.md"),
+        )
+        .unwrap();
+        let sac_builtin = reg.resolve("skill-authoring-core", Path::new(".")).unwrap();
+        assert_eq!(
+            sac_builtin, sac_disk,
+            "skill-authoring-core drifted from seed file"
+        );
     }
 
     #[test]
@@ -210,6 +229,24 @@ mod tests {
         assert!(
             out.contains("Violating the letter of the rules is violating the spirit"),
             "test-first-core must carry the letter==spirit line"
+        );
+    }
+
+    #[test]
+    fn skill_authoring_core_is_a_builtin_with_iron_law() {
+        let reg = FragmentRegistry::with_builtins();
+        let out = reg.resolve("skill-authoring-core", Path::new(".")).unwrap();
+        assert!(
+            out.contains("NO SKILL WITHOUT A FAILING TEST FIRST"),
+            "skill-authoring-core must carry the Iron Law marker"
+        );
+        assert!(
+            out.contains("Writing skills IS test-driven development"),
+            "skill-authoring-core must state writing-skills-is-TDD"
+        );
+        assert!(
+            out.contains("lmd-test-driven-development"),
+            "skill-authoring-core must point to lmd-test-driven-development for the WARUM"
         );
     }
 }
