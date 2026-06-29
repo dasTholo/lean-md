@@ -16,6 +16,12 @@ const HARD_RULES: &str = include_str!("../content/core/hard-rules.lmd.md");
 /// (Phase 7C) substituiert sie.
 const DISPATCH_CONTRACT: &str = include_str!("../content/core/dispatch-contract.lmd.md");
 
+/// Built-in `test-first-core` fragment — the TDD discipline trip-wires
+/// (Iron Law + letter==spirit + red flags). Skill-owned seed, flat global name;
+/// `@include test-first-core` pulls it into every isolated TDD phase (Spec E5).
+const TEST_FIRST_CORE: &str =
+    include_str!("../content/skills/lmd-test-driven-development/_includes/test-first-core.lmd.md");
+
 #[derive(Debug)]
 pub enum ResolveError {
     NotFound(String),
@@ -34,6 +40,7 @@ impl FragmentRegistry {
         let mut builtins = HashMap::new();
         builtins.insert("hard-rules", HARD_RULES);
         builtins.insert("dispatch-contract", DISPATCH_CONTRACT);
+        builtins.insert("test-first-core", TEST_FIRST_CORE);
         Self { builtins }
     }
 
@@ -178,6 +185,31 @@ mod tests {
         assert_eq!(
             disp_builtin, disp_disk,
             "dispatch-contract drifted from seed file"
+        );
+
+        let tfc_disk =
+            std::fs::read_to_string(std::path::Path::new(manifest).join(
+                "content/skills/lmd-test-driven-development/_includes/test-first-core.lmd.md",
+            ))
+            .unwrap();
+        let tfc_builtin = reg.resolve("test-first-core", Path::new(".")).unwrap();
+        assert_eq!(
+            tfc_builtin, tfc_disk,
+            "test-first-core drifted from seed file"
+        );
+    }
+
+    #[test]
+    fn test_first_core_is_a_builtin_with_iron_law() {
+        let reg = FragmentRegistry::with_builtins();
+        let out = reg.resolve("test-first-core", Path::new(".")).unwrap();
+        assert!(
+            out.contains("NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"),
+            "test-first-core must carry the Iron Law marker"
+        );
+        assert!(
+            out.contains("Violating the letter of the rules is violating the spirit"),
+            "test-first-core must carry the letter==spirit line"
         );
     }
 }
