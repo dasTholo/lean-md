@@ -60,6 +60,7 @@ pub fn companion_body(skill: &str, companion: &str) -> Option<&'static str> {
 pub enum SkillRenderError {
     UnknownSkill(String),
     PhaseNotFound(String),
+    CompanionNotFound(String),
 }
 
 impl std::fmt::Display for SkillRenderError {
@@ -67,6 +68,7 @@ impl std::fmt::Display for SkillRenderError {
         match self {
             SkillRenderError::UnknownSkill(s) => write!(f, "UNKNOWN_SKILL '{s}'"),
             SkillRenderError::PhaseNotFound(p) => write!(f, "PHASE_NOT_FOUND '{p}'"),
+            SkillRenderError::CompanionNotFound(c) => write!(f, "COMPANION_NOT_FOUND '{c}'"),
         }
     }
 }
@@ -130,6 +132,45 @@ pub fn render_skill(
             Ok(render_body(&ctx, &isolated))
         }
     }
+}
+
+/// Render a full body source flat (no phase capture): header overrides + the
+/// `@var` pre-pass (default-if-absent), then a single `render_body` pass.
+/// Used only by `render_companion` (kept separate from `render_skill` on purpose —
+/// `render_skill` must keep its own ctx for `capture_phase_bodies`).
+fn render_full_source(
+    src: &str,
+    consumer: Option<Consumer>,
+    crp: Option<CrpMode>,
+    jail_root: PathBuf,
+) -> String {
+    let (mut header, body) = parse_header(src);
+    if let Some(c) = consumer {
+        header.consumer = c;
+    }
+    if let Some(m) = crp {
+        header.crp = m;
+    }
+    let ctx = Rc::new(EngineContext::new(header, jail_root));
+    ctx.vars_seed(crate::skill_vars::load_vars(&ctx.jail_root));
+    for decl in crate::skill_vars::scan_var_decls(body) {
+        ctx.var_set_default(&decl.name, &decl.default);
+    }
+    render_body(&ctx, body)
+}
+
+/// Render a skill's on-demand companion as one flat block (no phase sequence).
+/// Out-of-band like the body; embedded-only (no overlay layer — YAGNI).
+pub fn render_companion(
+    skill: &str,
+    companion: &str,
+    consumer: Option<Consumer>,
+    crp: Option<CrpMode>,
+    jail_root: PathBuf,
+) -> Result<String, SkillRenderError> {
+    let src = companion_body(skill, companion)
+        .ok_or_else(|| SkillRenderError::CompanionNotFound(format!("{skill}/{companion}")))?;
+    Ok(render_full_source(src, consumer, crp, jail_root))
 }
 
 #[cfg(test)]
@@ -426,6 +467,80 @@ mod tests {
         assert!(companion_body("lmd-test-driven-development", "testing-anti-patterns").is_some());
         assert!(companion_body("lmd-test-driven-development", "nope").is_none());
         assert!(companion_body("nope", "testing-anti-patterns").is_none());
+    }
+
+    #[test]
+    fn companion_renders_all_anti_pattern_markers() {
+        let out = render_companion(
+            "lmd-test-driven-development",
+            "testing-anti-patterns",
+            None,
+            None,
+            PathBuf::from("."),
+        )
+        .unwrap();
+        for marker in [
+            "Anti-Pattern 1",
+            "Anti-Pattern 2",
+            "Anti-Pattern 3",
+            "Anti-Pattern 4",
+            "Anti-Pattern 5",
+            "Quick Reference",
+            "Red Flags",
+        ] {
+            assert!(out.contains(marker), "companion missing '{marker}': {out}");
+        }
+    }
+
+    #[test]
+    fn companion_includes_test_first_core_iron_law() {
+        let out = render_companion(
+            "lmd-test-driven-development",
+            "testing-anti-patterns",
+            None,
+            None,
+            PathBuf::from("."),
+        )
+        .unwrap();
+        assert!(
+            out.contains("NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"),
+            "companion must @include test-first-core (Iron Law marker): {out}"
+        );
+    }
+
+    #[test]
+    fn unknown_companion_errors() {
+        let err = render_companion(
+            "lmd-test-driven-development",
+            "does-not-exist",
+            None,
+            None,
+            PathBuf::from("."),
+        )
+        .unwrap_err();
+        assert!(matches!(err, SkillRenderError::CompanionNotFound(_)));
+    }
+
+    #[test]
+    fn companion_render_is_deterministic() {
+        let jail = PathBuf::from(".");
+        let a = render_companion(
+            "lmd-test-driven-development",
+            "testing-anti-patterns",
+            None,
+            None,
+            jail.clone(),
+        )
+        .unwrap();
+        let b = render_companion(
+            "lmd-test-driven-development",
+            "testing-anti-patterns",
+            None,
+            None,
+            jail,
+        )
+        .unwrap();
+        assert_eq!(a, b, "render_companion must be deterministic (#498)");
     }
 
     #[test]
