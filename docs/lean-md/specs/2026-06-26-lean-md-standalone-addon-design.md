@@ -332,6 +332,12 @@ erweitern:
   `LEAN_MD_MCP_ENDPOINT`) + Parity-Gate #3 ohne gesetzten Endpoint (heute
   `ignored`). Reifung des Performance-Pfads gegenüber dem CliBackend-Default;
   nur relevant bei vielen Code-Intel-Direktiven pro Render.
+- **Namespacing-Transparenz (§5.1.1-Befund):** Das Gateway vergibt dem Addon-Tool
+  hart einen Prefix (`lean-md::ctx_md_render`, Quelle `core/gateway/catalog.rs`,
+  `format!("{}::{}", server.name, tool)`) — ein transparenter/leerer Namespace ist
+  heute nicht möglich. Upstream-Folgevorschlag: opt-in transparenter Namespace,
+  damit der Tool-Name byte-identisch zum Phase-9-Namen (`ctx_md_render`) bleibt.
+  **Kein** v2-Blocker — Tests + Delegation laufen über den Prefix-Namen.
 
 ### 5.4 Addon-Config — offene Entscheidung (zero-config vs. `[mcp].env`-Defaults)
 
@@ -391,7 +397,10 @@ nach Installation + Server-Neustart.
   realen Tool-Namen prüfen → Befund (transparent | Prefix + Folgeticket).
 - **R3 Live-E2E-Gates (§5.1.2):** #4/#5 manuell grün fahren (dokumentiert) + CI-Strategie
   festlegen.
-- **R4 Zukunftspfade (§5.3):** als Upstream-Folgevorschläge notieren (kein Code in v2).
+- **R4 Zukunftspfade (§5.3):** **erledigt** (2026-06-29) — die Upstream-Followups
+  (Host-Callback, McpBackend-Reife, Namespacing-Transparenz) sind in §5.3 verankert.
+  **Keine** separate `FOLLOWUPS.md` (YAGNI): Single Source = dieser Spec; eine zweite
+  Datei wäre nur Fakten-Duplikat mit Drift-Risiko.
 
 ---
 
