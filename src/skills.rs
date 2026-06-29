@@ -87,6 +87,14 @@ pub fn render_skill(
     }
     let ctx = Rc::new(EngineContext::new(header, jail_root));
 
+    // `@var` pre-pass (Spec): seed the override layer from `vars.toml`, then fill
+    // `@var …default=` defaults from the FULL body (default-if-absent). Runs on the
+    // full body so isolated phases see vars declared at body-top (outside phases).
+    ctx.vars_seed(crate::skill_vars::load_vars(&ctx.jail_root));
+    for decl in crate::skill_vars::scan_var_decls(body) {
+        ctx.var_set_default(&decl.name, &decl.default);
+    }
+
     match phase {
         None => Ok(render_body(&ctx, body)),
         Some(p) => {
@@ -257,6 +265,73 @@ mod tests {
         )
         .unwrap();
         assert!(out.contains("Verify RED"), "embedded body fallback: {out}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Write a synthetic overlay body declaring a var at body-top (outside phases)
+    /// and using it inside an isolated phase — the phase-isolation crux.
+    fn write_var_overlay(root: &std::path::Path) {
+        let dir = root.join(".lean-ctx/lean-md/skills/lmd-test-driven-development");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("body.lmd.md"),
+            "@var demo_cmd default=\"DEFAULT_VAL\" desc=\"d\"\n\
+             @phase \"p1\"\nP1 uses {{ var demo_cmd }} here\n@phase-end\n\
+             @phase \"p2\"\nP2_FOREIGN_MARKER\n@phase-end\n",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn prepass_default_applies_and_phase_isolated() {
+        let root = std::env::temp_dir().join(format!("lmd_var_default_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        write_var_overlay(&root);
+        let out = render_skill(
+            "lmd-test-driven-development",
+            Some("p1"),
+            None,
+            None,
+            root.clone(),
+        )
+        .unwrap();
+        assert!(
+            out.contains("DEFAULT_VAL"),
+            "@var default must resolve in isolated phase: {out}"
+        );
+        assert!(
+            !out.contains("P2_FOREIGN_MARKER"),
+            "no cross-phase leak: {out}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn prepass_config_overrides_default() {
+        let root = std::env::temp_dir().join(format!("lmd_var_override_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        write_var_overlay(&root);
+        std::fs::write(
+            root.join(".lean-ctx/lean-md/vars.toml"),
+            "demo_cmd = \"OVERRIDE_VAL\"\n",
+        )
+        .unwrap();
+        let out = render_skill(
+            "lmd-test-driven-development",
+            Some("p1"),
+            None,
+            None,
+            root.clone(),
+        )
+        .unwrap();
+        assert!(
+            out.contains("OVERRIDE_VAL"),
+            "vars.toml must win over @var default: {out}"
+        );
+        assert!(
+            !out.contains("DEFAULT_VAL"),
+            "default must be shadowed by config: {out}"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }
