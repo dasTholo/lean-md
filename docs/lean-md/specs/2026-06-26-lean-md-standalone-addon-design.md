@@ -252,9 +252,11 @@ Standard-`nextest`). Liefergegenstand:
   `lean-ctx addon add ./lean-ctx-addon.toml` → Server-Neustart →
   `cargo nextest run --test addon_roundtrip -- --ignored` (Expected: byte-identisch
   zu `lean-md render`).
-- **CI-Strategie:** entweder ein opt-in Integrations-Job (Addon installieren +
-  Server-Neustart skripten) ODER explizit als „manuell verifiziert"-Gate
-  dokumentieren — Transparenz statt stillem `ignored`.
+- **CI-Strategie:** Das Repo hat **keine CI** (kein `.github/workflows`) → es gibt
+  keinen Job zu bauen. Die Live-Gates bleiben `ignored` + **manuell verifiziert**
+  (Nachweis unten), explizit dokumentiert statt stillem `ignored`. Ein opt-in
+  Integrations-Job (Addon installieren + Server-Neustart skripten) ist ein
+  Setup-Followup, *sobald* CI eingeführt wird (§5.3).
 - **Akzeptanz:** Addon-Pfad == direkter `lean-md mcp`-Pfad (#4); `ctx_read` einer
   `.lmd.md` mit Addon == direktes `ctx_md_render`, ohne Addon → Rohtext (#5).
 - **Nachweis (2026-06-26):** #4 **funktional bestätigt** über den lean-ctx
@@ -338,6 +340,11 @@ erweitern:
   heute nicht möglich. Upstream-Folgevorschlag: opt-in transparenter Namespace,
   damit der Tool-Name byte-identisch zum Phase-9-Namen (`ctx_md_render`) bleibt.
   **Kein** v2-Blocker — Tests + Delegation laufen über den Prefix-Namen.
+- **CI-Integration (Setup-Followup, sobald CI existiert):** Das Repo hat heute
+  **keine CI** — die Live-Gates #4/#5 (`addon_roundtrip`, Delegation mit-Addon) sind
+  `ignored` + manuell verifiziert (§5.1.2). Wird CI eingeführt, wäre ein opt-in
+  Integrations-Job (Addon installieren + Server-Neustart skripten, dann
+  `--run-ignored`) der Pfad, um diese Gates automatisiert zu fahren.
 
 ### 5.4 Addon-Config — offene Entscheidung (zero-config vs. `[mcp].env`-Defaults)
 
@@ -384,7 +391,7 @@ nach Installation + Server-Neustart.
 
 | Risiko                                                                          | Mitigation                                                                                         |
 | Gateway-Namespace ändert Tool-Namen (`lean-md::ctx_md_render`)                  | §5.1.1 — transparenten Namespace anstreben; sonst Test-Toolname anpassen + Folgeticket.            |
-| Live-Gates bleiben dauerhaft `ignored` → Addon-Pfad faktisch unverifiziert      | §5.1.2 — dokumentierter manueller Durchlauf ODER opt-in CI-Job; nie stilles `ignored`.             |
+| Live-Gates bleiben dauerhaft `ignored` → Addon-Pfad faktisch unverifiziert      | §5.1.2 — kein CI im Repo → dokumentierter manueller Durchlauf (#4/#5 verifiziert 2026-06-29); opt-in CI-Job erst, falls CI eingeführt wird (§5.3); nie stilles `ignored`. |
 | Version-SSOT über mehrere Artefakte driftet (Cargo / Manifest / Specs)          | **erledigt** — alle auf `0.1.0` vereinheitlicht; künftige Bumps an `Cargo.toml` + `lean-ctx-addon.toml` synchron halten. |
 | `lean-ctx-client` zeigt auf **lokalen Pfad** (`Cargo.toml`-Kommentar)            | git/crates.io-Switch ist Distribution-Scope (hier NICHT enthalten); als Vorbedingung notieren.     |
 | README ohne Produkt-/Usage-Inhalt → schwer einsteigbar                          | §5.2.1 — README erweitern; INSTALL.md ableiten.                                                    |
@@ -395,8 +402,8 @@ nach Installation + Server-Neustart.
   (Apache-2.0) + Version-SSOT (`0.1.0`) bereits erledigt. Kein Code, sofort lieferbar.
 - **R2 Namespacing-Verifikation (§5.1.1):** Addon lokal installieren, Server-Neustart,
   realen Tool-Namen prüfen → Befund (transparent | Prefix + Folgeticket).
-- **R3 Live-E2E-Gates (§5.1.2):** #4/#5 manuell grün fahren (dokumentiert) + CI-Strategie
-  festlegen.
+- **R3 Live-E2E-Gates (§5.1.2):** #4/#5 manuell grün fahren (dokumentiert).
+  Kein CI im Repo → kein Job zu bauen; Gates bleiben `ignored` + manuell verifiziert.
 - **R4 Zukunftspfade (§5.3):** **erledigt** (2026-06-29) — die Upstream-Followups
   (Host-Callback, McpBackend-Reife, Namespacing-Transparenz) sind in §5.3 verankert.
   **Keine** separate `FOLLOWUPS.md` (YAGNI): Single Source = dieser Spec; eine zweite
