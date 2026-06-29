@@ -47,6 +47,22 @@ impl std::fmt::Display for SkillRenderError {
     }
 }
 
+/// D7 body-override: a jailed project overlay at
+/// `<jail_root>/.lean-ctx/lean-md/skills/<name>/body.lmd.md` wins over the
+/// embedded const, enabling local phase iteration without a recompile.
+/// PathJail-bound (no escape outside `jail_root`).
+fn overlay_body(name: &str, jail_root: &std::path::Path) -> Option<String> {
+    let candidate = jail_root
+        .join(".lean-ctx/lean-md/skills")
+        .join(name)
+        .join("body.lmd.md");
+    let resolved = crate::pathx::jail_path(&candidate, jail_root).ok()?;
+    if !resolved.exists() {
+        return None;
+    }
+    std::fs::read_to_string(&resolved).ok()
+}
+
 /// Render an embedded skill body, optionally isolated to a single named phase.
 /// `phase=None` renders the full body; `Some(p)` renders ONLY phase `p`
 /// (populated via the `capture_phase_bodies` pre-pass — no cross-phase leak).
@@ -57,7 +73,11 @@ pub fn render_skill(
     crp: Option<CrpMode>,
     jail_root: PathBuf,
 ) -> Result<String, SkillRenderError> {
-    let src = skill_body(name).ok_or_else(|| SkillRenderError::UnknownSkill(name.to_string()))?;
+    let owned_overlay = overlay_body(name, &jail_root);
+    let src: &str = match owned_overlay.as_deref() {
+        Some(s) => s,
+        None => skill_body(name).ok_or_else(|| SkillRenderError::UnknownSkill(name.to_string()))?,
+    };
     let (mut header, body) = parse_header(src);
     if let Some(c) = consumer {
         header.consumer = c;
@@ -189,5 +209,54 @@ mod tests {
             disk,
             "embedded TDD body drifted from seed file"
         );
+    }
+
+    #[test]
+    fn body_override_prefers_project_overlay() {
+        let root = std::env::temp_dir().join(format!("lmd_body_override_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let overlay_dir = root.join(".lean-ctx/lean-md/skills/lmd-test-driven-development");
+        std::fs::create_dir_all(&overlay_dir).unwrap();
+        std::fs::write(
+            overlay_dir.join("body.lmd.md"),
+            "@phase \"red\"\nOVERLAY_RED_MARKER\n@phase-end\n",
+        )
+        .unwrap();
+
+        let out = render_skill(
+            "lmd-test-driven-development",
+            Some("red"),
+            None,
+            None,
+            root.clone(),
+        )
+        .unwrap();
+        assert!(
+            out.contains("OVERLAY_RED_MARKER"),
+            "overlay body must be rendered when present: {out}"
+        );
+        assert!(
+            !out.contains("Verify RED"),
+            "embedded body must NOT be used when overlay exists: {out}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn body_override_falls_back_to_embedded_when_absent() {
+        // No overlay under this jail root → embedded body is used.
+        let root = std::env::temp_dir().join(format!("lmd_no_overlay_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let out = render_skill(
+            "lmd-test-driven-development",
+            Some("red"),
+            None,
+            None,
+            root.clone(),
+        )
+        .unwrap();
+        assert!(out.contains("Verify RED"), "embedded body fallback: {out}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
