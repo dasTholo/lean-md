@@ -13,6 +13,8 @@ run `ctx_shell` ({{ var test_cmd }}) and confirm the test fails *for the right r
 
 Good: the test names the behavior and fails on the assertion.
 Bad: it fails only because the symbol does not exist yet — that proves nothing about behavior.
+
+next: render phase "green".
 @phase-end
 
 @phase "green"
@@ -24,6 +26,8 @@ Write the least code that makes the failing test pass. Then **Verify GREEN (mand
 run `ctx_shell` ({{ var test_cmd }}) and confirm the test passes.
 
 YAGNI: no speculative parameters, no extra abstraction, no code the test does not demand.
+
+next: render phase "refactor".
 @phase-end
 
 @phase "refactor"
@@ -34,6 +38,8 @@ YAGNI: no speculative parameters, no extra abstraction, no code the test does no
 Refactor only under green: remove duplication, improve names, extract helpers.
 No new behavior here — if you need new behavior, return to RED. Re-run
 `ctx_shell` ({{ var test_cmd }}) after each change; it must stay green.
+
+next: render phase "red" for the next behavior.
 @phase-end
 
 @phase "rationalizations"
@@ -51,5 +57,8 @@ No new behavior here — if you need new behavior, return to RED. Re-run
 **When stuck:** shrink the test until one tiny behavior is in scope, then RED → GREEN.
 
 Verification checklist: test written first · RED observed · minimal GREEN · refactor under green.
-(For testing anti-patterns, see the companion ported in Spec #2 — `testing-anti-patterns`.)
+For testing anti-patterns (mocks, test-only methods, incomplete mocks), render the companion:
+`ctx_md_render(skill="lmd-test-driven-development", companion="testing-anti-patterns")`.
+
+next: return to your active phase (red/green/refactor).
 @phase-end

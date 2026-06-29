@@ -589,4 +589,46 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn rationalizations_points_to_companion_render() {
+        let out = render_skill(
+            "lmd-test-driven-development",
+            Some("rationalizations"),
+            None,
+            None,
+            PathBuf::from("."),
+        )
+        .unwrap();
+        assert!(
+            out.contains("companion=\"testing-anti-patterns\""),
+            "rationalizations must carry the concrete companion render call: {out}"
+        );
+        assert!(
+            !out.contains("ported in Spec #2"),
+            "the Spec #2 placeholder must be gone: {out}"
+        );
+    }
+
+    #[test]
+    fn phases_carry_next_pointers() {
+        for (phase, needle) in [
+            ("red", "next: render phase \"green\""),
+            ("green", "next: render phase \"refactor\""),
+            ("refactor", "next: render phase \"red\""),
+        ] {
+            let out = render_skill(
+                "lmd-test-driven-development",
+                Some(phase),
+                None,
+                None,
+                PathBuf::from("."),
+            )
+            .unwrap();
+            assert!(
+                out.contains(needle),
+                "phase {phase} missing next-pointer '{needle}': {out}"
+            );
+        }
+    }
 }
