@@ -50,6 +50,7 @@ content/skills/lmd-writing-skills/
     bulletproofing.lmd.md
     skill-anatomy.lmd.md
     flowchart-conventions.lmd.md
+    claude-md-testing-example.lmd.md
   render-graphs.js                               # Asset (install-materialisiert, nicht gerendert)
 ```
 
@@ -88,10 +89,13 @@ Trip-Wire, in **jede** Phase `@include`d. Trägt:
 `lmd-test-driven-development`. Beide sind Geschwister-Cores (paralleles Iron Law),
 kein File-`@include` voneinander. Die TDD-Verbindung ist Inhalt, nicht Include.
 
-### Companions (7)
+### Companions (8)
 
 Render: `ctx_md_render(skill="lmd-writing-skills", companion="<name>")`.
-`phase` und `companion` sind mutually exclusive.
+`phase` und `companion` sind mutually exclusive. Die disziplin-nahen Companions
+(`testing-skills-with-subagents`, `bulletproofing`) ziehen `@include skill-authoring-core`
+am Kopf (Trip-Wire, wie die Schwester-Companion); reine Reference-Companions bleiben
+verbatim.
 
 | Companion | Quelle im Original |
 |---|---|
@@ -102,6 +106,7 @@ Render: `ctx_md_render(skill="lmd-writing-skills", companion="<name>")`.
 | `bulletproofing` | Sektion „Bulletproofing Skills Against Rationalization" + „Match the Form to the Failure" |
 | `skill-anatomy` | „What is a Skill", „Skill Types", „Directory Structure", „SKILL.md Structure", „Code Examples", „File Organization", „Anti-Patterns" |
 | `flowchart-conventions` | Sektion „Flowchart Usage" + `graphviz-conventions.dot` (verbatim ```dot-Block erhalten) |
+| `claude-md-testing-example` | `examples/CLAUDE_MD_TESTING.md` (Voll-Port; Worked-Example der Test-Methodik) |
 
 ### Asset: `render-graphs.js`
 
@@ -131,6 +136,9 @@ Nutzer — wie im Original. Kein Rendering durch `ctx_md_render`.
 | `persuasion-principles.md` | Companion `persuasion-principles` |
 | `anthropic-best-practices.md` | Companion `anthropic-best-practices` |
 | `graphviz-conventions.dot` | Companion `flowchart-conventions` |
+| `examples/CLAUDE_MD_TESTING.md` | Companion `claude-md-testing-example` |
+| „See examples/CLAUDE_MD_TESTING.md" (in testing-skills-with-subagents) | `ctx_md_render(... companion="claude-md-testing-example")` |
+| Cross-Ref-Beispiele „Use superpowers:test-driven-development" (skill-anatomy) | auf `lmd-test-driven-development` angepasst |
 | `render-graphs.js` | Asset (install-materialisiert) |
 
 ## Fidelity-Coverage-Matrix (Audit-Artefakt)
@@ -149,6 +157,7 @@ Vollständige Quell-Inventur — jede Original-Sektion/Datei → genau ein lmd-Z
 | „Flowchart Usage" + `graphviz-conventions.dot` | Companion `flowchart-conventions` |
 | `anthropic-best-practices.md` | Companion `anthropic-best-practices` |
 | `persuasion-principles.md` | Companion `persuasion-principles` |
+| `examples/CLAUDE_MD_TESTING.md` (Worked-Example) | Companion `claude-md-testing-example` |
 | `render-graphs.js` | Asset |
 | `when_flowchart` / Prozess-Diagramme | erhalten im jeweiligen Ziel (verbatim ```dot) |
 
@@ -159,7 +168,7 @@ Vollständige Quell-Inventur — jede Original-Sektion/Datei → genau ein lmd-Z
 - `skill_registered` — `all_skill_bodies`/`skill_body` enthalten `lmd-writing-skills`.
 - `fragment_consistency` — built-in `skill-authoring-core` == On-Disk-Seed (byte-stabil).
 - `phase_isolation` — keine Phase leakt Inhalt einer anderen (`red`∩`green`∩`refactor`∩`rationalizations`).
-- `companion_render` — alle 7 Companions lösen nicht-leer auf; `phase`+`companion` mutually exclusive.
+- `companion_render` — alle 8 Companions lösen nicht-leer auf; `phase`+`companion` mutually exclusive.
 - `cli_eq_mcp` — `render_skill`/`render_companion` byte-identisch über CLI- und MCP-Surface.
 - `coverage_rows` — `availability.rs` trägt `lmd-writing-skills`-Zeilen (Workflow-Schritt → Direktive → lean-ctx-Backing) inkl. Companion-Zeile.
 - `asset_materialization` — `install_skill` schreibt `render-graphs.js`, idempotent (absent-only), korrektes Ziel.
