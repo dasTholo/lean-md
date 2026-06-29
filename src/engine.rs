@@ -508,17 +508,31 @@ mod tests {
     // ── Phase 3.4 gate: @reformat + @inspect e2e through the render pipeline ──
 
     #[test]
-    fn reformat_renders_backend_required_e2e() {
-        // @reformat must dispatch through the full render pipeline and degrade
-        // to the BACKEND_REQUIRED envelope headless — never the unknown-directive
-        // fallback, never a panic.
+    fn reformat_dispatches_through_render_pipeline() {
+        // @reformat must dispatch through the full render pipeline and pass the
+        // backend output through — never the unknown-directive fallback, never a
+        // panic. Headless degradation (BACKEND_REQUIRED) vs. live-IDE / rustfmt
+        // success is lean-ctx's contract, so we inject a stub backend and assert
+        // only lean-md's own behaviour: dispatch + verbatim pass-through.
+        use crate::backend::{BackendError, CodeIntelBackend};
+        struct StubBackend;
+        impl CodeIntelBackend for StubBackend {
+            fn call(&self, _tool: &str, _args: serde_json::Value) -> Result<String, BackendError> {
+                Ok("STUB_REFORMAT_OK".to_string())
+            }
+        }
+
         let dir = std::env::temp_dir().join("lmd_gate_reformat");
         std::fs::create_dir_all(&dir).unwrap();
         let f = dir.join("e2e.rs");
         std::fs::write(&f, "fn   spaced( ) {}\n").unwrap();
         let p = f.to_str().unwrap();
 
-        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), dir.clone()));
+        let ctx = Rc::new(EngineContext::with_backend(
+            LeanMdHeader::default(),
+            dir.clone(),
+            Box::new(StubBackend),
+        ));
         let out = render_body(&ctx, &format!("@reformat path={p}\n"));
 
         assert!(
@@ -526,8 +540,8 @@ mod tests {
             "@reformat must dispatch (not unknown-directive fallback): {out}"
         );
         assert!(
-            out.contains("BACKEND_REQUIRED") || out.starts_with("ERROR"),
-            "headless reformat must degrade to BACKEND_REQUIRED envelope, got: {out}"
+            out.contains("STUB_REFORMAT_OK"),
+            "backend output must pass through the render pipeline, got: {out}"
         );
         assert!(!out.trim().is_empty(), "empty render");
     }
