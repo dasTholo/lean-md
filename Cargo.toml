@@ -30,3 +30,10 @@ lean-ctx-client = { path = "/home/tholo/Scripts/lean-ctx/clients/rust/lean-ctx-c
 [features]
 default = []
 mcp = ["dep:lean-ctx-client"]
+
+[dev-dependencies]
+tiktoken-rs = "0.12"
+
+[[example]]
+name = "skill-token-comparison"
+path = "benchmarks/skill-token-comparison/main.rs"
