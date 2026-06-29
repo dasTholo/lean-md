@@ -29,6 +29,15 @@ pub const COVERAGE: &[(&str, &str, &str, &str)] = &[
         "include",
         "fragment-compose",
     ),
+    // writing-skills is prose-discipline: the RED baseline reads the skill/test.
+    ("lmd-writing-skills", "red", "read", "ctx_read"),
+    // Discipline companion pulls the trip-wire via `@include skill-authoring-core`.
+    (
+        "lmd-writing-skills",
+        "testing-skills-with-subagents",
+        "include",
+        "fragment-compose",
+    ),
 ];
 
 /// Tools deliberately outside the brainstorming directive surface. Note: TDD's
@@ -72,6 +81,7 @@ mod tests {
             COVERAGE.iter().map(|(skill, _, _, _)| *skill).collect();
         assert!(skills.contains("lmd-brainstorm"));
         assert!(skills.contains("lmd-test-driven-development"));
+        assert!(skills.contains("lmd-writing-skills"));
     }
 
     #[test]

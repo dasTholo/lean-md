@@ -34,3 +34,12 @@ TDD ist Prosa-Disziplin (phasenweise gerendert), direktiv-arm:
 **Bewusster Gap:** Die Test-Ausführung (`ctx_shell "cargo nextest run"`) ist **keine**
 registrierte Direktive — sie läuft als rohes `ctx_shell`, nicht als Code-Intel-Direktive.
 RED/GREEN-Verifikation ist Prosa-Anweisung im Body, kein Registry-Eintrag (transparent, kein Loch).
+
+## lmd-writing-skills — Coverage
+
+| Workflow-Schritt | lmd-Direktive | lean-ctx-Backing |
+| red (baseline read) | `@read` | `ctx_read` |
+| companion (@include skill-authoring-core) | `@include` | fragment-compose |
+
+Test execution (subagent pressure scenarios) is prose-discipline, not a registered
+directive — recorded here for transparency.
