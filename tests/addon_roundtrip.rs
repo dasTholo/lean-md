@@ -12,19 +12,16 @@ fn direct_render(input_path: &str) -> String {
 }
 
 fn via_leanctx_call(input_path: &str, root: &str) -> String {
-    // ctx_md_render reached through the lean-ctx server/gateway after install.
-    let args = format!(r#"{{"path": "{input_path}"}}"#);
+    // Addon tools are reached through the `ctx_tools` downstream gateway
+    // (handle `lean-md::ctx_md_render`), NOT the `ctx_call` router which only
+    // exposes lean-ctx's own built-in tools.
+    let args = format!(
+        r#"{{"action":"call","tool":"lean-md::ctx_md_render","arguments":{{"path":"{input_path}"}}}}"#
+    );
     let out = Command::new("lean-ctx")
-        .args([
-            "call",
-            "ctx_md_render",
-            "--project-root",
-            root,
-            "--json",
-            &args,
-        ])
+        .args(["call", "ctx_tools", "--project-root", root, "--json", &args])
         .output()
-        .expect("lean-ctx call ctx_md_render");
+        .expect("lean-ctx call ctx_tools");
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
@@ -40,8 +37,13 @@ fn addon_render_matches_direct_render() {
 
     let direct = direct_render(path);
     let via = via_leanctx_call(path, root);
+    // The `lean-ctx call` CLI wrapper appends one extra trailing newline around
+    // the tool payload; the rendered body itself is byte-identical. Compare on
+    // the trailing-whitespace-normalized payload so the CLI framing artifact
+    // does not mask a true render mismatch.
     assert_eq!(
-        direct, via,
+        direct.trim_end(),
+        via.trim_end(),
         "addon-path render must equal direct render (#4)"
     );
 }

@@ -270,13 +270,15 @@ Standard-`nextest`). Liefergegenstand:
   **nicht** am `ctx_call`/`ctx_discover_tools`-Router (der nur lean-ctx-eigene
   Tools listet) — daher das anfängliche `unknown tool`. Der frühere „CLI-`call`
   routet nicht zu Addon-Tools / Test-Redesign nötig"-Schluss war falsch.
-- **Offen (TODO.md, lean-ctx-seitig):** CLI `lean-ctx call ctx_tools` paniced
+- **CLI-Nachweis (2026-06-29, behoben):** Der frühere CLI-Panic
   (`no reactor running, must be called from a Tokio 1.x runtime`,
-  `rust/src/tools/ctx_tools.rs:37`). Daher bleibt der CLI-basierte
-  `addon_roundtrip.rs` (#4, nutzt `lean-ctx call`) blockiert, bis der CLI-Pfad
-  einen Tokio-Runtime aufsetzt; danach `via_leanctx_call` auf
-  `lean-ctx call ctx_tools {"action":"call","tool":"lean-md::ctx_md_render",…}`
-  umstellen. **Kein** v2-Blocker (MCP-Gateway-Pfad ist grün); Upstream-Fix in lean-ctx.
+  `rust/src/tools/ctx_tools.rs:37`) ist in lean-ctx ≥ 3.8.15 gefixt. `addon_roundtrip.rs`
+  (#4) wurde von `lean-ctx call ctx_md_render` (falscher Router) auf den Gateway-Weg
+  `lean-ctx call ctx_tools {"action":"call","tool":"lean-md::ctx_md_render",…}` umgestellt
+  und ist **grün**: `cargo nextest run --test addon_roundtrip --run-ignored ignored-only
+  --features mcp` → 1 passed. CLI-Gateway-Render == direkter `lean-md render` (byte-identisch
+  bis auf einen umschließenden `\n`, den die `lean-ctx call`-CLI anhängt; Test normalisiert
+  via `trim_end()`). Damit ist #4 sowohl über den MCP- als auch den CLI-Gateway-Pfad bestätigt.
 
 ### 5.2 Dokumentation
 
