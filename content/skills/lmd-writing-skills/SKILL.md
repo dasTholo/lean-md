@@ -38,7 +38,9 @@ Start over. Delete means delete.
 - `skill-anatomy` — what a skill is, types, directory/file structure, SKILL.md template, anti-patterns
 - `skill-discovery-optimization` — description/keyword/naming/token rules + discovery workflow
 - `bulletproofing` — close loopholes, rationalization tables, match-the-form-to-the-failure
-- `testing-skills-with-subagents` — full testing methodology + creation checklist
+- `testing/methodology` — RED→GREEN→REFACTOR testing workflow (pressure scenarios, rationalization tables)
+- `testing/skill-types` — how to test discipline/technique/pattern/reference skills
+- `testing/creation-checklist` — TDD (test-driven development)-adapted checklist before deploying a skill
 - `claude-md-testing-example` — worked example of a test campaign
 - `flowchart-conventions` — when to use graphviz, shape/naming conventions
 - `anthropic-best-practices` — Anthropic's official skill authoring guidance

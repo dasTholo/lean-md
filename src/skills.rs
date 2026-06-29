@@ -24,8 +24,12 @@ const LMD_WS_SDO: &str = include_str!(
 );
 const LMD_WS_BULLETPROOFING: &str =
     include_str!("../content/skills/lmd-writing-skills/companions/bulletproofing.lmd.md");
-const LMD_WS_TESTING_SUBAGENTS: &str = include_str!(
-    "../content/skills/lmd-writing-skills/companions/testing-skills-with-subagents.lmd.md"
+const LMD_WS_TESTING_METHODOLOGY: &str =
+    include_str!("../content/skills/lmd-writing-skills/companions/testing/methodology.lmd.md");
+const LMD_WS_TESTING_SKILL_TYPES: &str =
+    include_str!("../content/skills/lmd-writing-skills/companions/testing/skill-types.lmd.md");
+const LMD_WS_TESTING_CREATION_CHECKLIST: &str = include_str!(
+    "../content/skills/lmd-writing-skills/companions/testing/creation-checklist.lmd.md"
 );
 const LMD_WS_CLAUDE_MD_TESTING: &str = include_str!(
     "../content/skills/lmd-writing-skills/companions/claude-md-testing-example.lmd.md"
@@ -83,8 +87,18 @@ const COMPANIONS: &[(&str, &str, &str)] = &[
     ),
     (
         "lmd-writing-skills",
-        "testing-skills-with-subagents",
-        LMD_WS_TESTING_SUBAGENTS,
+        "testing/methodology",
+        LMD_WS_TESTING_METHODOLOGY,
+    ),
+    (
+        "lmd-writing-skills",
+        "testing/skill-types",
+        LMD_WS_TESTING_SKILL_TYPES,
+    ),
+    (
+        "lmd-writing-skills",
+        "testing/creation-checklist",
+        LMD_WS_TESTING_CREATION_CHECKLIST,
     ),
     (
         "lmd-writing-skills",
@@ -797,7 +811,9 @@ mod tests {
             "skill-anatomy",
             "skill-discovery-optimization",
             "bulletproofing",
-            "testing-skills-with-subagents",
+            "testing/methodology",
+            "testing/skill-types",
+            "testing/creation-checklist",
             "claude-md-testing-example",
             "flowchart-conventions",
             "anthropic-best-practices",
@@ -813,7 +829,7 @@ mod tests {
     #[test]
     fn writing_skills_discipline_companions_carry_trip_wire() {
         let jail = std::path::PathBuf::from(".");
-        for n in ["testing-skills-with-subagents", "bulletproofing"] {
+        for n in ["testing/methodology", "bulletproofing"] {
             let out = render_companion("lmd-writing-skills", n, None, None, jail.clone()).unwrap();
             assert!(
                 out.contains("NO SKILL WITHOUT A FAILING TEST FIRST"),
@@ -857,21 +873,30 @@ mod tests {
 
     #[test]
     fn writing_skills_testing_companion_carries_skill_md_sections() {
-        let out = render_companion(
+        let jail = std::path::PathBuf::from(".");
+        let types = render_companion(
             "lmd-writing-skills",
-            "testing-skills-with-subagents",
+            "testing/skill-types",
             None,
             None,
-            std::path::PathBuf::from("."),
+            jail.clone(),
         )
         .unwrap();
         assert!(
-            out.contains("Testing All Skill Types"),
-            "testing companion must carry the 'Testing All Skill Types' SKILL.md section (fidelity)"
+            types.contains("Testing All Skill Types"),
+            "skill-types companion must carry the 'Testing All Skill Types' section (fidelity)"
         );
+        let checklist = render_companion(
+            "lmd-writing-skills",
+            "testing/creation-checklist",
+            None,
+            None,
+            jail,
+        )
+        .unwrap();
         assert!(
-            out.contains("Skill Creation Checklist (TDD Adapted)"),
-            "testing companion must carry the 'Skill Creation Checklist' SKILL.md section (fidelity)"
+            checklist.contains("Skill Creation Checklist (TDD Adapted)"),
+            "creation-checklist companion must carry the 'Skill Creation Checklist' section (fidelity)"
         );
     }
 
@@ -890,7 +915,9 @@ mod tests {
             "skill-anatomy",
             "skill-discovery-optimization",
             "bulletproofing",
-            "testing-skills-with-subagents",
+            "testing/methodology",
+            "testing/skill-types",
+            "testing/creation-checklist",
             "claude-md-testing-example",
             "flowchart-conventions",
             "anthropic-best-practices",
@@ -902,5 +929,48 @@ mod tests {
                 "companion {c} rendered too thin — content lost?"
             );
         }
+    }
+
+    #[test]
+    fn writing_skills_testing_split_carries_all_original_sections() {
+        let jail = std::path::PathBuf::from(".");
+        let methodology = render_companion(
+            "lmd-writing-skills",
+            "testing/methodology",
+            None,
+            None,
+            jail.clone(),
+        )
+        .unwrap();
+        // Methodology marker + Iron Law via @include skill-authoring-core.
+        assert!(
+            methodology.contains("RED Phase: Baseline Testing"),
+            "methodology must carry the RED-baseline section: {methodology}"
+        );
+        assert!(
+            methodology.contains("NO SKILL WITHOUT A FAILING TEST FIRST"),
+            "methodology must @include skill-authoring-core (Iron Law)"
+        );
+        let types = render_companion(
+            "lmd-writing-skills",
+            "testing/skill-types",
+            None,
+            None,
+            jail.clone(),
+        )
+        .unwrap();
+        assert!(types.contains("Reference Skills"), "skill-types fidelity");
+        let checklist = render_companion(
+            "lmd-writing-skills",
+            "testing/creation-checklist",
+            None,
+            None,
+            jail,
+        )
+        .unwrap();
+        assert!(
+            checklist.contains("Deployment"),
+            "creation-checklist fidelity (Deployment section)"
+        );
     }
 }
