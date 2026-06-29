@@ -17,7 +17,8 @@ The `TOOL_CALL_OVERHEAD_TOKENS` assumption (roundtrip overhead per
 ## Layer B — subagent validation (pressure-tested)
 
 Layer B adapts the superpowers methodology from
-`writing-skills/testing-skills-with-subagents.md`: **testing a skill is just TDD
+`writing-skills/testing-skills-with-subagents.md` (worked example:
+`writing-skills/examples/CLAUDE_MD_TESTING.md`): **testing a skill is just TDD
 applied to process documentation.** A discipline-enforcing skill only proves its
 worth when an agent follows it under pressure that makes the agent *want* to break
 it. We reuse that exact apparatus to drive *realistic* skill usage and measure the
@@ -32,6 +33,19 @@ pressure **stop early** — most stop at RED/GREEN and never render `refactor` /
 actually reach for mocks. The pressure scenarios exist to find out whether that
 early-stop happens in practice, and whether the per-call tool overhead stays
 smaller than the content tokens B avoids loading.
+
+### Variants compared (incl. the NULL floor)
+
+| Variant | Delivery | Skill tokens loaded |
+|---|---|---|
+| NULL | no skill at all | 0 — the floor |
+| A — superpowers | one monolithic `SKILL.md` (+ companion) loaded up front | full monolith |
+| B — lmd | phases rendered on demand, one at a time | only the phases actually reached |
+
+The NULL baseline is required by the source methodology: *if you didn't watch an
+agent work without the skill, you don't know what the skill changes.* It also
+fixes the lower bound — every token a variant spends above NULL must be repaid by
+better behavior.
 
 ### Pressure taxonomy (combine 3+ — a single pressure is too weak)
 
@@ -63,16 +77,27 @@ Runnable scenarios live in `scenarios/`:
     scenarios/01-sunk-cost-time-exhaustion.md
     scenarios/02-authority-economic-pragmatic.md
 
-### Running Layer B
+### Running Layer B (four steps per scenario)
 
-Solve the **same** scenario once per variant (A = the superpowers monolith,
-B = the lmd phased skill). Each subagent report records **verbatim**: which skill
-artifacts were actually loaded (variant B: which phases were actually rendered)
-and how many tool calls occurred. Re-count the loaded artifacts with the same
-`harness` counting → real cumulative consumption.
+Run each `scenarios/*.md` through four steps, recording verbatim at each:
+
+1. **NULL baseline** — no skill loaded. Record the agent's natural choice (A/B/C)
+   and its rationalizations. Skill tokens spent: 0.
+2. **Run the variant** — once for A, once for B. Record which artifacts were
+   actually loaded (variant B: which phases were rendered, plus the companion if
+   pulled) and the tool-call count.
+3. **Pressure test** — the scenario already stacks 3+ pressures; check whether the
+   agent still completes the cycle or stops early at RED/GREEN (so B never loads
+   `refactor` / `rationalizations`).
+4. **Meta-test** — ask the agent afterward: "you had the skill and stopped at X —
+   why?" Capture the answer; it explains the early-stop the token numbers show.
+
+Re-count the loaded artifacts with the same `harness` counting → real cumulative
+consumption per variant, measured against the NULL floor.
 
 File reports under:
 
+    variant-NULL/<scenario-id>.md
     variant-A-superpowers/<scenario-id>.md
     variant-B-lmd/<scenario-id>.md
 
