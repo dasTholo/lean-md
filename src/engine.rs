@@ -42,6 +42,10 @@ pub struct EngineContext {
     /// Work-Bridges bleiben verbatim (D-3 Work-lazy). Getrennt von `phase_scope`
     /// (das den Inline-Render-Lifecycle trägt).
     pub(crate) phase_bodies: RefCell<HashMap<String, String>>,
+    /// Skill-body variables (`@var`). Seeded from `.lean-ctx/lean-md/vars.toml`
+    /// (override) then filled with `@var …default=` defaults (default-if-absent).
+    /// Interior mutability mirrors `param_scope`; read inline via `{{ var NAME }}`.
+    pub vars: RefCell<HashMap<String, String>>,
     /// `@import` dedupe: a library file is loaded at most once per render.
     imported: RefCell<HashSet<PathBuf>>,
     /// Phase-8 CRP: nesting guard so `apply_crp_hook` fires once — on the
@@ -68,6 +72,7 @@ impl EngineContext {
             param_scope: RefCell::new(Vec::new()),
             phase_scope: RefCell::new(Vec::new()),
             phase_bodies: RefCell::new(HashMap::new()),
+            vars: RefCell::new(HashMap::new()),
             imported: RefCell::new(HashSet::new()),
             render_depth: Cell::new(0),
             crp_sigs: RefCell::new(Vec::new()),
@@ -91,6 +96,7 @@ impl EngineContext {
             param_scope: RefCell::new(Vec::new()),
             phase_scope: RefCell::new(Vec::new()),
             phase_bodies: RefCell::new(HashMap::new()),
+            vars: RefCell::new(HashMap::new()),
             imported: RefCell::new(HashSet::new()),
             render_depth: Cell::new(0),
             crp_sigs: RefCell::new(Vec::new()),
@@ -130,6 +136,24 @@ impl EngineContext {
             .borrow()
             .last()
             .and_then(|m| m.get(name).cloned())
+    }
+    /// Look up a skill-body variable; `None` if unset.
+    pub fn var_get(&self, name: &str) -> Option<String> {
+        self.vars.borrow().get(name).cloned()
+    }
+    /// Seed the override layer (from `vars.toml`) — overwrites existing entries.
+    pub fn vars_seed(&self, map: HashMap<String, String>) {
+        let mut v = self.vars.borrow_mut();
+        for (k, val) in map {
+            v.insert(k, val);
+        }
+    }
+    /// Set a default only if the key is absent (config takes precedence).
+    pub fn var_set_default(&self, name: &str, val: &str) {
+        self.vars
+            .borrow_mut()
+            .entry(name.to_string())
+            .or_insert_with(|| val.to_string());
     }
     /// Roh-Body einer benannten `@phase` (vom `capture_phase_bodies`-Pre-Pass).
     pub fn phase_body(&self, name: &str) -> Option<String> {
@@ -1028,5 +1052,48 @@ flag is {{ env.LMD_P4_GOLDEN == \"on\" }}
             !out.contains("Datei `Cargo.toml` lesen"),
             "header respected: {out}"
         );
+    }
+
+    #[test]
+    fn var_set_default_inserts_when_absent() {
+        let ctx = std::rc::Rc::new(EngineContext::new(
+            crate::header::LeanMdHeader::default(),
+            std::path::PathBuf::from("."),
+        ));
+        ctx.var_set_default("k", "v");
+        assert_eq!(ctx.var_get("k"), Some("v".to_string()));
+    }
+
+    #[test]
+    fn var_set_default_does_not_overwrite() {
+        let ctx = std::rc::Rc::new(EngineContext::new(
+            crate::header::LeanMdHeader::default(),
+            std::path::PathBuf::from("."),
+        ));
+        ctx.var_set_default("k", "first");
+        ctx.var_set_default("k", "second");
+        assert_eq!(ctx.var_get("k"), Some("first".to_string()));
+    }
+
+    #[test]
+    fn vars_seed_then_default_keeps_seed() {
+        let ctx = std::rc::Rc::new(EngineContext::new(
+            crate::header::LeanMdHeader::default(),
+            std::path::PathBuf::from("."),
+        ));
+        let mut m = std::collections::HashMap::new();
+        m.insert("k".to_string(), "config".to_string());
+        ctx.vars_seed(m);
+        ctx.var_set_default("k", "default");
+        assert_eq!(ctx.var_get("k"), Some("config".to_string()));
+    }
+
+    #[test]
+    fn var_get_unknown_is_none() {
+        let ctx = std::rc::Rc::new(EngineContext::new(
+            crate::header::LeanMdHeader::default(),
+            std::path::PathBuf::from("."),
+        ));
+        assert_eq!(ctx.var_get("nope"), None);
     }
 }
