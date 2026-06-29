@@ -249,4 +249,36 @@ mod tests {
             "skill-authoring-core must point to lmd-test-driven-development for the WARUM"
         );
     }
+
+    #[test]
+    fn test_first_core_carries_all_thirteen_red_flags() {
+        let reg = FragmentRegistry::with_builtins();
+        let out = reg.resolve("test-first-core", Path::new(".")).unwrap();
+        // Original "Red Flags — STOP and Start Over": all 13 trip-wires (E12).
+        for needle in [
+            "Code before test",
+            "Test after implementation",
+            "passed immediately",
+            "Can't explain why",
+            "add the tests later",
+            "Just this once",
+            "already manually tested",
+            "same purpose",
+            "spirit not ritual",
+            "Keep it as reference",
+            "deleting is wasteful",
+            "dogmatic",
+            "different because",
+        ] {
+            assert!(
+                out.contains(needle),
+                "test-first-core missing red flag '{needle}': {out}"
+            );
+        }
+        // Core principle restored alongside the Iron Law.
+        assert!(
+            out.contains("didn't watch the test fail"),
+            "test-first-core must carry the core principle: {out}"
+        );
+    }
 }
