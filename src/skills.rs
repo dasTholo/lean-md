@@ -334,4 +334,86 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn tdd_red_renders_default_test_cmd_without_config() {
+        let root = std::env::temp_dir().join(format!("lmd_tdd_default_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let out = render_skill(
+            "lmd-test-driven-development",
+            Some("red"),
+            None,
+            None,
+            root.clone(),
+        )
+        .unwrap();
+        assert!(
+            out.contains("cargo test"),
+            "default test_cmd must render: {out}"
+        );
+        assert!(
+            !out.contains("cargo nextest run"),
+            "no override without vars.toml: {out}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn tdd_red_renders_overridden_test_cmd_with_config() {
+        let root = std::env::temp_dir().join(format!("lmd_tdd_override_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".lean-ctx/lean-md")).unwrap();
+        std::fs::write(
+            root.join(".lean-ctx/lean-md/vars.toml"),
+            "test_cmd = \"cargo nextest run\"\n",
+        )
+        .unwrap();
+        let out = render_skill(
+            "lmd-test-driven-development",
+            Some("red"),
+            None,
+            None,
+            root.clone(),
+        )
+        .unwrap();
+        assert!(
+            out.contains("cargo nextest run"),
+            "vars.toml must override: {out}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn tdd_render_is_byte_stable_with_config() {
+        let root = std::env::temp_dir().join(format!("lmd_tdd_determinism_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".lean-ctx/lean-md")).unwrap();
+        std::fs::write(
+            root.join(".lean-ctx/lean-md/vars.toml"),
+            "test_cmd = \"cargo nextest run\"\n",
+        )
+        .unwrap();
+        let a = render_skill(
+            "lmd-test-driven-development",
+            Some("red"),
+            None,
+            None,
+            root.clone(),
+        )
+        .unwrap();
+        let b = render_skill(
+            "lmd-test-driven-development",
+            Some("red"),
+            None,
+            None,
+            root.clone(),
+        )
+        .unwrap();
+        assert_eq!(
+            a, b,
+            "two renders with same vars.toml must be byte-identical"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
