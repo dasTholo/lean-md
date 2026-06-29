@@ -32,6 +32,11 @@ pub fn skill_body(name: &str) -> Option<&'static str> {
         .map(|(_, body)| *body)
 }
 
+/// All embedded skill bodies (for cross-skill `@var` aggregation in `vars --init`).
+pub fn all_skill_bodies() -> Vec<&'static str> {
+    SKILLS.iter().map(|(_, b)| *b).collect()
+}
+
 #[derive(Debug)]
 pub enum SkillRenderError {
     UnknownSkill(String),
@@ -266,6 +271,19 @@ mod tests {
         .unwrap();
         assert!(out.contains("Verify RED"), "embedded body fallback: {out}");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn all_skill_bodies_aggregate_contains_test_cmd_decl() {
+        let bodies = all_skill_bodies();
+        let decls: Vec<_> = bodies
+            .iter()
+            .flat_map(|b| crate::skill_vars::scan_var_decls(b))
+            .collect();
+        assert!(
+            decls.iter().any(|d| d.name == "test_cmd"),
+            "aggregating @var across all SKILLS must surface test_cmd"
+        );
     }
 
     /// Write a synthetic overlay body declaring a var at body-top (outside phases)

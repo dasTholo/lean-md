@@ -4,7 +4,7 @@
 //! Hermetic; no `toml` dependency (flat `key = "value"` subset parsed by hand).
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// A `@var NAME default="…" [desc="…"]` declaration scanned from a skill body.
 #[derive(Debug, Clone, PartialEq)]
@@ -101,6 +101,27 @@ pub fn render_vars_template(decls: &[VarDecl]) -> String {
         out.push_str(&format!("{} = \"{}\"\n", d.name, d.default));
     }
     out
+}
+
+/// Result of `write_vars_template`: a fresh write, or a no-op because the file
+/// already exists (clobber-protected — the user merges manually).
+pub enum InitOutcome {
+    Written(PathBuf),
+    Exists(PathBuf),
+}
+
+/// Write the generated template to `<project_root>/.lean-ctx/lean-md/vars.toml`
+/// ONLY if absent (no clobber of user edits). Creates parent dirs as needed.
+pub fn write_vars_template(decls: &[VarDecl], project_root: &Path) -> std::io::Result<InitOutcome> {
+    let target = project_root.join(".lean-ctx/lean-md/vars.toml");
+    if target.exists() {
+        return Ok(InitOutcome::Exists(target));
+    }
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&target, render_vars_template(decls))?;
+    Ok(InitOutcome::Written(target))
 }
 
 #[cfg(test)]
@@ -221,5 +242,45 @@ mod tests {
             "no warn for identical default: {out}"
         );
         assert_eq!(out.matches("test_cmd = ").count(), 1);
+    }
+
+    #[test]
+    fn write_template_creates_file_when_absent() {
+        let root = std::env::temp_dir().join(format!("lmd_init_write_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let decls = vec![VarDecl {
+            name: "test_cmd".to_string(),
+            default: "cargo test".to_string(),
+            desc: Some("runner".to_string()),
+        }];
+        let outcome = write_vars_template(&decls, &root).unwrap();
+        let target = root.join(".lean-ctx/lean-md/vars.toml");
+        assert!(matches!(outcome, InitOutcome::Written(ref p) if *p == target));
+        let body = std::fs::read_to_string(&target).unwrap();
+        assert!(body.contains("# test_cmd: runner"));
+        assert!(body.contains("test_cmd = \"cargo test\""));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn write_template_does_not_clobber_existing() {
+        let root = std::env::temp_dir().join(format!("lmd_init_clobber_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".lean-ctx/lean-md")).unwrap();
+        let target = root.join(".lean-ctx/lean-md/vars.toml");
+        std::fs::write(&target, "test_cmd = \"USER_EDIT\"\n").unwrap();
+        let decls = vec![VarDecl {
+            name: "test_cmd".to_string(),
+            default: "cargo test".to_string(),
+            desc: None,
+        }];
+        let outcome = write_vars_template(&decls, &root).unwrap();
+        assert!(matches!(outcome, InitOutcome::Exists(_)));
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "test_cmd = \"USER_EDIT\"\n"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

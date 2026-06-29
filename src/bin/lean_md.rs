@@ -13,7 +13,8 @@ use lean_md::crp_proto::CrpMode;
 use lean_md::engine::render_with_overrides;
 use lean_md::header::{Consumer, parse_header};
 use lean_md::skill_install::{Scope, install_skill, remove_skill};
-use lean_md::skills::render_skill;
+use lean_md::skill_vars::{InitOutcome, render_vars_template, scan_var_decls, write_vars_template};
+use lean_md::skills::{all_skill_bodies, render_skill, skill_body};
 use serde_json::{Value, json};
 
 // ─── Shared helpers ────────────────────────────────────────────────────────
@@ -121,7 +122,8 @@ fn main() {
                  \n  render <file.lmd.md> [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md]\
                  \n  check  <file.lmd.md>\
                  \n  mcp                   (stdio JSON-RPC 2.0 MCP server)\
-                 \n  skill  <install|remove> <name> [--global|--local]"
+                 \n  skill  <install|remove> <name> [--global|--local]\
+                 \n  skill  vars --init [name]"
             );
             std::process::exit(1);
         }
@@ -260,6 +262,10 @@ fn rpc_err(id: &Value, code: i64, message: &str) -> Value {
 
 fn cmd_skill(rest: &[String]) {
     let sub = rest.first().map_or("", String::as_str);
+    if sub == "vars" {
+        cmd_skill_vars(&rest[1..]);
+        return;
+    }
     let name = rest.iter().skip(1).find(|a| !a.starts_with('-'));
     let scope = if rest.iter().any(|a| a == "--global") {
         Scope::Global
@@ -288,6 +294,43 @@ fn cmd_skill(rest: &[String]) {
         },
         other => {
             eprintln!("lean-md skill: unknown subcommand '{other}' (install|remove)");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn cmd_skill_vars(rest: &[String]) {
+    if !rest.iter().any(|a| a == "--init") {
+        eprintln!("lean-md skill vars: missing --init");
+        std::process::exit(1);
+    }
+    // Optional skill name: present → that skill; absent → aggregate across all.
+    let name = rest
+        .iter()
+        .find(|a| !a.starts_with('-'))
+        .map(String::as_str);
+    let decls: Vec<_> = match name {
+        Some(n) => match skill_body(n) {
+            Some(body) => scan_var_decls(body),
+            None => {
+                eprintln!("lean-md skill vars --init: unknown skill '{n}'");
+                std::process::exit(1);
+            }
+        },
+        None => all_skill_bodies()
+            .iter()
+            .flat_map(|b| scan_var_decls(b))
+            .collect(),
+    };
+    let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    match write_vars_template(&decls, &project_root) {
+        Ok(InitOutcome::Written(p)) => println!("wrote {}", p.display()),
+        Ok(InitOutcome::Exists(p)) => {
+            eprintln!("{} existiert bereits — nicht überschrieben", p.display());
+            print!("{}", render_vars_template(&decls));
+        }
+        Err(e) => {
+            eprintln!("lean-md skill vars --init: {e}");
             std::process::exit(1);
         }
     }
