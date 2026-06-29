@@ -14,7 +14,7 @@ use lean_md::engine::render_with_overrides;
 use lean_md::header::{Consumer, parse_header};
 use lean_md::skill_install::{Scope, install_skill, remove_skill};
 use lean_md::skill_vars::{InitOutcome, render_vars_template, scan_var_decls, write_vars_template};
-use lean_md::skills::{all_skill_bodies, render_skill, skill_body};
+use lean_md::skills::{all_skill_bodies, render_companion, render_skill, skill_body};
 use serde_json::{Value, json};
 
 // ─── Shared helpers ────────────────────────────────────────────────────────
@@ -68,6 +68,7 @@ struct RenderArgs {
     out: Option<String>,
     skill: Option<String>,
     phase: Option<String>,
+    companion: Option<String>,
 }
 
 fn parse_render_flags(rest: &[String]) -> RenderArgs {
@@ -98,6 +99,10 @@ fn parse_render_flags(rest: &[String]) -> RenderArgs {
                 i += 1;
                 a.phase = rest.get(i).cloned();
             }
+            "--companion" => {
+                i += 1;
+                a.companion = rest.get(i).cloned();
+            }
             _ if !arg.starts_with('-') && a.file.is_none() => a.file = Some(arg.to_string()),
             _ => {}
         }
@@ -119,7 +124,7 @@ fn main() {
         _ => {
             eprintln!(
                 "Usage: lean-md <render|check|mcp|skill> [args]\n\
-                 \n  render <file.lmd.md> [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md]\
+                 \n  render <file.lmd.md|--skill NAME [--phase P | --companion C]> [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md]\
                  \n  check  <file.lmd.md>\
                  \n  mcp                   (stdio JSON-RPC 2.0 MCP server)\
                  \n  skill  <install|remove> <name> [--global|--local]\
@@ -135,8 +140,16 @@ fn main() {
 fn cmd_render(rest: &[String]) {
     let a = parse_render_flags(rest);
     if let Some(skill) = a.skill.as_deref() {
+        if a.phase.is_some() && a.companion.is_some() {
+            eprintln!("lean-md render: --phase and --companion are mutually exclusive");
+            std::process::exit(1);
+        }
         let jail = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        match render_skill(skill, a.phase.as_deref(), a.consumer, a.crp, jail) {
+        let result = match a.companion.as_deref() {
+            Some(companion) => render_companion(skill, companion, a.consumer, a.crp, jail),
+            None => render_skill(skill, a.phase.as_deref(), a.consumer, a.crp, jail),
+        };
+        match result {
             Ok(rendered) => match a.out {
                 Some(out) => {
                     if let Err(e) = std::fs::write(&out, &rendered) {
@@ -482,6 +495,19 @@ fn cmd_mcp() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn render_flags_parse_companion() {
+        let a = parse_render_flags(&[
+            "--skill".to_string(),
+            "lmd-test-driven-development".to_string(),
+            "--companion".to_string(),
+            "testing-anti-patterns".to_string(),
+        ]);
+        assert_eq!(a.skill.as_deref(), Some("lmd-test-driven-development"));
+        assert_eq!(a.companion.as_deref(), Some("testing-anti-patterns"));
+        assert_eq!(a.phase, None);
+    }
 
     #[test]
     fn render_flags_parse_skill_and_phase() {
