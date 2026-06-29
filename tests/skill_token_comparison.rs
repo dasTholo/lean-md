@@ -163,10 +163,7 @@ fn compute_metrics_core_and_breakeven() {
     assert_eq!(m.b_with_overhead, 120 + 5 * TOOL_CALL_OVERHEAD_TOKENS);
 
     // Cumulative (stub + k phases, companion excluded): k=1 → 10+20=30 content
-    assert_eq!(
-        m.b_cumulative[0],
-        (1, 30, 30 + 1 * TOOL_CALL_OVERHEAD_TOKENS)
-    );
+    assert_eq!(m.b_cumulative[0], (1, 30, 30 + TOOL_CALL_OVERHEAD_TOKENS));
     assert_eq!(
         m.b_cumulative[3],
         (4, 90, 90 + 4 * TOOL_CALL_OVERHEAD_TOKENS)
