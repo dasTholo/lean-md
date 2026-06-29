@@ -807,6 +807,26 @@ mod tests {
     }
 
     #[test]
+    fn writing_skills_testing_companion_carries_skill_md_sections() {
+        let out = render_companion(
+            "lmd-writing-skills",
+            "testing-skills-with-subagents",
+            None,
+            None,
+            std::path::PathBuf::from("."),
+        )
+        .unwrap();
+        assert!(
+            out.contains("Testing All Skill Types"),
+            "testing companion must carry the 'Testing All Skill Types' SKILL.md section (fidelity)"
+        );
+        assert!(
+            out.contains("Skill Creation Checklist (TDD Adapted)"),
+            "testing companion must carry the 'Skill Creation Checklist' SKILL.md section (fidelity)"
+        );
+    }
+
+    #[test]
     fn writing_skills_fidelity_all_surfaces_render_nonempty() {
         let jail = std::path::PathBuf::from(".");
         for p in ["red", "green", "refactor", "rationalizations"] {
