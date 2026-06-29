@@ -12,6 +12,9 @@ use crate::header::{Consumer, parse_header};
 const LMD_BRAINSTORM_BODY: &str = include_str!("../content/skills/lmd-brainstorm/body.lmd.md");
 const LMD_TEST_DRIVEN_DEVELOPMENT_BODY: &str =
     include_str!("../content/skills/lmd-test-driven-development/body.lmd.md");
+const LMD_TESTING_ANTI_PATTERNS_COMPANION: &str = include_str!(
+    "../content/skills/lmd-test-driven-development/companions/testing-anti-patterns.lmd.md"
+);
 
 /// Registry of embedded lmd skill bodies (name → binary-embedded body source).
 /// Replaces the hardcoded `match` so new skills are a one-line table entry
@@ -35,6 +38,22 @@ pub fn skill_body(name: &str) -> Option<&'static str> {
 /// All embedded skill bodies (for cross-skill `@var` aggregation in `vars --init`).
 pub fn all_skill_bodies() -> Vec<&'static str> {
     SKILLS.iter().map(|(_, b)| *b).collect()
+}
+
+/// Registry of embedded companions (skill, companion name → embedded body).
+/// Out-of-band on-demand references attached to a skill (Spec #2, E1/A).
+const COMPANIONS: &[(&str, &str, &str)] = &[(
+    "lmd-test-driven-development",
+    "testing-anti-patterns",
+    LMD_TESTING_ANTI_PATTERNS_COMPANION,
+)];
+
+/// Embedded body for a known `(skill, companion)` pair, or `None` if unknown.
+pub fn companion_body(skill: &str, companion: &str) -> Option<&'static str> {
+    COMPANIONS
+        .iter()
+        .find(|(s, c, _)| *s == skill && *c == companion)
+        .map(|(_, _, body)| *body)
 }
 
 #[derive(Debug)]
@@ -400,6 +419,27 @@ mod tests {
             "vars.toml must override: {out}"
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn companion_registry_resolves_testing_anti_patterns() {
+        assert!(companion_body("lmd-test-driven-development", "testing-anti-patterns").is_some());
+        assert!(companion_body("lmd-test-driven-development", "nope").is_none());
+        assert!(companion_body("nope", "testing-anti-patterns").is_none());
+    }
+
+    #[test]
+    fn companion_body_matches_seed_file_on_disk() {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let disk = std::fs::read_to_string(std::path::Path::new(manifest).join(
+            "content/skills/lmd-test-driven-development/companions/testing-anti-patterns.lmd.md",
+        ))
+        .unwrap();
+        assert_eq!(
+            companion_body("lmd-test-driven-development", "testing-anti-patterns").unwrap(),
+            disk,
+            "embedded companion drifted from seed file"
+        );
     }
 
     #[test]
