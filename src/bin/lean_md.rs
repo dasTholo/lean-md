@@ -575,6 +575,26 @@ mod tests {
     }
 
     #[test]
+    fn ws_mcp_companion_matches_cli_render_companion() {
+        // CLI==MCP (#498): both surfaces call render_companion → byte-identical.
+        let jail = std::path::PathBuf::from(".");
+        let cli = render_companion(
+            "lmd-writing-skills",
+            "skill-anatomy",
+            None,
+            None,
+            jail.clone(),
+        )
+        .unwrap();
+        let again =
+            render_companion("lmd-writing-skills", "skill-anatomy", None, None, jail).unwrap();
+        assert_eq!(
+            cli, again,
+            "render_companion must be a deterministic function (#498)"
+        );
+    }
+
+    #[test]
     fn tool_defs_expose_companion_param() {
         let defs = tool_defs();
         let schema = defs[0]["inputSchema"]["properties"].clone();

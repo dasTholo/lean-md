@@ -17,6 +17,25 @@ const LMD_WRITING_SKILLS_BODY: &str =
 const LMD_TESTING_ANTI_PATTERNS_COMPANION: &str = include_str!(
     "../content/skills/lmd-test-driven-development/companions/testing-anti-patterns.lmd.md"
 );
+const LMD_WS_SKILL_ANATOMY: &str =
+    include_str!("../content/skills/lmd-writing-skills/companions/skill-anatomy.lmd.md");
+const LMD_WS_SDO: &str = include_str!(
+    "../content/skills/lmd-writing-skills/companions/skill-discovery-optimization.lmd.md"
+);
+const LMD_WS_BULLETPROOFING: &str =
+    include_str!("../content/skills/lmd-writing-skills/companions/bulletproofing.lmd.md");
+const LMD_WS_TESTING_SUBAGENTS: &str = include_str!(
+    "../content/skills/lmd-writing-skills/companions/testing-skills-with-subagents.lmd.md"
+);
+const LMD_WS_CLAUDE_MD_TESTING: &str = include_str!(
+    "../content/skills/lmd-writing-skills/companions/claude-md-testing-example.lmd.md"
+);
+const LMD_WS_FLOWCHART: &str =
+    include_str!("../content/skills/lmd-writing-skills/companions/flowchart-conventions.lmd.md");
+const LMD_WS_ANTHROPIC_BP: &str =
+    include_str!("../content/skills/lmd-writing-skills/companions/anthropic-best-practices.lmd.md");
+const LMD_WS_PERSUASION: &str =
+    include_str!("../content/skills/lmd-writing-skills/companions/persuasion-principles.lmd.md");
 
 /// Registry of embedded lmd skill bodies (name → binary-embedded body source).
 /// Replaces the hardcoded `match` so new skills are a one-line table entry
@@ -45,11 +64,49 @@ pub fn all_skill_bodies() -> Vec<&'static str> {
 
 /// Registry of embedded companions (skill, companion name → embedded body).
 /// Out-of-band on-demand references attached to a skill (Spec #2, E1/A).
-const COMPANIONS: &[(&str, &str, &str)] = &[(
-    "lmd-test-driven-development",
-    "testing-anti-patterns",
-    LMD_TESTING_ANTI_PATTERNS_COMPANION,
-)];
+const COMPANIONS: &[(&str, &str, &str)] = &[
+    (
+        "lmd-test-driven-development",
+        "testing-anti-patterns",
+        LMD_TESTING_ANTI_PATTERNS_COMPANION,
+    ),
+    ("lmd-writing-skills", "skill-anatomy", LMD_WS_SKILL_ANATOMY),
+    (
+        "lmd-writing-skills",
+        "skill-discovery-optimization",
+        LMD_WS_SDO,
+    ),
+    (
+        "lmd-writing-skills",
+        "bulletproofing",
+        LMD_WS_BULLETPROOFING,
+    ),
+    (
+        "lmd-writing-skills",
+        "testing-skills-with-subagents",
+        LMD_WS_TESTING_SUBAGENTS,
+    ),
+    (
+        "lmd-writing-skills",
+        "claude-md-testing-example",
+        LMD_WS_CLAUDE_MD_TESTING,
+    ),
+    (
+        "lmd-writing-skills",
+        "flowchart-conventions",
+        LMD_WS_FLOWCHART,
+    ),
+    (
+        "lmd-writing-skills",
+        "anthropic-best-practices",
+        LMD_WS_ANTHROPIC_BP,
+    ),
+    (
+        "lmd-writing-skills",
+        "persuasion-principles",
+        LMD_WS_PERSUASION,
+    ),
+];
 
 /// Embedded body for a known `(skill, companion)` pair, or `None` if unknown.
 pub fn companion_body(skill: &str, companion: &str) -> Option<&'static str> {
@@ -683,6 +740,37 @@ mod tests {
             red.contains("NO SKILL WITHOUT A FAILING TEST FIRST"),
             "writing-skills phase must carry the Iron Law via @include skill-authoring-core"
         );
+    }
+
+    #[test]
+    fn writing_skills_all_companions_resolve() {
+        let names = [
+            "skill-anatomy",
+            "skill-discovery-optimization",
+            "bulletproofing",
+            "testing-skills-with-subagents",
+            "claude-md-testing-example",
+            "flowchart-conventions",
+            "anthropic-best-practices",
+            "persuasion-principles",
+        ];
+        for n in names {
+            let body = companion_body("lmd-writing-skills", n)
+                .unwrap_or_else(|| panic!("companion {n} not registered"));
+            assert!(!body.trim().is_empty(), "companion {n} must be non-empty");
+        }
+    }
+
+    #[test]
+    fn writing_skills_discipline_companions_carry_trip_wire() {
+        let jail = std::path::PathBuf::from(".");
+        for n in ["testing-skills-with-subagents", "bulletproofing"] {
+            let out = render_companion("lmd-writing-skills", n, None, None, jail.clone()).unwrap();
+            assert!(
+                out.contains("NO SKILL WITHOUT A FAILING TEST FIRST"),
+                "discipline companion {n} must @include skill-authoring-core"
+            );
+        }
     }
 
     #[test]
