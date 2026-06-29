@@ -172,3 +172,35 @@ fn compute_metrics_core_and_breakeven() {
         (4, 90, 90 + 4 * TOOL_CALL_OVERHEAD_TOKENS)
     );
 }
+
+use harness::format_summary;
+
+#[test]
+fn format_summary_is_deterministic_and_has_sections() {
+    let a = vec![art("SKILL.md", 100), art("testing-anti-patterns.md", 50)];
+    let b = vec![
+        art("SKILL.md (stub)", 10),
+        art("phase:red", 20),
+        art("phase:green", 20),
+        art("phase:refactor", 20),
+        art("phase:rationalizations", 20),
+        art("companion:testing-anti-patterns", 30),
+    ];
+    let m = compute_metrics(&a, &b);
+
+    let s1 = format_summary(&a, &b, &m);
+    let s2 = format_summary(&a, &b, &m);
+
+    assert_eq!(s1, s2, "summary must be byte-stable (#498)");
+    assert!(s1.contains("# Skill-Token-Vergleich"));
+    assert!(s1.contains("cl100k_base"));
+    assert!(s1.contains("o200k_base"));
+    assert!(s1.contains("Break-even"));
+    assert!(s1.contains("Reiner Inhalt"));
+    // No timestamp/date marker in the body (#498).
+    assert!(!s1.contains("Datum:"), "no date marker expected");
+    assert!(
+        !s1.contains("Generated"),
+        "no generation timestamp expected"
+    );
+}

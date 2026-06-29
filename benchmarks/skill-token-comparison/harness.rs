@@ -172,3 +172,77 @@ pub fn compute_metrics(variant_a: &[Artifact], variant_b: &[Artifact]) -> Metric
         b_cumulative,
     }
 }
+
+use std::fmt::Write as _;
+
+/// Render the deterministic SUMMARY.md body (no timestamps, #498).
+pub fn format_summary(variant_a: &[Artifact], variant_b: &[Artifact], metrics: &Metrics) -> String {
+    let mut s = String::new();
+
+    s.push_str("# Skill-Token-Vergleich — SUMMARY\n\n");
+    s.push_str("Neutrales A/B: A = superpowers (Monolith), B = lmd (Phasen-Rendering).\n\n");
+
+    s.push_str("## Annahmen\n\n");
+    s.push_str("- Tokenizer: `cl100k_base` (primär, ~3% von Claudes echtem Tokenizer); ");
+    s.push_str("`o200k_base` (Parität mit lean-ctx-Ledger).\n");
+    let _ = writeln!(
+        s,
+        "- Tool-Call-Overhead pro `ctx_md_render`-Roundtrip: {} Tokens (Modellannahme, justierbar).\n",
+        TOOL_CALL_OVERHEAD_TOKENS
+    );
+
+    s.push_str("## Artefakte (Tokens je Familie)\n\n");
+    s.push_str("| Variante | Artefakt | cl100k | o200k |\n|---|---|---|---|\n");
+    for a in variant_a {
+        let _ = writeln!(
+            s,
+            "| A | {} | {} | {} |",
+            a.name, a.tokens_cl100k, a.tokens_o200k
+        );
+    }
+    for b in variant_b {
+        let _ = writeln!(
+            s,
+            "| B | {} | {} | {} |",
+            b.name, b.tokens_cl100k, b.tokens_o200k
+        );
+    }
+    s.push('\n');
+
+    s.push_str("## Kernmetrik (cl100k)\n\n");
+    s.push_str("| Metrik | A (superpowers) | B (lmd, Vollausbau) | Δ (B−A) |\n|---|---|---|---|\n");
+    let _ = writeln!(
+        s,
+        "| Reiner Inhalt | {} | {} | {} |",
+        metrics.a_content,
+        metrics.b_content,
+        metrics.b_content as i64 - metrics.a_content as i64
+    );
+    let _ = writeln!(
+        s,
+        "| Inkl. Ablauf-Overhead | {} | {} | {} |",
+        metrics.a_with_overhead,
+        metrics.b_with_overhead,
+        metrics.b_with_overhead as i64 - metrics.a_with_overhead as i64
+    );
+    s.push('\n');
+
+    s.push_str("## Break-even (B kumulativ, Stub + k Phasen)\n\n");
+    s.push_str("| k Phasen | B Inhalt | B inkl. Overhead | vs. A Inhalt | vs. A inkl. Overhead |\n|---|---|---|---|---|\n");
+    for (k, content, with_oh) in &metrics.b_cumulative {
+        let c_cmp = if *content <= metrics.a_content {
+            "B billiger"
+        } else {
+            "B teurer"
+        };
+        let o_cmp = if *with_oh <= metrics.a_with_overhead {
+            "B billiger"
+        } else {
+            "B teurer"
+        };
+        let _ = writeln!(s, "| {k} | {content} | {with_oh} | {c_cmp} | {o_cmp} |");
+    }
+    s.push('\n');
+
+    s
+}
