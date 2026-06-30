@@ -99,10 +99,21 @@ Default-Backend (`CliBackend`) ruft `lean-ctx call`, das der User ohnehin hat.
 - **Publish-Inhalt:** Default-Features; `lean-ctx-client` bleibt außen vor.
 - **Stolperstein `[[example]]`:** Das Example zeigt auf
   `benchmarks/skill-token-comparison/main.rs`, das **nicht** im `include` von
-  `Cargo.toml` steht → `cargo publish` bricht ab. **Fix:** entweder `benchmarks/`
-  ins `include` aufnehmen *oder* das `[[example]]` aus dem publizierten Paket
-  ausklammern (z. B. hinter `required-features` / aus dem Package entfernen).
-- **Gate:** `cargo publish --dry-run` muss grün sein, bevor real publiziert wird.
+  `Cargo.toml` steht → `cargo publish` bricht ab (Target-Pfad fehlt im Paket).
+- **Entscheidung — Benchmarks NICHT ins Release:** `benchmarks/` darf **nicht**
+  Teil des publizierten Crates sein. Daher **nicht** ins `include` aufnehmen,
+  sondern das `[[example]]`-Target aus dem **publizierten** Manifest entfernen,
+  sodass cargo den `benchmarks/`-Pfad gar nicht erst verlangt. Umsetzung:
+  - **bevorzugt:** Benchmark in einen eigenen, nicht-publizierten Workspace-/Sub-
+    Crate (`publish = false`) auslagern und das `[[example]]` aus dem lean-md-
+    Manifest streichen — Benchmark bleibt lokal lauffähig, Release bleibt schlank;
+  - **minimal:** das `[[example]]` aus `Cargo.toml` entfernen (Dateien bleiben im
+    Repo unter `benchmarks/`, sind aber kein Cargo-Target und nicht im `include`
+    → fließen nicht ins Crate).
+  Das `include` bleibt in **beiden** Fällen ohne `benchmarks/`.
+- **Gate:** `cargo publish --dry-run` muss grün sein **und** das gepackte Crate
+  (`cargo package --list`) darf **keine** `benchmarks/`-Datei enthalten, bevor
+  real publiziert wird.
 - **Version:** `0.1.0` (SSOT mit `[addon].version` im Manifest).
 
 ### 3.3 Publish nur von `main` + GitHub Action
@@ -274,6 +285,7 @@ aber im PR-Text als manuell verifiziert dokumentiert.
 
 - [ ] `lean-md 0.1.0` auf crates.io (publiziert von `main` via GitHub Action).
 - [ ] `cargo install lean-md --version 0.1.0` installiert das Binary sauber.
+- [ ] `cargo package --list` enthält **keine** `benchmarks/`-Datei (Release schlank).
 - [ ] Manifest + Registry-Eintrag mit `[install] cargo` + `network=full`; alter
       `lmd`-Eintrag entfernt.
 - [ ] `lean-ctx addon audit` → `pass`/`review` ohne `cap_net_underdeclared`.
