@@ -15,6 +15,20 @@ pub const COVERAGE: &[(&str, &str, &str, &str)] = &[
     ("lmd-brainstorm", "write-spec", "edit", "ctx_edit"),
     ("lmd-brainstorm", "write-spec", "remember", "ctx_knowledge"),
     ("lmd-brainstorm", "self-review", "review", "ctx_review"),
+    // self-review composes an @dispatch brief to the spec-reviewer companion.
+    (
+        "lmd-brainstorm",
+        "self-review",
+        "dispatch",
+        "fragment-compose",
+    ),
+    // Companion (Spec #2): the spec-reviewer brief is delivered via @dispatch.
+    (
+        "lmd-brainstorm",
+        "spec-reviewer",
+        "dispatch",
+        "fragment-compose",
+    ),
     ("lmd-brainstorm", "handoff", "dispatch", "fragment-compose"),
     ("lmd-brainstorm", "handoff", "handoff", "ctx_handoff"),
     // TDD is prose-discipline + directive-arm: the RED phase reads the test/impl.
@@ -110,6 +124,23 @@ mod tests {
         assert!(
             has_companion,
             "COVERAGE must record the companion @include row"
+        );
+    }
+
+    #[test]
+    fn coverage_carries_brainstorm_companion_and_dispatch_row() {
+        let has = |skill: &str, step: &str, dir: &str| {
+            COVERAGE
+                .iter()
+                .any(|(s, st, d, _)| *s == skill && *st == step && *d == dir)
+        };
+        assert!(
+            has("lmd-brainstorm", "self-review", "dispatch"),
+            "self-review must record the spec-reviewer @dispatch"
+        );
+        assert!(
+            has("lmd-brainstorm", "spec-reviewer", "dispatch"),
+            "spec-reviewer companion delivery must be covered"
         );
     }
 }

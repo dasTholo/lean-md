@@ -15,6 +15,8 @@ menschenlesbare Projektion; das Gate prüft Registrierung gegen `default_registr
 | write-spec       | `@edit`       | `ctx_edit`            |
 | write-spec       | `@remember`   | `ctx_knowledge`       |
 | self-review      | `@review`     | `ctx_review`          |
+| self-review      | `@dispatch`   | fragment-compose      |
+| spec-reviewer (companion) | `@dispatch` | fragment-compose |
 | handoff          | `@dispatch`   | fragment-compose      |
 | handoff          | `@handoff`    | `ctx_handoff`         |
 
