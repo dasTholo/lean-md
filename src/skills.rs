@@ -40,6 +40,8 @@ const LMD_WS_ANTHROPIC_BP: &str =
     include_str!("../content/skills/lmd-writing-skills/companions/anthropic-best-practices.lmd.md");
 const LMD_WS_PERSUASION: &str =
     include_str!("../content/skills/lmd-writing-skills/companions/persuasion-principles.lmd.md");
+const LMD_BRAINSTORM_SPEC_REVIEWER: &str =
+    include_str!("../content/skills/lmd-brainstorm/companions/spec-reviewer.lmd.md");
 
 /// Registry of embedded lmd skill bodies (name → binary-embedded body source).
 /// Replaces the hardcoded `match` so new skills are a one-line table entry
@@ -119,6 +121,11 @@ const COMPANIONS: &[(&str, &str, &str)] = &[
         "lmd-writing-skills",
         "persuasion-principles",
         LMD_WS_PERSUASION,
+    ),
+    (
+        "lmd-brainstorm",
+        "spec-reviewer",
+        LMD_BRAINSTORM_SPEC_REVIEWER,
     ),
 ];
 
@@ -727,6 +734,47 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn brainstorm_spec_reviewer_resolves() {
+        let body = companion_body("lmd-brainstorm", "spec-reviewer")
+            .expect("spec-reviewer companion must be registered");
+        assert!(
+            body.contains("What to Check"),
+            "reviewer brief content missing"
+        );
+        assert!(
+            body.contains("Approved | Issues Found"),
+            "output format missing"
+        );
+    }
+
+    #[test]
+    fn brainstorm_dispatch_spec_reviewer_composes() {
+        // The self-review phase materialises @dispatch companion="spec-reviewer" role=review.
+        let out = render_skill(
+            "lmd-brainstorm",
+            Some("self-review"),
+            None,
+            None,
+            std::path::PathBuf::from("."),
+        )
+        .unwrap();
+        assert!(out.contains("Subagent Contract"), "contract missing: {out}");
+        assert!(out.contains("role=review"), "review role missing: {out}");
+        assert!(
+            out.contains("What to Check"),
+            "reviewer brief missing: {out}"
+        );
+        assert!(
+            out.contains("to_agent={{ controller_id }}"),
+            "controller_id placeholder must survive verbatim: {out}"
+        );
+        assert!(
+            out.contains("ToolSearch(query=\"select:mcp__lean-ctx__ctx_read"),
+            "dispatch bootstrap missing: {out}"
+        );
     }
 
     #[test]
