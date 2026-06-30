@@ -665,6 +665,24 @@ mod tests {
     }
 
     #[test]
+    fn testing_companions_render_for_writing_skills() {
+        for companion in ["testing/methodology", "testing/creation-checklist"] {
+            let out = render_companion(
+                "lmd-writing-skills",
+                companion,
+                None,
+                None,
+                PathBuf::from("."),
+            )
+            .unwrap_or_else(|e| panic!("companion '{companion}' must render: {e:?}"));
+            assert!(
+                !out.trim().is_empty(),
+                "companion '{companion}' rendered empty"
+            );
+        }
+    }
+
+    #[test]
     fn skill_md_stub_carries_orientation() {
         let manifest = env!("CARGO_MANIFEST_DIR");
         let stub = std::fs::read_to_string(
