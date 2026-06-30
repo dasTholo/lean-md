@@ -122,3 +122,12 @@ specification — the single source of truth for manifest shape, registry shape,
 install semantics, security model, and CLI surface. Pinned to
 `lean-ctx@2946c165a`. Do not edit it directly; update by re-vendoring from
 `lean-ctx/docs/contracts/addon-manifest-v1.md`.
+
+## Acknowledgments
+
+lean-md would not be possible without two projects it stands on:
+
+- **[lean-ctx](https://github.com/yvgude/lean-ctx)** by **yvgude** — the context-engineering runtime that lean-md ships as an addon for, and whose tooling powers its own development workflow.
+- **[superpowers](https://github.com/obra/superpowers)** by **obra** — the skill collection whose skills (brainstorming, writing-skills, test-driven-development, and more) lean-md ports as native embedded skills.
+
+Our deepest thanks to both. Without these repositories, this project would not exist.
