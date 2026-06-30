@@ -1253,6 +1253,23 @@ mod tests {
     }
 
     #[test]
+    fn brainstorm_stub_description_carries_must_trigger() {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let stub = std::fs::read_to_string(
+            std::path::Path::new(manifest).join("content/skills/lmd-brainstorm/SKILL.md"),
+        )
+        .unwrap();
+        assert!(
+            stub.contains("You MUST use this before any creative work"),
+            "stub description must carry the original MUST auto-trigger (spec §SKILL.md-Stub)"
+        );
+        assert!(
+            stub.contains("ctx_md_render"),
+            "stub description/body must keep the lmd render-on-invoke pointer"
+        );
+    }
+
+    #[test]
     fn brainstorm_seeds_reference_closure() {
         // No (case-insensitive) `superpowers` token survives in any brainstorm seed.
         let manifest = env!("CARGO_MANIFEST_DIR");

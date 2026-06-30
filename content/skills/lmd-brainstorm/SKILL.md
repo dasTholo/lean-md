@@ -1,6 +1,6 @@
 ---
 name: lmd-brainstorm
-description: Native lmd port of the brainstorming skill. Render-on-invoke via ctx_md_render(skill="lmd-brainstorm", phase=<phase>) against the binary-embedded body — phase-isolated for the −88…−95% token lever (spec §5.4/§5.5). Use when starting creative work that will produce a versioned design spec.
+description: You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation. Native lmd port of the brainstorming skill. Render-on-invoke via ctx_md_render(skill="lmd-brainstorm", phase=<phase>) against the binary-embedded body — phase-isolated for the −88…−95% token lever (spec §5.4/§5.5). Use when starting creative work that will produce a versioned design spec.
 ---
 
 # lmd-brainstorm (delegation stub)
