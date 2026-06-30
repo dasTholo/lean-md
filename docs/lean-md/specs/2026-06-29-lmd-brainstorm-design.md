@@ -1,6 +1,14 @@
 # lmd-brainstorm — Native lean-md Port der Brainstorming-Skill (Design-Spec)
 
-Status: **Design (freigegeben)** · Datum: 2026-06-29 · Branch: `feat-lmd-v2`
+Status: **SUPERSEDED** (2026-06-30) → ersetzt durch
+`docs/lean-md/specs/2026-06-30-lmd-brainstorm-port-design.md`. Grund: Seit diesem
+Entwurf haben `lmd-test-driven-development` + `lmd-writing-skills` die realisierten
+Konventionen etabliert (`companions/`-Ordner inkl. `group/name`, `_includes/` für
+`@include`-Fragmente, Asset-Materialisierung via `skill install`, `@dispatch` mit
+`companion=`-Brief + Rolle `review`/`test` und auto-prepended `dispatch-contract`).
+Das Nachfolge-Spec biegt den Port auf diese Konventionen um (kein Engine-Change nötig).
+
+Datum: 2026-06-29 · Branch: `feat-lmd-v2`
 
 **Referenz-Specs (Abgleich §9):**
 
