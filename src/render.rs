@@ -397,7 +397,7 @@ mod tests {
         let (arena, root) = parser.parse(&mut reader);
         let out = splice_directives(&ctx, source, &arena, root);
         assert!(
-            out.starts_with("Greetings "),
+            out.starts_with("Greetings ☃"),
             "leading multibyte prose preserved: {out}"
         );
         assert!(
