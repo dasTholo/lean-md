@@ -43,7 +43,7 @@ pub fn crp_guidance_block(mode: CrpMode) -> String {
 }
 
 /// Phase-9 human-readable counterpart of `core::signatures::tdd_legend`:
-/// the SAME kind buckets, expanded to German words (no dense glyphs). Used by
+/// the SAME kind buckets, expanded to English words (no dense glyphs). Used by
 /// the `consumer=human` branch of `apply_crp_hook` (D-12). Pure function.
 pub fn human_legend<'a>(sigs: &[&'a Signature]) -> String {
     if sigs.is_empty() {
@@ -52,33 +52,33 @@ pub fn human_legend<'a>(sigs: &[&'a Signature]) -> String {
     let mut parts: Vec<&str> = Vec::new();
     let has = |pred: &dyn Fn(&'a Signature) -> bool| sigs.iter().any(|s| pred(s));
     if has(&|s| matches!(s.kind, "fn" | "method")) {
-        parts.push("Funktion");
+        parts.push("Function");
     }
     if has(&|s| matches!(s.kind, "class" | "struct")) {
-        parts.push("Klasse/Struct");
+        parts.push("Class/Struct");
     }
     if has(&|s| matches!(s.kind, "interface" | "trait")) {
         parts.push("Trait/Interface");
     }
     if has(&|s| s.kind == "type") {
-        parts.push("Typ");
+        parts.push("Type");
     }
     if has(&|s| s.kind == "enum") {
         parts.push("Enum");
     }
     if has(&|s| matches!(s.kind, "const" | "let" | "var")) {
-        parts.push("Wert/Konstante");
+        parts.push("Value/Constant");
     }
     if has(&|s| s.is_exported) {
-        parts.push("öffentlich");
+        parts.push("public");
     }
     if has(&|s| s.is_async) {
-        parts.push("asynchron");
+        parts.push("async");
     }
     if parts.is_empty() {
         String::new()
     } else {
-        format!("**Verwendete Notation:** {}", parts.join(", "))
+        format!("**Notation used:** {}", parts.join(", "))
     }
 }
 
@@ -145,7 +145,7 @@ mod tests {
         s.kind = "fn";
         let refs: Vec<&Signature> = vec![&s];
         let legend = human_legend(&refs);
-        assert!(legend.contains("Funktion"), "fn → Funktion: {legend}");
+        assert!(legend.contains("Function"), "fn → Function: {legend}");
         assert!(
             !legend.contains('λ'),
             "no dense glyphs in human legend: {legend}"
@@ -158,8 +158,8 @@ mod tests {
         let refs_e: Vec<&Signature> = vec![&se];
         let legend_e = human_legend(&refs_e);
         assert!(
-            legend_e.contains("öffentlich"),
-            "is_exported → öffentlich: {legend_e}"
+            legend_e.contains("public"),
+            "is_exported → public: {legend_e}"
         );
         assert!(
             !legend_e.contains('+'),
@@ -172,10 +172,7 @@ mod tests {
         sa.is_async = true;
         let refs_a: Vec<&Signature> = vec![&sa];
         let legend_a = human_legend(&refs_a);
-        assert!(
-            legend_a.contains("asynchron"),
-            "is_async → asynchron: {legend_a}"
-        );
+        assert!(legend_a.contains("async"), "is_async → async: {legend_a}");
         assert!(
             !legend_a.contains('~'),
             "no dense glyph ~ in human legend: {legend_a}"
