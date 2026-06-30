@@ -101,7 +101,7 @@ Disziplin-Phasen ziehen das geteilte Gate-Fragment per `@include`.
 | `questions` | „Ask clarifying questions" — eine Frage/Nachricht, Multiple-Choice bevorzugt, YAGNI; **JIT-Visual-Companion-Offer-Trigger** (eigene Nachricht) | `@include brainstorm-gate` |
 | `approaches` | „Propose 2-3 approaches" — Trade-offs, Empfehlung zuerst | `@include brainstorm-gate` + `@graph @impact` |
 | `present-design` | „Present design" abschnittsweise + Freigabe; „Design for isolation and clarity"; „Working in existing codebases"; pro Frage Browser-vs-Terminal-Entscheidung | `@include brainstorm-gate` |
-| `write-spec` | „Write design doc" → `docs/lean-md/specs/YYYY-MM-DD-<topic>-design.md`, dann commit | `@edit @remember` |
+| `write-spec` | „Write design doc" → **projekt-relativer** Default `docs/specs/YYYY-MM-DD-<topic>-design.md` (*user preferences override this default* — verbatim aus Original), spec klar/knapp schreiben, dann commit | `@edit @remember` |
 | `self-review` | „Spec Self-Review" (Placeholder/Konsistenz/Scope/Ambiguität) → **`@dispatch … companion="spec-reviewer" role=review`**; „User Review Gate" | `@dispatch @review` |
 | `handoff` | Approved Spec → Übergabe an `lmd-writing-plans` (terminaler State) | `@dispatch @handoff` |
 
@@ -200,6 +200,7 @@ Grep-Gate gegen `superpowers`-Reststellen über Seeds **und** Assets.
 |---|---|
 | `writing-plans` (terminaler State, „invoke the writing-plans skill") | **`lmd-writing-plans`** (Name-Pointer; Port = nächste Folge-Arbeit, s. Non-Goals) |
 | „frontend-design, mcp-builder, any other implementation skill" (HARD-GATE-Negativliste) | generisch umformuliert („any implementation skill"), kein superpowers-Skillname |
+| `elements-of-style:writing-clearly-and-concisely` (optionaler externer Plugin-Skill, „if available") | generisch umformuliert in `write-spec` („spec klar/knapp schreiben") — kein erfundener lmd-Skill, kein externer Hard-Dep |
 | `spec-document-reviewer-prompt.md` | Companion `spec-reviewer` |
 | `visual-companion.md` | Companion `visual-companion` |
 | `scripts/*` | Assets (install-materialisiert) |
