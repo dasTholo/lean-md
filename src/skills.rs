@@ -1243,12 +1243,18 @@ mod tests {
         ] {
             let out = render_skill("lmd-brainstorm", Some(p), None, None, jail.clone())
                 .unwrap_or_else(|_| panic!("phase {p} failed to render"));
-            assert!(!out.trim().is_empty(), "phase {p} rendered empty");
+            assert!(
+                out.trim().len() > 80,
+                "phase {p} rendered too thin — content lost?"
+            );
         }
         for c in ["spec-reviewer", "visual-companion"] {
             let out = render_companion("lmd-brainstorm", c, None, None, jail.clone())
                 .unwrap_or_else(|_| panic!("companion {c} failed to render"));
-            assert!(!out.trim().is_empty(), "companion {c} rendered empty");
+            assert!(
+                out.trim().len() > 80,
+                "companion {c} rendered too thin — content lost?"
+            );
         }
     }
 
