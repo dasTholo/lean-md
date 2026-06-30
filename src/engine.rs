@@ -155,7 +155,7 @@ impl EngineContext {
             .entry(name.to_string())
             .or_insert_with(|| val.to_string());
     }
-    /// Roh-Body einer benannten `@phase` (vom `capture_phase_bodies`-Pre-Pass).
+    /// Raw body of a named `@phase` (from the `capture_phase_bodies` pre-pass).
     pub fn phase_body(&self, name: &str) -> Option<String> {
         self.phase_bodies.borrow().get(name).cloned()
     }
