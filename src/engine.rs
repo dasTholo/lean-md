@@ -37,10 +37,10 @@ pub struct EngineContext {
     /// Spec §3.4: "renderer knows a current phase scope" — EngineContext is the
     /// correct home (not a local in render_with_phases, which Task 4 did first).
     pub(crate) phase_scope: RefCell<Vec<PhaseScope>>,
-    /// Roh erfasste `@phase "name"`-Bodies (Pre-Pass `capture_phase_bodies`), per
-    /// Name nachschlagbar für `@dispatch` (Spec D-4). Render-/lifecycle-frei — die
-    /// Work-Bridges bleiben verbatim (D-3 Work-lazy). Getrennt von `phase_scope`
-    /// (das den Inline-Render-Lifecycle trägt).
+    /// Raw-captured `@phase "name"` bodies (Pre-Pass `capture_phase_bodies`), lookup-able by
+    /// name for `@dispatch` (Spec D-4). Render-/lifecycle-free — the
+    /// Work-Bridges stay verbatim (D-3 Work-lazy). Separate from `phase_scope`
+    /// (which carries the inline-render lifecycle).
     pub(crate) phase_bodies: RefCell<HashMap<String, String>>,
     /// Skill-body variables (`@var`). Seeded from `.lean-ctx/lean-md/vars.toml`
     /// (override) then filled with `@var …default=` defaults (default-if-absent).

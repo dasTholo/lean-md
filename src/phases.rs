@@ -434,12 +434,12 @@ fn is_on_complete(trimmed: &str) -> bool {
     false
 }
 
-/// Pre-pass (Spec D-4): erfasst jeden `@phase "name" … @phase-end`-Block ROH in
-/// `ctx.phase_bodies`, damit `@dispatch phase="name"` ihn per Name nachschlagen
-/// kann. Render-FREI und lifecycle-FREI (kein `session_decision`, kein
-/// `@on complete`-Feuern) — die Work-Bridges bleiben verbatim (D-3). Flache v1-
-/// Phasen: nicht verschachtelt; ein zweites `@phase` vor `@phase-end` schließt
-/// implizit nicht — defensiv wird nur der erste vollständige Block je Name erfasst.
+/// Pre-pass (Spec D-4): captures every `@phase "name" … @phase-end` block RAW in
+/// `ctx.phase_bodies` so that `@dispatch phase="name"` can look it up by name.
+/// Render-FREE and lifecycle-FREE (no `session_decision`, no
+/// `@on complete` firing) — the Work-Bridges stay verbatim (D-3). Flat v1
+/// phases: not nested; a second `@phase` before `@phase-end` does not
+/// close implicitly — defensively only the first complete block per name is captured.
 pub(crate) fn capture_phase_bodies(ctx: &Rc<EngineContext>, body: &str) {
     let mut open: Option<(String, Vec<&str>)> = None;
     for line in body.lines() {
@@ -454,7 +454,7 @@ pub(crate) fn capture_phase_bodies(ctx: &Rc<EngineContext>, body: &str) {
             continue;
         }
         if let Some(rest) = trimmed.strip_prefix("@phase") {
-            // `@phase-end` ist oben behandelt; hier nur echte Öffner.
+            // `@phase-end` is handled above; here only real openers.
             if open.is_none() {
                 open = Some((parse_phase_name(rest), Vec::new()));
             }
@@ -492,7 +492,7 @@ trailing prose
         let got = ctx
             .phase_body("A3-parser")
             .expect("named phase body captured");
-        // Roh, work-bridges verbatim, ohne @phase/@phase-end-Marker:
+        // Raw, work-bridges verbatim, without @phase/@phase-end markers:
         assert!(got.contains("@read src/parser/block.rs"), "got: {got}");
         assert!(got.contains("@query \"cargo nextest run\""), "got: {got}");
         assert!(!got.contains("@phase"), "markers must be stripped: {got}");
@@ -500,7 +500,7 @@ trailing prose
             !got.contains("intro prose"),
             "must not leak outside the phase: {got}"
         );
-        // Render-/lifecycle-frei: keine session-decision-Seiteneffekte (kein Sink ⇒ trivially none).
+        // Render-/lifecycle-free: no session-decision side-effects (no Sink ⇒ trivially none).
         assert!(ctx.phase_body("does-not-exist").is_none());
     }
 
