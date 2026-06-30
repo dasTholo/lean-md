@@ -27,7 +27,7 @@ pub struct DirectiveAudit {
     /// it exists) or a well-known external name (`std`, `chrono`, `glob`,
     /// `rushdown`). Empty only for pure-Extension entries with no stable anchor.
     pub backing: &'static str,
-    /// Rough bridge-size estimate in lines (spec §3.1 "Bridge-Zeilenschätzung").
+    /// Rough bridge-size estimate in lines (spec §3.1 "Bridge line estimate").
     pub est_bridge_lines: u32,
     /// Free-form note: H-checks, deferred ops, fallbacks.
     pub note: &'static str,

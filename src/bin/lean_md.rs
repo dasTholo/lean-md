@@ -340,7 +340,7 @@ fn cmd_skill_vars(rest: &[String]) {
     match write_vars_template(&decls, &project_root) {
         Ok(InitOutcome::Written(p)) => println!("wrote {}", p.display()),
         Ok(InitOutcome::Exists(p)) => {
-            eprintln!("{} existiert bereits — nicht überschrieben", p.display());
+            eprintln!("{} already exists — not overwritten", p.display());
             print!("{}", render_vars_template(&decls));
         }
         Err(e) => {

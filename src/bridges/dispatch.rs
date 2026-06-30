@@ -1,7 +1,7 @@
-//! `@dispatch phase=… role=… to_agent=…` bridge (Spec §3, Phase 7C). REINER
-//! Renderer (D-1): komponiert Dispatch-Contract (b) + phasen-isolierten Inhalt
-//! (a, template-eager/work-lazy) + ToolSearch-Bootstrap (c). Kein Spawn, kein
-//! ctx_agent/ctx_handoff-Aufruf — der Baton ist Instruktions-Text im Contract.
+//! `@dispatch phase=… role=… to_agent=…` bridge (Spec §3, Phase 7C). PURE
+//! renderer (D-1): composes Dispatch-Contract (b) + phase-isolated content
+//! (a, template-eager/work-lazy) + ToolSearch-Bootstrap (c). No spawn, no
+//! ctx_agent/ctx_handoff call — the baton is instruction text in the contract.
 
 use std::rc::Rc;
 
@@ -9,8 +9,8 @@ use super::{BridgeError, DirectiveBridge};
 use crate::args::DirectiveArgs;
 use crate::engine::{EngineContext, render_body};
 
-/// ToolSearch-Bootstrap (Block c, Spec D-2/§3.2): lädt die deferred lazy-core-
-/// Tools vor dem ersten Read im Subagenten. Byte-stabil (#498).
+/// ToolSearch-Bootstrap (block c, Spec D-2/§3.2): loads the deferred lazy-core
+/// tools before the first read in the subagent. Byte-stable (#498).
 const BOOTSTRAP: &str = "## Bootstrap\nToolSearch(query=\"select:mcp__lean-ctx__ctx_read,mcp__lean-ctx__ctx_search,mcp__lean-ctx__ctx_shell,mcp__lean-ctx__ctx_edit,mcp__lean-ctx__ctx_tree\")\n";
 
 /// Sentinel used when `to_agent` is absent so that `{{ controller_id }}` survives
@@ -45,7 +45,7 @@ impl DirectiveBridge for DispatchBridge {
                 ));
             }
             (Some(p), None) => {
-                // (a) phasen-isolierter Body — Lookup im capture-Pre-Pass (C1).
+                // (a) phase-isolated body — lookup in the capture pre-pass (C1).
                 let Some(body) = ctx.phase_body(p) else {
                     return Ok(format!("<!-- lmd: PHASE_NOT_FOUND '{p}' -->\n"));
                 };
@@ -221,8 +221,8 @@ mod tests {
 
     #[test]
     fn rendered_prompt_carries_native_read_prohibition() {
-        // §8.8 (Rust-Anteil): der Prompt selbst verbietet native I/O — die
-        // in-Prompt-Disziplin, die den Subagenten auf ctx_* zwingt.
+        // §8.8 (Rust part): the rendered prompt itself prohibits native I/O —
+        // the in-prompt discipline that steers the subagent to ctx_*.
         let doc = "@phase \"P\"\n@read a.rs\n@phase-end\n\n@dispatch phase=\"P\" role=dev to_agent=\"c\"\n";
         let out = render(doc);
         assert!(

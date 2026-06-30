@@ -80,7 +80,7 @@ pub fn parse_call_signature(raw: &str) -> Option<(String, Vec<String>)> {
 /// Substitute `{{ p }}` (flexible inner whitespace) for each `params[i]` with
 /// the matching `args[i]` in `body`. Textual — runs at `@call` time BEFORE
 /// `render_body`, so the substituted body's directives then dispatch normally
-/// (spec §4 "textuelle {{ p }}-Interpolation im Body-Content"). Missing args
+/// (spec §4 "textual {{ p }} interpolation in body content"). Missing args
 /// substitute the empty string (passive-macro tolerance).
 pub fn substitute_params(body: &str, params: &[String], args: &[String]) -> String {
     let mut out = body.to_string();

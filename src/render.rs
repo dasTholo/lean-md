@@ -186,9 +186,9 @@ pub(crate) fn splice_directives(
     out
 }
 
-/// Work-Klasse (Spec D-3): diese Direktiven führt der SUBAGENT in seinem Kontext
-/// aus → beim `@dispatch`-Render bleiben sie VERBATIM (lazy). Alles andere
-/// (`@call`/`@include` + `{{ }}`-Inline) ist Template-Klasse → eager aufgelöst.
+/// Work-class directives (Spec D-3): these are executed by the SUBAGENT in its own context
+/// → during `@dispatch` rendering they remain VERBATIM (lazy). Everything else
+/// (`@call`/`@include` + `{{ }}` inlines) is Template-class → resolved eagerly.
 const WORK_DIRECTIVES: &[&str] = &[
     "read",
     "search",
@@ -211,10 +211,10 @@ const WORK_DIRECTIVES: &[&str] = &[
     "list",
 ];
 
-/// Template-eager / Work-lazy splice (Spec D-3): wie `splice_directives`, aber
-/// Work-Direktiven (`WORK_DIRECTIVES`) und Pipes werden NICHT dispatcht — ihr
-/// Source-Span bleibt byte-identisch. Nur Template-Direktiven (`@call`/`@include`)
-/// und `{{ }}`-Inlines werden aufgelöst.
+/// Template-eager / Work-lazy splice (Spec D-3): like `splice_directives`, but
+/// Work directives (`WORK_DIRECTIVES`) and pipes are NOT dispatched — their
+/// source span remains byte-identical. Only Template directives (`@call`/`@include`)
+/// and `{{ }}` inlines are resolved.
 pub(crate) fn splice_template_only(ctx: &Rc<EngineContext>, segment: &str) -> String {
     use core::fmt;
     use rushdown::ast::{self, WalkStatus};
@@ -391,17 +391,17 @@ mod tests {
             LeanMdHeader::default(),
             std::env::temp_dir(),
         ));
-        let source = "Grüße {{ date }} — Größe äöü\n";
+        let source = "Greetings ☃ {{ date }} — size ∆\n";
         let parser = Parser::with_extensions(ParserOptions::default(), lmd_parser_extension());
         let mut reader = BasicReader::new(source);
         let (arena, root) = parser.parse(&mut reader);
         let out = splice_directives(&ctx, source, &arena, root);
         assert!(
-            out.starts_with("Grüße "),
+            out.starts_with("Greetings "),
             "leading multibyte prose preserved: {out}"
         );
         assert!(
-            out.contains("Größe äöü"),
+            out.contains("size ∆"),
             "trailing multibyte prose preserved: {out}"
         );
     }
@@ -578,7 +578,7 @@ mod crp_hook_tests {
         use crate::engine::render;
         let doc = "@lean-md\nconsumer: human\n\n@read src/foo.rs\n";
         let out = render(doc);
-        assert!(out.contains("Datei `src/foo.rs` lesen"), "glossed: {out}");
+        assert!(out.contains("Read file `src/foo.rs`"), "glossed: {out}");
         assert!(!out.contains("@read"), "directive not left raw: {out}");
     }
 
@@ -589,7 +589,7 @@ mod crp_hook_tests {
         let doc = "@lean-md\nconsumer: ai\n\n@read Cargo.toml\n";
         let out = render(doc);
         assert!(
-            !out.contains("Datei `Cargo.toml` lesen"),
+            !out.contains("Read file `Cargo.toml`"),
             "ai must not gloss: {out}"
         );
     }

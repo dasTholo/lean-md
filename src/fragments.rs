@@ -10,10 +10,10 @@ use std::path::Path;
 const HARD_RULES: &str = include_str!("../content/core/hard-rules.lmd.md");
 
 /// Built-in `dispatch-contract` fragment (Spec §3.1, D-5/D-11). Block (b) of a
-/// `@dispatch` render: tool-discipline + register/handoff baton. Portiert aus
+/// `@dispatch` render: tool-discipline + register/handoff baton. Ported from
 /// `lean-md/core/dispatch-contract.lmd.md` (via `include_str!`, byte-stable #498).
-/// `{{ role }}` / `{{ controller_id }}` bleiben verbatim — die `DispatchBridge`
-/// (Phase 7C) substituiert sie.
+/// `{{ role }}` / `{{ controller_id }}` stay verbatim — the `DispatchBridge`
+/// (Phase 7C) substitutes them.
 const DISPATCH_CONTRACT: &str = include_str!("../content/core/dispatch-contract.lmd.md");
 
 /// Built-in `test-first-core` fragment — the TDD discipline trip-wires
@@ -116,7 +116,7 @@ mod tests {
     fn dispatch_contract_is_a_builtin_with_placeholders() {
         let reg = FragmentRegistry::with_builtins();
         let out = reg.resolve("dispatch-contract", Path::new(".")).unwrap();
-        // Parametrisierung bleibt verbatim — Substitution ist Sache der DispatchBridge.
+        // Parametrization stays verbatim — substitution is the DispatchBridge's job.
         assert!(
             out.contains("{{ role }}"),
             "contract must carry the {{{{ role }}}} placeholder"
@@ -158,7 +158,7 @@ mod tests {
 
     #[test]
     fn hard_rules_has_no_stale_backings() {
-        // D-8: serena/jetbrains wurden entfernt; der Kanon darf sie nicht mehr nennen.
+        // D-8: serena/jetbrains were removed; the canon must no longer name them.
         let reg = FragmentRegistry::with_builtins();
         let out = reg.resolve("hard-rules", Path::new(".")).unwrap();
         assert!(
@@ -169,7 +169,7 @@ mod tests {
             !out.to_lowercase().contains("jetbrains"),
             "stale backing 'jetbrains' in hard-rules"
         );
-        // Die heutigen Backings müssen genannt sein.
+        // Today's backings must be named.
         assert!(
             out.contains("ctx_refactor"),
             "hard-rules must name ctx_refactor"

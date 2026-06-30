@@ -37,10 +37,10 @@ pub struct EngineContext {
     /// Spec §3.4: "renderer knows a current phase scope" — EngineContext is the
     /// correct home (not a local in render_with_phases, which Task 4 did first).
     pub(crate) phase_scope: RefCell<Vec<PhaseScope>>,
-    /// Roh erfasste `@phase "name"`-Bodies (Pre-Pass `capture_phase_bodies`), per
-    /// Name nachschlagbar für `@dispatch` (Spec D-4). Render-/lifecycle-frei — die
-    /// Work-Bridges bleiben verbatim (D-3 Work-lazy). Getrennt von `phase_scope`
-    /// (das den Inline-Render-Lifecycle trägt).
+    /// Raw-captured `@phase "name"` bodies (Pre-Pass `capture_phase_bodies`), lookup-able by
+    /// name for `@dispatch` (Spec D-4). Render-/lifecycle-free — the
+    /// Work-Bridges stay verbatim (D-3 Work-lazy). Separate from `phase_scope`
+    /// (which carries the inline-render lifecycle).
     pub(crate) phase_bodies: RefCell<HashMap<String, String>>,
     /// Skill-body variables (`@var`). Seeded from `.lean-ctx/lean-md/vars.toml`
     /// (override) then filled with `@var …default=` defaults (default-if-absent).
@@ -155,7 +155,7 @@ impl EngineContext {
             .entry(name.to_string())
             .or_insert_with(|| val.to_string());
     }
-    /// Roh-Body einer benannten `@phase` (vom `capture_phase_bodies`-Pre-Pass).
+    /// Raw body of a named `@phase` (from the `capture_phase_bodies` pre-pass).
     pub fn phase_body(&self, name: &str) -> Option<String> {
         self.phase_bodies.borrow().get(name).cloned()
     }
@@ -1038,7 +1038,7 @@ flag is {{ env.LMD_P4_GOLDEN == \"on\" }}
         // Source stored agent-facing (ai + tdd); render it human without editing it.
         let doc = "@lean-md\nconsumer: ai\ncrp: tdd\n\n@read src/foo.rs\n";
         let out = render_with_overrides(doc, Some(Consumer::Human), None, PathBuf::from("."));
-        assert!(out.contains("Datei `src/foo.rs` lesen"), "glossed: {out}");
+        assert!(out.contains("Read file `src/foo.rs`"), "glossed: {out}");
         assert!(!out.contains("<!-- crp:tdd -->"), "no dense suffix: {out}");
     }
 
@@ -1049,7 +1049,7 @@ flag is {{ env.LMD_P4_GOLDEN == \"on\" }}
         let out = render_with_overrides(doc, None, None, PathBuf::from("."));
         // ai default → @read dispatched, not glossed.
         assert!(
-            !out.contains("Datei `Cargo.toml` lesen"),
+            !out.contains("Read file `Cargo.toml`"),
             "header respected: {out}"
         );
     }
