@@ -1,4 +1,4 @@
-//! Tool-availability audit (Spec §5.4 "Tool-Verfügbarkeits-Audit" + §8 #12).
+//! Tool-availability audit (Spec §5.4 "Tool availability audit" + §8 #12).
 //! COVERAGE maps each brainstorming workflow step → lmd directive → lean-ctx
 //! backing; the gate asserts every covered directive is registered. GAP_LIST
 //! names tools intentionally NOT in the brainstorming path (transparency, not a
@@ -38,7 +38,7 @@ pub const COVERAGE: &[(&str, &str, &str, &str)] = &[
         "include",
         "fragment-compose",
     ),
-    // green-Phase dispatcht den Tester-Subagenten (Brief = testing/methodology).
+    // green phase dispatches the tester subagent (brief = testing/methodology).
     (
         "lmd-writing-skills",
         "green",

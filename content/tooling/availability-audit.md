@@ -1,10 +1,10 @@
-# Tool-Verfügbarkeits-Audit — Brainstorming-Pfad (Phase 10)
+# Tool availability audit — brainstorming path (phase 10)
 
-Coverage-Matrix: jeder Brainstorming-Workflow-Schritt → lmd-Direktive → lean-ctx-Backing.
-Quelle der Wahrheit ist `src/availability.rs::COVERAGE` (dieser Doc-Text ist die
-menschenlesbare Projektion; das Gate prüft Registrierung gegen `default_registry()`).
+Coverage matrix: each brainstorming workflow step → lmd directive → lean-ctx backing.
+The source of truth is `src/availability.rs::COVERAGE` (this doc-text is the
+human-readable projection; the gate checks registration against `default_registry()`).
 
-| Workflow-Schritt | lmd-Direktive | lean-ctx-Backing      |
+| Workflow step | lmd directive | lean-ctx backing      |
 |------------------|---------------|-----------------------|
 | explore          | `@read`       | `ctx_read`            |
 | explore          | `@list`       | `ctx_tree`            |
@@ -18,32 +18,31 @@ menschenlesbare Projektion; das Gate prüft Registrierung gegen `default_registr
 | handoff          | `@dispatch`   | fragment-compose      |
 | handoff          | `@handoff`    | `ctx_handoff`         |
 
-## Bewusst NICHT im Brainstorming-Pfad (Gap-Liste, transparent)
+## Deliberately NOT in the brainstorming path (gap list, transparent)
 
-- `ctx_benchmark` — Performance-Messung, kein Authoring-Schritt
-- `ctx_package` — Distribution, kein Authoring-Schritt
-- `ctx_provider` — externe Datenquellen, separater Pfad
+- `ctx_benchmark` — performance measurement, not an authoring step
+- `ctx_package` — distribution, not an authoring step
+- `ctx_provider` — external data sources, separate path
 
 ## lmd-test-driven-development — Coverage
 
-TDD ist Prosa-Disziplin (phasenweise gerendert), direktiv-arm:
+TDD is prose-discipline (rendered phase-by-phase), directive-light:
 
-| Workflow-Schritt | lmd-Direktive | lean-ctx-Backing |
+| Workflow step | lmd directive | lean-ctx backing |
 | red              | `@read`       | `ctx_read`       |
 
-**Bewusster Gap:** Die Test-Ausführung (`ctx_shell "cargo nextest run"`) ist **keine**
-registrierte Direktive — sie läuft als rohes `ctx_shell`, nicht als Code-Intel-Direktive.
-RED/GREEN-Verifikation ist Prosa-Anweisung im Body, kein Registry-Eintrag (transparent, kein Loch).
+**Deliberate gap:** Test execution (`ctx_shell "cargo nextest run"`) is **not** a
+registered directive — it runs as raw `ctx_shell`, not as a code-intel directive.
+RED/GREEN verification is a prose instruction in the body, not a registry entry (transparent, not a hole).
 
 ## lmd-writing-skills — Coverage
 
-| Workflow-Schritt | lmd-Direktive | lean-ctx-Backing |
+| Workflow step | lmd directive | lean-ctx backing |
 | red (baseline read) | `@read` | `ctx_read` |
 | green (tester dispatch) | `@dispatch` | fragment-compose |
 | companion (@include skill-authoring-core) | `@include` | fragment-compose |
 
-Die green-Phase dispatcht einen Tester-Subagenten, dessen Brief der Companion
-`testing/methodology` ist (`@dispatch skill="lmd-writing-skills"
+The green phase dispatches a tester subagent whose brief is the companion
+`testing/methodology` (`@dispatch skill="lmd-writing-skills"
 companion="testing/methodology" role=test`). Test execution (subagent pressure
-scenarios) bleibt Prosa-Disziplin, keine registrierte Direktive — transparent
-hier vermerkt.
+scenarios) remains prose-discipline, not a registered directive — noted here transparently.
