@@ -29,6 +29,12 @@ const TEST_FIRST_CORE: &str =
 const SKILL_AUTHORING_CORE: &str =
     include_str!("../content/skills/lmd-writing-skills/_includes/skill-authoring-core.lmd.md");
 
+/// Built-in `brainstorm-gate` fragment — the HARD-GATE trip-wire that enforces
+/// brainstorming discipline. Skill-owned seed, flat global name; `@include
+/// brainstorm-gate` pulls it into every discipline phase of `lmd-brainstorm`.
+const BRAINSTORM_GATE: &str =
+    include_str!("../content/skills/lmd-brainstorm/_includes/brainstorm-gate.lmd.md");
+
 #[derive(Debug)]
 pub enum ResolveError {
     NotFound(String),
@@ -49,6 +55,7 @@ impl FragmentRegistry {
         builtins.insert("dispatch-contract", DISPATCH_CONTRACT);
         builtins.insert("test-first-core", TEST_FIRST_CORE);
         builtins.insert("skill-authoring-core", SKILL_AUTHORING_CORE);
+        builtins.insert("brainstorm-gate", BRAINSTORM_GATE);
         Self { builtins }
     }
 
@@ -172,6 +179,23 @@ mod tests {
         assert!(
             out.contains("ctx_search:symbol"),
             "hard-rules must name ctx_search:symbol for *.rs (@symbol backing)"
+        );
+    }
+
+    #[test]
+    fn brainstorm_gate_matches_seed_file_on_disk() {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let reg = FragmentRegistry::with_builtins();
+        let disk = std::fs::read_to_string(
+            std::path::Path::new(manifest)
+                .join("content/skills/lmd-brainstorm/_includes/brainstorm-gate.lmd.md"),
+        )
+        .unwrap();
+        let builtin = reg.resolve("brainstorm-gate", Path::new(".")).unwrap();
+        assert_eq!(builtin, disk, "brainstorm-gate drifted from seed file");
+        assert!(
+            builtin.contains("regardless of perceived simplicity"),
+            "gate must carry the HARD-GATE marker"
         );
     }
 
