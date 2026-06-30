@@ -20,14 +20,48 @@ pub const INSTALLABLE_SKILLS: &[(&str, &str)] = &[
 const WRITING_SKILLS_RENDER_GRAPHS: &str =
     include_str!("../content/skills/lmd-writing-skills/render-graphs.js");
 
+const BRAINSTORM_SERVER_CJS: &str =
+    include_str!("../content/skills/lmd-brainstorm/scripts/server.cjs");
+const BRAINSTORM_HELPER_JS: &str =
+    include_str!("../content/skills/lmd-brainstorm/scripts/helper.js");
+const BRAINSTORM_FRAME_HTML: &str =
+    include_str!("../content/skills/lmd-brainstorm/scripts/frame-template.html");
+const BRAINSTORM_START_SH: &str =
+    include_str!("../content/skills/lmd-brainstorm/scripts/start-server.sh");
+const BRAINSTORM_STOP_SH: &str =
+    include_str!("../content/skills/lmd-brainstorm/scripts/stop-server.sh");
+
 /// Non-rendered helper files materialized verbatim into the installed skill dir
 /// (skill, filename, embedded content). Absent-only/idempotent like the SKILL.md
 /// stub (#498 byte-stable).
-const ASSETS: &[(&str, &str, &str)] = &[(
-    "lmd-writing-skills",
-    "render-graphs.js",
-    WRITING_SKILLS_RENDER_GRAPHS,
-)];
+const ASSETS: &[(&str, &str, &str)] = &[
+    (
+        "lmd-writing-skills",
+        "render-graphs.js",
+        WRITING_SKILLS_RENDER_GRAPHS,
+    ),
+    (
+        "lmd-brainstorm",
+        "scripts/server.cjs",
+        BRAINSTORM_SERVER_CJS,
+    ),
+    ("lmd-brainstorm", "scripts/helper.js", BRAINSTORM_HELPER_JS),
+    (
+        "lmd-brainstorm",
+        "scripts/frame-template.html",
+        BRAINSTORM_FRAME_HTML,
+    ),
+    (
+        "lmd-brainstorm",
+        "scripts/start-server.sh",
+        BRAINSTORM_START_SH,
+    ),
+    (
+        "lmd-brainstorm",
+        "scripts/stop-server.sh",
+        BRAINSTORM_STOP_SH,
+    ),
+];
 
 /// Install target selector (Spec E11). `Local` is the default — env-independent,
 /// versionable, team-shareable. `Global` honors `CLAUDE_CONFIG_DIR`.
@@ -80,7 +114,18 @@ pub fn install_skill(name: &str, scope: Scope, project_root: &Path) -> std::io::
     std::fs::write(&target, body)?;
     for (skill, fname, content) in ASSETS {
         if *skill == name {
-            std::fs::write(dir.join(fname), content)?;
+            let asset_path = dir.join(fname);
+            if let Some(parent) = asset_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&asset_path, content)?;
+            #[cfg(unix)]
+            if fname.ends_with(".sh") {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perm = std::fs::metadata(&asset_path)?.permissions();
+                perm.set_mode(0o755);
+                std::fs::set_permissions(&asset_path, perm)?;
+            }
         }
     }
     Ok(target)
@@ -152,6 +197,62 @@ mod tests {
         let root = std::env::temp_dir();
         let err = install_skill("nope", Scope::Local, &root).unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn brainstorm_install_materializes_scripts() {
+        let root = std::env::temp_dir().join(format!("lmd_bs_assets_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let skill_md = install_skill("lmd-brainstorm", Scope::Local, &root).unwrap();
+        let dir = skill_md.parent().unwrap();
+        let scripts = dir.join("scripts");
+
+        for f in [
+            "server.cjs",
+            "helper.js",
+            "frame-template.html",
+            "start-server.sh",
+            "stop-server.sh",
+        ] {
+            assert!(
+                scripts.join(f).exists(),
+                "scripts/{f} must be materialized next to SKILL.md"
+            );
+        }
+
+        // .sh must be executable (unix).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for sh in ["start-server.sh", "stop-server.sh"] {
+                let mode = std::fs::metadata(scripts.join(sh))
+                    .unwrap()
+                    .permissions()
+                    .mode();
+                assert!(mode & 0o111 != 0, "scripts/{sh} must be executable");
+            }
+        }
+
+        // Idempotent: a second install keeps the assets present.
+        install_skill("lmd-brainstorm", Scope::Local, &root).unwrap();
+        assert!(scripts.join("server.cjs").exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn brainstorm_assets_reference_closure() {
+        // No (case-insensitive) `superpowers` token survives in any embedded asset.
+        for (skill, fname, content) in ASSETS {
+            if *skill == "lmd-brainstorm" {
+                assert!(
+                    !content.to_lowercase().contains("superpowers"),
+                    "asset {fname} still references superpowers"
+                );
+            }
+        }
     }
 
     #[test]
