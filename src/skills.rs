@@ -632,6 +632,39 @@ mod tests {
     }
 
     #[test]
+    fn no_dangling_companion_refs_in_seeds() {
+        use regex::Regex;
+        // Render-call form: ctx_md_render(skill="<s>", companion="<c>")
+        let call_re = Regex::new(r#"skill="([^"]+)",\s*companion="([^"]+)""#).unwrap();
+        // Generic mention: companion="<c>" (call) or companion "<c>" (prose).
+        let mention_re = Regex::new(r#"companion\s*=?\s*"([^"]+)""#).unwrap();
+
+        // Corpus: every embedded skill body PLUS every embedded companion body.
+        let mut corpus: Vec<&'static str> = all_skill_bodies();
+        corpus.extend(COMPANIONS.iter().map(|(_, _, body)| *body));
+
+        for body in corpus {
+            // Skill-scoped render calls: companion must resolve under that skill.
+            for cap in call_re.captures_iter(body) {
+                let skill = &cap[1];
+                let companion = &cap[2];
+                assert!(
+                    companion_body(skill, companion).is_some(),
+                    "dangling companion ref: skill=\"{skill}\" companion=\"{companion}\""
+                );
+            }
+            // Every companion mention (prose or call) must name a registered companion.
+            for cap in mention_re.captures_iter(body) {
+                let name = &cap[1];
+                assert!(
+                    COMPANIONS.iter().any(|(_, c, _)| *c == name),
+                    "dangling companion ref: companion \"{name}\" not in COMPANIONS"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn skill_md_stub_carries_orientation() {
         let manifest = env!("CARGO_MANIFEST_DIR");
         let stub = std::fs::read_to_string(

@@ -53,7 +53,7 @@ bulletproof. Build the rationalization table from every iteration; create a
 red-flags list so agents can self-check.
 
 STOP before moving to the next skill: do NOT batch-create skills untested. The
-deployment checklist (see companion "testing-skills-with-subagents") is mandatory
+deployment checklist (see companion "testing/creation-checklist") is mandatory
 for EACH skill. Deploying untested skills = deploying untested code.
 
 For loophole-closing technique render the companion:
@@ -83,7 +83,7 @@ next: return to RED for the next skill, or ship.
 **All of these mean: test before deploying. No exceptions.**
 
 For the full testing methodology render the companion:
-`ctx_md_render(skill="lmd-writing-skills", companion="testing-skills-with-subagents")`.
+`ctx_md_render(skill="lmd-writing-skills", companion="testing/methodology")`.
 
 next: return to your active phase (red/green/refactor).
 @phase-end

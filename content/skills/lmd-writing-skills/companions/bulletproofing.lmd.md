@@ -61,7 +61,7 @@ This cuts off entire class of "I'm following the spirit" rationalizations.
 
 ### Build Rationalization Table
 
-Capture rationalizations from baseline testing (render the companion: ctx_md_render(skill="lmd-writing-skills", companion="testing-skills-with-subagents")). Every excuse agents make goes in the table:
+Capture rationalizations from baseline testing (render the companion: ctx_md_render(skill="lmd-writing-skills", companion="testing/methodology")). Every excuse agents make goes in the table:
 
 ```markdown
 | Excuse | Reality |
