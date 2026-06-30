@@ -1227,4 +1227,49 @@ mod tests {
             "creation-checklist fidelity (Deployment section)"
         );
     }
+
+    #[test]
+    fn brainstorm_fidelity_all_surfaces_render_nonempty() {
+        let jail = std::path::PathBuf::from(".");
+        for p in [
+            "pre-context",
+            "explore",
+            "questions",
+            "approaches",
+            "present-design",
+            "write-spec",
+            "self-review",
+            "handoff",
+        ] {
+            let out = render_skill("lmd-brainstorm", Some(p), None, None, jail.clone())
+                .unwrap_or_else(|_| panic!("phase {p} failed to render"));
+            assert!(!out.trim().is_empty(), "phase {p} rendered empty");
+        }
+        for c in ["spec-reviewer", "visual-companion"] {
+            let out = render_companion("lmd-brainstorm", c, None, None, jail.clone())
+                .unwrap_or_else(|_| panic!("companion {c} failed to render"));
+            assert!(!out.trim().is_empty(), "companion {c} rendered empty");
+        }
+    }
+
+    #[test]
+    fn brainstorm_seeds_reference_closure() {
+        // No (case-insensitive) `superpowers` token survives in any brainstorm seed.
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let base = std::path::Path::new(manifest).join("content/skills/lmd-brainstorm");
+        let seeds = [
+            "SKILL.md",
+            "body.lmd.md",
+            "_includes/brainstorm-gate.lmd.md",
+            "companions/spec-reviewer.lmd.md",
+            "companions/visual-companion.lmd.md",
+        ];
+        for s in seeds {
+            let txt = std::fs::read_to_string(base.join(s)).unwrap();
+            assert!(
+                !txt.to_lowercase().contains("superpowers"),
+                "seed {s} still references superpowers"
+            );
+        }
+    }
 }
