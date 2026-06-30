@@ -12,6 +12,7 @@ dialogue. Start by understanding the current project context, then ask questions
 one at a time to refine the idea. Once you understand what you're building,
 present the design and get user approval.
 
+## Checklist
 
 You MUST create a task for each of these items and complete them in order:
 
