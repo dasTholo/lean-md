@@ -634,10 +634,15 @@ mod tests {
     #[test]
     fn no_dangling_companion_refs_in_seeds() {
         use regex::Regex;
-        // Render-call form: ctx_md_render(skill="<s>", companion="<c>")
-        let call_re = Regex::new(r#"skill="([^"]+)",\s*companion="([^"]+)""#).unwrap();
-        // Generic mention: companion="<c>" (call) or companion "<c>" (prose).
-        let mention_re = Regex::new(r#"companion\s*=?\s*"([^"]+)""#).unwrap();
+        // Skill-scoped directive form, covering both `ctx_md_render(skill="<s>",
+        // companion="<c>")` (comma separator) and `@dispatch skill="<s>"
+        // companion="<c>"` (whitespace separator). The companion must resolve
+        // under that skill — strictly stronger than a bare existence check.
+        let call_re = Regex::new(r#"skill="([^"]+)"[,\s]+companion="([^"]+)""#).unwrap();
+        // Prose mention form `companion "<c>"` (whitespace, no `=`). The `=`
+        // form is fully covered by call_re, so this requires a real separator
+        // and never matches the malformed `companion"<c>"`.
+        let mention_re = Regex::new(r#"companion\s+"([^"]+)""#).unwrap();
 
         // Corpus: every embedded skill body PLUS every embedded companion body.
         let mut corpus: Vec<&'static str> = all_skill_bodies();
