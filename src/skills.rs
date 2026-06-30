@@ -42,6 +42,8 @@ const LMD_WS_PERSUASION: &str =
     include_str!("../content/skills/lmd-writing-skills/companions/persuasion-principles.lmd.md");
 const LMD_BRAINSTORM_SPEC_REVIEWER: &str =
     include_str!("../content/skills/lmd-brainstorm/companions/spec-reviewer.lmd.md");
+const LMD_BRAINSTORM_VISUAL_COMPANION: &str =
+    include_str!("../content/skills/lmd-brainstorm/companions/visual-companion.lmd.md");
 
 /// Registry of embedded lmd skill bodies (name → binary-embedded body source).
 /// Replaces the hardcoded `match` so new skills are a one-line table entry
@@ -126,6 +128,11 @@ const COMPANIONS: &[(&str, &str, &str)] = &[
         "lmd-brainstorm",
         "spec-reviewer",
         LMD_BRAINSTORM_SPEC_REVIEWER,
+    ),
+    (
+        "lmd-brainstorm",
+        "visual-companion",
+        LMD_BRAINSTORM_VISUAL_COMPANION,
     ),
 ];
 
@@ -775,6 +782,56 @@ mod tests {
             out.contains("ToolSearch(query=\"select:mcp__lean-ctx__ctx_read"),
             "dispatch bootstrap missing: {out}"
         );
+    }
+
+    #[test]
+    fn brainstorm_visual_companion_resolves() {
+        let body = companion_body("lmd-brainstorm", "visual-companion")
+            .expect("visual-companion companion must be registered");
+        assert!(
+            !body.trim().is_empty(),
+            "visual-companion must be non-empty"
+        );
+    }
+
+    #[test]
+    fn brainstorm_visual_companion_harness_matrix_verbatim() {
+        let out = render_companion(
+            "lmd-brainstorm",
+            "visual-companion",
+            None,
+            None,
+            std::path::PathBuf::from("."),
+        )
+        .unwrap();
+        for platform in [
+            "**Claude Code:**",
+            "**Codex:**",
+            "**Gemini CLI:**",
+            "**Copilot CLI:**",
+            "**Other environments:**",
+        ] {
+            assert!(
+                out.contains(platform),
+                "harness matrix must keep {platform} verbatim (R3)"
+            );
+        }
+        // Reference-closure: no superpowers session path survives.
+        assert!(
+            !out.contains(".superpowers/"),
+            "superpowers session path must be rewritten to .lean-ctx/"
+        );
+    }
+
+    #[test]
+    fn brainstorm_companion_render_is_deterministic() {
+        // CLI==MCP (#498): both surfaces call render_companion → byte-identical.
+        let jail = std::path::PathBuf::from(".");
+        for c in ["spec-reviewer", "visual-companion"] {
+            let a = render_companion("lmd-brainstorm", c, None, None, jail.clone()).unwrap();
+            let b = render_companion("lmd-brainstorm", c, None, None, jail.clone()).unwrap();
+            assert_eq!(a, b, "render_companion({c}) must be deterministic (#498)");
+        }
     }
 
     #[test]
