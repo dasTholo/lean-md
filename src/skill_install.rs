@@ -112,10 +112,14 @@ pub fn install_skill(name: &str, scope: Scope, project_root: &Path) -> std::io::
     std::fs::create_dir_all(&dir)?;
     let target = dir.join("SKILL.md");
     std::fs::write(&target, body)?;
+    let mut created_parents: std::collections::HashSet<std::path::PathBuf> =
+        std::collections::HashSet::new();
     for (skill, fname, content) in ASSETS {
         if *skill == name {
             let asset_path = dir.join(fname);
-            if let Some(parent) = asset_path.parent() {
+            if let Some(parent) = asset_path.parent()
+                && created_parents.insert(parent.to_path_buf())
+            {
                 std::fs::create_dir_all(parent)?;
             }
             std::fs::write(&asset_path, content)?;
