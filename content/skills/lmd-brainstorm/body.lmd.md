@@ -12,7 +12,6 @@ dialogue. Start by understanding the current project context, then ask questions
 one at a time to refine the idea. Once you understand what you're building,
 present the design and get user approval.
 
-## Checklist
 
 You MUST create a task for each of these items and complete them in order:
 
@@ -85,6 +84,8 @@ next: render phase "explore".
 ## Understanding the idea
 
 - Check out the current project state first (files, docs, recent commits).
+- Explore with `@list`/`@search`/`@read` (ctx_tree / ctx_search / ctx_read) before
+  asking questions; gauge a change's blast radius with `@graph` / `@impact`.
 - Before asking detailed questions, assess scope: if the request describes
   multiple independent subsystems (e.g., "build a platform with chat, file
   storage, billing, and analytics"), flag this immediately. Don't spend questions
@@ -134,6 +135,8 @@ next: render phase "approaches".
 - Propose 2-3 different approaches with trade-offs.
 - Present options conversationally with your recommendation and reasoning.
 - Lead with your recommended option and explain why.
+- When weighing how invasive each option is, ground the comparison with `@graph` /
+  `@impact` (call-graph / blast-radius) to assess actual dependency scope.
 
 next: render phase "present-design".
 @phase-end
@@ -190,6 +193,8 @@ next: render phase "write-spec".
 - Write the spec clearly and concisely — tight prose, no filler.
 - Persist the key design decisions as durable facts, then commit the design
   document to git.
+- Use `@edit` to write the spec file and `@remember` to record durable design
+  facts alongside the commit.
 
 next: render phase "self-review".
 @phase-end
