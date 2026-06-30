@@ -1,5 +1,5 @@
 //! `@handoff` bridge → Context Ledger Protocol (Spec §4, Phase 7B). Orthogonal
-//! zu `@dispatch` (D-1): explizite, durable Bundle-Direktive. Routes outbound
+//! to `@dispatch` (D-1): explicit, durable bundle directive. Routes outbound
 //! via `ctx.backend.call("ctx_handoff", …)` — no local handoff_ledger access.
 
 use std::rc::Rc;
@@ -37,7 +37,7 @@ impl DirectiveBridge for HandoffBridge {
     }
 }
 
-/// `@handoff create` → durables Ledger-Bundle via outbound ctx_handoff call.
+/// `@handoff create` → durable ledger bundle via outbound ctx_handoff call.
 /// Routes to `ctx.backend.call("ctx_handoff", {"action":"create"})`.
 fn handoff_create(ctx: &Rc<EngineContext>) -> Result<String, BridgeError> {
     ctx.backend
@@ -45,8 +45,8 @@ fn handoff_create(ctx: &Rc<EngineContext>) -> Result<String, BridgeError> {
         .map_err(BridgeError::Backend)
 }
 
-/// `@handoff show path=<ledger>` → Read-only Render eines Bundles. Pfad wird
-/// gegen den Jail-Root aufgelöst (PathJail erbt, Spec §7), dann outbound.
+/// `@handoff show path=<ledger>` → read-only render of a bundle. Path is
+/// resolved against the jail root (PathJail inherited, Spec §7), then outbound.
 fn handoff_show(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String, BridgeError> {
     let raw = args
         .get("path")
@@ -62,7 +62,7 @@ fn handoff_show(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String,
         .map_err(BridgeError::Backend)
 }
 
-/// `@handoff pull path=<ledger>` → Bundle laden und Session-Snapshot anwenden
+/// `@handoff pull path=<ledger>` → load bundle and apply session snapshot
 /// via outbound ctx_handoff call.
 fn handoff_pull(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String, BridgeError> {
     let raw = args
@@ -79,7 +79,7 @@ fn handoff_pull(ctx: &Rc<EngineContext>, args: &DirectiveArgs) -> Result<String,
         .map_err(BridgeError::Backend)
 }
 
-/// Jail-Resolve eines Ledger-Pfads relativ zum Engine-Jail-Root.
+/// Jail-resolve a ledger path relative to the engine jail root.
 ///
 /// Delegates to `crate::pathx::jail_path` — the canonical path jail
 /// (null-byte rejection, `path_jail=false` config bypass, session extra_roots

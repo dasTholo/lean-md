@@ -4,7 +4,7 @@
 //! defaults to `summary`, but a directive should surface findings, not just
 //! counts (cf. `@find` bm25-vs-hybrid). `rule=`/`path=` optional; `path` is an
 //! FS filter and is jail-resolved. No `format=` exposed (backend default
-//! `text` — "erben, nicht neu erfinden", §5).
+//! `text` — "inherit, don't reinvent", §5).
 
 use std::rc::Rc;
 
