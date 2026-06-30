@@ -914,7 +914,7 @@ trailing prose
         let out = render(doc);
         assert!(out.contains("## Phase: A3-parser"), "heading: {out}");
         assert!(
-            out.contains("Datei `src/foo.rs` lesen"),
+            out.contains("Read file `src/foo.rs`"),
             "body glossed: {out}"
         );
     }

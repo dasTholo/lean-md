@@ -1038,7 +1038,7 @@ flag is {{ env.LMD_P4_GOLDEN == \"on\" }}
         // Source stored agent-facing (ai + tdd); render it human without editing it.
         let doc = "@lean-md\nconsumer: ai\ncrp: tdd\n\n@read src/foo.rs\n";
         let out = render_with_overrides(doc, Some(Consumer::Human), None, PathBuf::from("."));
-        assert!(out.contains("Datei `src/foo.rs` lesen"), "glossed: {out}");
+        assert!(out.contains("Read file `src/foo.rs`"), "glossed: {out}");
         assert!(!out.contains("<!-- crp:tdd -->"), "no dense suffix: {out}");
     }
 
@@ -1049,7 +1049,7 @@ flag is {{ env.LMD_P4_GOLDEN == \"on\" }}
         let out = render_with_overrides(doc, None, None, PathBuf::from("."));
         // ai default → @read dispatched, not glossed.
         assert!(
-            !out.contains("Datei `Cargo.toml` lesen"),
+            !out.contains("Read file `Cargo.toml`"),
             "header respected: {out}"
         );
     }
