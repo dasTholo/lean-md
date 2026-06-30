@@ -259,23 +259,83 @@ mod tests {
     }
 
     #[test]
-    fn phase_isolation_no_cross_phase_leak() {
-        let out = render_skill(
-            "lmd-brainstorm",
-            Some("explore"),
-            None,
-            None,
-            PathBuf::from("."),
-        )
-        .unwrap();
+    fn brainstorm_all_phases_render_nonempty() {
+        let jail = std::path::PathBuf::from(".");
+        for p in [
+            "pre-context",
+            "explore",
+            "questions",
+            "approaches",
+            "present-design",
+            "write-spec",
+            "self-review",
+            "handoff",
+        ] {
+            let out = render_skill("lmd-brainstorm", Some(p), None, None, jail.clone())
+                .unwrap_or_else(|_| panic!("phase {p} failed to render"));
+            assert!(!out.trim().is_empty(), "phase {p} must render non-empty");
+        }
         assert!(
-            out.contains("EXPLORE_PHASE_MARKER"),
-            "explore body missing: {out}"
+            skill_body("lmd-brainstorm").is_some(),
+            "lmd-brainstorm must be in the SKILLS registry"
         );
-        assert!(
-            !out.contains("HANDOFF_PHASE_MARKER"),
-            "cross-phase leak: handoff content rendered: {out}"
-        );
+    }
+
+    #[test]
+    fn brainstorm_phase_isolation_no_cross_phase_leak() {
+        let jail = std::path::PathBuf::from(".");
+        // (phase, unique marker that must appear, foreign marker that must NOT appear)
+        let cases = [
+            ("explore", "Understanding the idea", "Spec Self-Review"),
+            (
+                "approaches",
+                "Propose 2-3 approaches",
+                "Implementation handoff",
+            ),
+            ("self-review", "Spec Self-Review", "Understanding the idea"),
+            (
+                "handoff",
+                "Implementation handoff",
+                "Propose 2-3 approaches",
+            ),
+        ];
+        for (phase, own, foreign) in cases {
+            let out =
+                render_skill("lmd-brainstorm", Some(phase), None, None, jail.clone()).unwrap();
+            assert!(out.contains(own), "phase {phase} missing own marker: {out}");
+            assert!(
+                !out.contains(foreign),
+                "cross-phase leak in {phase}: found foreign marker {foreign}"
+            );
+        }
+    }
+
+    #[test]
+    fn brainstorm_gate_trip_wire() {
+        let jail = std::path::PathBuf::from(".");
+        const GATE: &str = "regardless of perceived simplicity";
+        // Discipline phases carry the HARD-GATE via @include brainstorm-gate.
+        for p in [
+            "pre-context",
+            "explore",
+            "questions",
+            "approaches",
+            "present-design",
+        ] {
+            let out = render_skill("lmd-brainstorm", Some(p), None, None, jail.clone()).unwrap();
+            assert!(
+                out.contains(GATE),
+                "discipline phase {p} must carry the gate"
+            );
+        }
+        // Post-approval phases are NOT gate phases.
+        for p in ["write-spec", "self-review", "handoff"] {
+            let out = render_skill("lmd-brainstorm", Some(p), None, None, jail.clone()).unwrap();
+            assert!(
+                !out.contains(GATE),
+                "non-gate phase {p} must not carry the gate"
+            );
+        }
     }
 
     #[test]
