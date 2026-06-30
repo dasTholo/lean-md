@@ -1,4 +1,4 @@
-//! Phase-9 human-readable gloss: directive name+args → German prose.
+//! Phase-9 human-readable gloss: directive name+args → English prose.
 //! The table is embedded from `lean-md/gloss/directives.lmd.md` via
 //! `include_str!` (compile-time, byte-stable #498). Only Work-directives
 //! (render::WORK_DIRECTIVES) are glossed; everything else renders normally.
@@ -30,7 +30,7 @@ pub(crate) fn parse_table(src: &str) -> HashMap<String, String> {
         }
         let key = cells[0];
         if key.is_empty()
-            || key.eq_ignore_ascii_case("direktive")
+            || key.eq_ignore_ascii_case("directive")
             || key.chars().all(|c| c == '-' || c == ':')
         {
             continue;
@@ -58,7 +58,7 @@ fn render_template(name: &str, args: &DirectiveArgs) -> String {
         .or_else(|| table().get(name));
     match tmpl {
         Some(t) => substitute(t, args),
-        None => format!("Direktive `@{name}`: `{}`", args.raw().trim()),
+        None => format!("Directive `@{name}`: `{}`", args.raw().trim()),
     }
 }
 
@@ -107,32 +107,32 @@ mod tests {
     fn glosses_common_work_directives() {
         assert_eq!(
             gloss("read", "src/parser/block.rs"),
-            "Datei `src/parser/block.rs` lesen"
+            "Read file `src/parser/block.rs`"
         );
         assert_eq!(
             gloss("query", "\"cargo nextest run\""),
-            "Ausführen: `cargo nextest run`"
+            "Run: `cargo nextest run`"
         );
         assert_eq!(
             gloss("graph", "dependents=parse_block"),
-            "Abhängige von `parse_block` ermitteln"
+            "Resolve dependents of `parse_block`"
         );
         assert_eq!(
             gloss("symbol", "refs parse_block"),
-            "Referenzen von `parse_block` ermitteln"
+            "Resolve references of `parse_block`"
         );
     }
 
     #[test]
     fn unknown_directive_uses_generic_fallback() {
-        assert_eq!(gloss("frobnicate", "x y"), "Direktive `@frobnicate`: `x y`");
+        assert_eq!(gloss("frobnicate", "x y"), "Directive `@frobnicate`: `x y`");
     }
 
     #[test]
     fn table_parses_nonempty_and_skips_header() {
         let t = table();
         assert!(t.contains_key("read"), "read entry present");
-        assert!(!t.contains_key("Direktive"), "header row skipped");
+        assert!(!t.contains_key("Directive"), "header row skipped");
     }
 
     #[test]

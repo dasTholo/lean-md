@@ -578,7 +578,7 @@ mod crp_hook_tests {
         use crate::engine::render;
         let doc = "@lean-md\nconsumer: human\n\n@read src/foo.rs\n";
         let out = render(doc);
-        assert!(out.contains("Datei `src/foo.rs` lesen"), "glossed: {out}");
+        assert!(out.contains("Read file `src/foo.rs`"), "glossed: {out}");
         assert!(!out.contains("@read"), "directive not left raw: {out}");
     }
 
@@ -589,7 +589,7 @@ mod crp_hook_tests {
         let doc = "@lean-md\nconsumer: ai\n\n@read Cargo.toml\n";
         let out = render(doc);
         assert!(
-            !out.contains("Datei `Cargo.toml` lesen"),
+            !out.contains("Read file `Cargo.toml`"),
             "ai must not gloss: {out}"
         );
     }
