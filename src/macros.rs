@@ -409,7 +409,7 @@ pub fn render_signature_index(source: &str, jail_root: std::path::PathBuf) -> St
     use std::rc::Rc;
     let (header, body) = crate::header::parse_header(source);
     let ctx = Rc::new(crate::engine::EngineContext::new(header, jail_root));
-    let _ = extract_definitions(&ctx, &body);
+    let _ = extract_definitions(&ctx, body);
     ctx.macros.borrow().signature_index()
 }
 
