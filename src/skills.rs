@@ -222,6 +222,50 @@ pub fn render_skill(
     }
 }
 
+/// Render an arbitrary `.lmd.md` `source` with the same header-parse, var-prepass
+/// and phase-isolation as `render_skill`, but source-agnostic — used to render one
+/// task-phase of a generated `.lmd.md` implementation plan. `jail_root` MUST be the
+/// project root (cwd), not the source file's parent, so `.lean-ctx/lean-md/vars.toml`
+/// and `@import` targets resolve (Spec §4 jail decision).
+pub fn render_source_with_phase(
+    source: &str,
+    phase: Option<&str>,
+    consumer: Option<Consumer>,
+    crp: Option<CrpMode>,
+    jail_root: PathBuf,
+) -> Result<String, SkillRenderError> {
+    let (mut header, body) = parse_header(source);
+    if let Some(c) = consumer {
+        header.consumer = c;
+    }
+    if let Some(m) = crp {
+        header.crp = m;
+    }
+    let ctx = Rc::new(EngineContext::new(header, jail_root));
+
+    // var-prepass — identical to render_skill.
+    ctx.vars_seed(crate::skill_vars::load_vars(&ctx.jail_root));
+    for decl in crate::skill_vars::scan_var_decls(body) {
+        ctx.var_set_default(&decl.name, &decl.default);
+    }
+
+    match phase {
+        None => Ok(render_body(&ctx, body)),
+        Some(p) => {
+            // Warm the macro registry from the WHOLE document first: a plan's
+            // meta-head @define/@import live outside the @phase blocks, so a @call
+            // inside the isolated task-phase would otherwise see an empty registry.
+            // Output is discarded — only ctx.macros is populated.
+            let _ = crate::macros::extract_definitions(&ctx, body);
+            crate::phases::capture_phase_bodies(&ctx, body);
+            let isolated = ctx
+                .phase_body(p)
+                .ok_or_else(|| SkillRenderError::PhaseNotFound(p.to_string()))?;
+            Ok(render_body(&ctx, &isolated))
+        }
+    }
+}
+
 /// Render a full body source flat (no phase capture): header overrides + the
 /// `@var` pre-pass (default-if-absent), then a single `render_body` pass.
 /// Used only by `render_companion` (kept separate from `render_skill` on purpose —
@@ -1294,5 +1338,94 @@ mod tests {
                 "seed {s} still references superpowers"
             );
         }
+    }
+
+    #[test]
+    fn file_phase_render() {
+        // A 2-phase source; rendering one phase must not leak the other.
+        let src = "\
+@lean-md
+consumer: ai
+
+@phase \"task-1\"
+FIRST TASK BODY
+@phase-end
+@phase \"task-2\"
+SECOND TASK BODY
+@phase-end
+";
+        let jail = std::path::PathBuf::from(".");
+        let out = render_source_with_phase(src, Some("task-1"), None, None, jail.clone()).unwrap();
+        assert!(out.contains("FIRST TASK BODY"), "own phase missing: {out}");
+        assert!(!out.contains("SECOND TASK BODY"), "cross-phase leak: {out}");
+
+        // Unknown phase → PhaseNotFound.
+        let err = render_source_with_phase(src, Some("task-9"), None, None, jail).unwrap_err();
+        assert!(matches!(err, SkillRenderError::PhaseNotFound(_)));
+    }
+
+    #[test]
+    fn file_phase_vars_prepass() {
+        // vars.toml under jail_root/.lean-ctx/lean-md/ overrides an inline @var default,
+        // and the override is visible in the rendered phase (proves the file path runs
+        // the same prepass as render_skill). jail_root = a temp dir (project root), not
+        // the source file's parent.
+        let root = std::env::temp_dir().join(format!("lmd_fpr_vars_{}", std::process::id()));
+        let vars_dir = root.join(".lean-ctx/lean-md");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&vars_dir).unwrap();
+        std::fs::write(
+            vars_dir.join("vars.toml"),
+            "test_cmd = \"cargo nextest run\"\n",
+        )
+        .unwrap();
+
+        let src = "\
+@lean-md
+consumer: ai
+
+@var test_cmd default=\"cargo test\"
+@phase \"task-1\"
+Run: {{ var test_cmd }} demo
+@phase-end
+";
+        let out = render_source_with_phase(src, Some("task-1"), None, None, root.clone()).unwrap();
+        assert!(
+            out.contains("cargo nextest run demo"),
+            "vars.toml override not applied: {out}"
+        );
+        assert!(
+            !out.contains("cargo test demo"),
+            "inline default leaked past vars.toml: {out}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn file_phase_macro_prepass() {
+        // A macro @define'd in the meta-head (outside the phases) must be visible to a
+        // @call inside the isolated task-phase — the macro-prepass warms the registry.
+        let src = "\
+@lean-md
+consumer: ai
+
+@define greet(who)
+Hello {{ who }}!
+@define-end
+@phase \"task-1\"
+@call greet(world) /
+@phase-end
+";
+        let jail = std::path::PathBuf::from(".");
+        let out = render_source_with_phase(src, Some("task-1"), None, None, jail).unwrap();
+        assert!(
+            out.contains("Hello world!"),
+            "meta-head macro did not expand in phase: {out}"
+        );
+        assert!(
+            !out.contains("@call greet"),
+            "@call was not expanded: {out}"
+        );
     }
 }
