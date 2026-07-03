@@ -51,6 +51,35 @@ impl MacroRegistry {
     pub fn is_empty(&self) -> bool {
         self.authored.is_empty()
     }
+    /// Project each authored macro to a one-line signature `name(p1, p2) — <doc>`,
+    /// where <doc> is the first non-empty body line with HTML-comment markers
+    /// stripped (the description convention). Names are sorted so the output is a
+    /// deterministic function of the registry (#498). Bodies are NOT emitted.
+    pub fn signature_index(&self) -> String {
+        let mut names: Vec<&String> = self.authored.keys().collect();
+        names.sort();
+        let mut out = String::new();
+        for name in names {
+            let def = self.authored.get(name).expect("key from same map");
+            let raw = def
+                .body
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or("")
+                .trim();
+            let doc = raw
+                .trim_start_matches("<!--")
+                .trim_end_matches("-->")
+                .trim();
+            out.push_str(&format!(
+                "{}({}) — {}\n",
+                def.name,
+                def.params.join(", "),
+                doc
+            ));
+        }
+        out
+    }
 }
 
 /// Parse a `@call` signature `name(arg1, arg2) /` → (`name`, [`arg1`,`arg2`]).
@@ -372,6 +401,18 @@ fn import_library(ctx: &Rc<EngineContext>, target: &str, out: &mut String) {
     }
 }
 
+/// Load every `@define` from `source` into a throwaway registry and return the
+/// macro signature index (see `MacroRegistry::signature_index`). Used by
+/// `lean-md render <lib> --signatures` so a plan author reads the macro API
+/// instead of the whole library.
+pub fn render_signature_index(source: &str, jail_root: std::path::PathBuf) -> String {
+    use std::rc::Rc;
+    let (header, body) = crate::header::parse_header(source);
+    let ctx = Rc::new(crate::engine::EngineContext::new(header, jail_root));
+    let _ = extract_definitions(&ctx, &body);
+    ctx.macros.borrow().signature_index()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -578,5 +619,46 @@ mod tests {
         });
         assert_eq!(eval_string(&ctx, "version"), "0.4");
         assert_eq!(eval_string(&ctx, r#"consumer == "ai""#), "true");
+    }
+
+    #[test]
+    fn macro_signatures_extract() {
+        // Two defines; each first body line is an HTML-comment description.
+        let src = "\
+@define commit(msg)
+<!-- Stage and commit with the given message -->
+```bash
+git commit -m \"{{ msg }}\"
+```
+@define-end
+@define test(name)
+<!-- Run one test by name -->
+Run: `{{ test_cmd }} {{ name }}`
+@define-end
+";
+        let jail = std::path::PathBuf::from(".");
+        let idx = render_signature_index(src, jail);
+
+        // Both headers present, alphabetically sorted (commit before test).
+        let commit_at = idx.find("commit(msg)").expect("commit signature missing");
+        let test_at = idx.find("test(name)").expect("test signature missing");
+        assert!(
+            commit_at < test_at,
+            "signatures must be name-sorted (deterministic)"
+        );
+
+        // Description lines projected, comment markers stripped.
+        assert!(idx.contains("commit(msg) — Stage and commit with the given message"));
+        assert!(idx.contains("test(name) — Run one test by name"));
+
+        // Bodies stripped: no expansion lines leak into the index.
+        assert!(
+            !idx.contains("git commit -m"),
+            "macro body must not appear in index"
+        );
+        assert!(
+            !idx.contains("Run: `"),
+            "macro body must not appear in index"
+        );
     }
 }
