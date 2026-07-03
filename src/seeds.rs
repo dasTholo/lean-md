@@ -210,4 +210,48 @@ consumer: ai
 
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    #[test]
+    fn plan_recipes_all_documented() {
+        // Every @define's first non-empty body line is an HTML-comment description,
+        // so the --signatures index (Subplan 1) carries a doc line for each macro.
+        let lines: Vec<&str> = PLAN_RECIPES.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            if line.trim_start().starts_with("@define ") {
+                let doc = lines[i + 1..]
+                    .iter()
+                    .find(|l| !l.trim().is_empty())
+                    .copied()
+                    .unwrap_or("");
+                assert!(
+                    doc.trim_start().starts_with("<!--"),
+                    "@define on line {} lacks a description comment: {line}",
+                    i + 1
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn no_orphan_call() {
+        // Every @call NAME(...) starting a line in plan-template hits a @define NAME(...)
+        // in plan-recipes (static check; runtime already surfaces `macro not found`).
+        let defined: std::collections::HashSet<String> = PLAN_RECIPES
+            .lines()
+            .filter_map(|l| l.trim_start().strip_prefix("@define "))
+            .filter_map(|s| s.split('(').next())
+            .map(|s| s.trim().to_string())
+            .collect();
+        assert!(defined.contains("test") && defined.contains("commit") && defined.contains("tdd"));
+
+        for line in PLAN_TEMPLATE.lines() {
+            if let Some(rest) = line.trim_start().strip_prefix("@call ") {
+                let name = rest.split('(').next().unwrap_or("").trim().to_string();
+                assert!(
+                    defined.contains(&name),
+                    "@call {name} in plan-template has no matching @define in plan-recipes"
+                );
+            }
+        }
+    }
 }
