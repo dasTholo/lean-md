@@ -42,6 +42,8 @@ const LMD_WS_PERSUASION: &str =
     include_str!("../content/skills/lmd-writing-skills/companions/persuasion-principles.lmd.md");
 const LMD_BRAINSTORM_SPEC_REVIEWER: &str =
     include_str!("../content/skills/lmd-brainstorm/companions/spec-reviewer.lmd.md");
+const LMD_WRITING_PLANS_PLAN_REVIEWER: &str =
+    include_str!("../content/skills/lmd-writing-plans/companions/plan-reviewer.lmd.md");
 const LMD_BRAINSTORM_VISUAL_COMPANION: &str =
     include_str!("../content/skills/lmd-brainstorm/companions/visual-companion.lmd.md");
 
@@ -133,6 +135,11 @@ const COMPANIONS: &[(&str, &str, &str)] = &[
         "lmd-brainstorm",
         "visual-companion",
         LMD_BRAINSTORM_VISUAL_COMPANION,
+    ),
+    (
+        "lmd-writing-plans",
+        "plan-reviewer",
+        LMD_WRITING_PLANS_PLAN_REVIEWER,
     ),
 ];
 
@@ -1400,6 +1407,23 @@ Run: {{ var test_cmd }} demo
         );
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn plan_reviewer_companion_render() {
+        // Registry lookup: companion is registered.
+        let body = companion_body("lmd-writing-plans", "plan-reviewer")
+            .expect("plan-reviewer companion must be registered");
+        assert!(body.contains("You are a plan document reviewer"));
+        assert!(
+            !body.to_lowercase().contains("superpowers"),
+            "reference-closure: no superpowers token"
+        );
+
+        // Render pipeline: non-empty.
+        let jail = std::path::PathBuf::from(".");
+        let out = render_companion("lmd-writing-plans", "plan-reviewer", None, None, jail).unwrap();
+        assert!(!out.trim().is_empty(), "companion must render non-empty");
     }
 
     #[test]
