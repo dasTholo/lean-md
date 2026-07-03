@@ -1527,4 +1527,23 @@ Hello {{ who }}!
             "@call was not expanded: {out}"
         );
     }
+
+    #[test]
+    fn reference_closure_grep() {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let files = [
+            "content/skills/lmd-writing-plans/body.lmd.md",
+            "content/skills/lmd-writing-plans/SKILL.md",
+            "content/skills/lmd-writing-plans/companions/plan-reviewer.lmd.md",
+            "content/templates/plan-recipes.lmd.md",
+            "content/templates/plan-template.lmd.md",
+        ];
+        for f in files {
+            let text = std::fs::read_to_string(std::path::Path::new(manifest).join(f)).unwrap();
+            assert!(
+                !text.to_lowercase().contains("superpowers"),
+                "{f} still references superpowers"
+            );
+        }
+    }
 }

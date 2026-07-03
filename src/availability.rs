@@ -59,6 +59,21 @@ pub const COVERAGE: &[(&str, &str, &str, &str)] = &[
         "dispatch",
         "fragment-compose",
     ),
+    ("lmd-writing-plans", "pre-context", "read", "ctx_read"),
+    ("lmd-writing-plans", "file-structure", "list", "ctx_tree"),
+    ("lmd-writing-plans", "write-plan", "edit", "ctx_edit"),
+    (
+        "lmd-writing-plans",
+        "write-plan",
+        "remember",
+        "ctx_knowledge",
+    ),
+    (
+        "lmd-writing-plans",
+        "self-review",
+        "dispatch",
+        "fragment-compose",
+    ),
 ];
 
 /// Tools deliberately outside the brainstorming directive surface. Note: TDD's
@@ -142,5 +157,23 @@ mod tests {
             has("lmd-brainstorm", "spec-reviewer", "dispatch"),
             "spec-reviewer companion delivery must be covered"
         );
+    }
+
+    #[test]
+    fn coverage_rows_writing_plans() {
+        let rows: Vec<&(&str, &str, &str, &str)> = COVERAGE
+            .iter()
+            .filter(|r| r.0 == "lmd-writing-plans")
+            .collect();
+        assert!(
+            !rows.is_empty(),
+            "lmd-writing-plans must have COVERAGE rows"
+        );
+        assert!(
+            rows.iter()
+                .any(|r| r.1 == "self-review" && r.2 == "dispatch"),
+            "self-review must map to dispatch"
+        );
+        assert!(rows.iter().any(|r| r.1 == "pre-context"));
     }
 }
