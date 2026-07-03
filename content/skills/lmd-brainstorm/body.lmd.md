@@ -85,8 +85,9 @@ next: render phase "explore".
 ## Understanding the idea
 
 - Check out the current project state first (files, docs, recent commits).
-- Explore with `@list`/`@search`/`@read` (ctx_tree / ctx_search / ctx_read) before
-  asking questions; gauge a change's blast radius with `@graph` / `@impact`.
+- Explore with `@list`/`@search`/`@read` (structural — ctx_tree / ctx_search /
+  ctx_read) and `@find` (semantic locate — ctx_semantic_search) before asking
+  questions; gauge a change's blast radius with `@graph` / `@impact`.
 - Before asking detailed questions, assess scope: if the request describes
   multiple independent subsystems (e.g., "build a platform with chat, file
   storage, billing, and analytics"), flag this immediately. Don't spend questions

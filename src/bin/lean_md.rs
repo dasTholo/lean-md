@@ -595,6 +595,18 @@ mod tests {
     }
 
     #[test]
+    fn brainstorm_explore_weaves_find() {
+        // §3.1: the explore guidance must demonstrate @find (semantic locate),
+        // not just @search — COVERAGE registers explore/find→ctx_semantic_search.
+        let jail = std::path::PathBuf::from(".");
+        let out = render_skill("lmd-brainstorm", Some("explore"), None, None, jail).unwrap();
+        assert!(
+            out.contains("@find"),
+            "explore guidance must weave @find, got: {out}"
+        );
+    }
+
+    #[test]
     fn mcp_companion_matches_cli_render_companion() {
         // CLI==MCP (#498): both surfaces call render_companion → byte-identical.
         let jail = std::path::PathBuf::from(".");
