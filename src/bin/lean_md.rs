@@ -69,6 +69,7 @@ struct RenderArgs {
     skill: Option<String>,
     phase: Option<String>,
     companion: Option<String>,
+    signatures: bool,
 }
 
 fn parse_render_flags(rest: &[String]) -> RenderArgs {
@@ -103,6 +104,7 @@ fn parse_render_flags(rest: &[String]) -> RenderArgs {
                 i += 1;
                 a.companion = rest.get(i).cloned();
             }
+            "--signatures" => a.signatures = true,
             _ if !arg.starts_with('-') && a.file.is_none() => a.file = Some(arg.to_string()),
             _ => {}
         }
@@ -170,8 +172,22 @@ fn cmd_render(rest: &[String]) {
         eprintln!("lean-md render: missing <file.lmd.md>");
         std::process::exit(1);
     };
-    let (source, jail) = load_file(&file);
-    let rendered = do_render(&source, jail, a.consumer, a.crp);
+    let (source, file_jail) = load_file(&file);
+    let rendered: String = if a.signatures {
+        let jail = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        lean_md::render_signature_index(&source, jail)
+    } else if let Some(phase) = a.phase.as_deref() {
+        let jail = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        match lean_md::render_source_with_phase(&source, Some(phase), a.consumer, a.crp, jail) {
+            Ok(out) => out,
+            Err(e) => {
+                eprintln!("render error: {e:?}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        do_render(&source, file_jail, a.consumer, a.crp)
+    };
     match a.out {
         Some(out) => {
             if let Err(e) = std::fs::write(&out, &rendered) {
@@ -505,6 +521,26 @@ fn cmd_mcp() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_render_flags_knows_signatures() {
+        let args = parse_render_flags(&["lib.lmd.md".to_string(), "--signatures".to_string()]);
+        assert!(
+            args.signatures,
+            "--signatures must set RenderArgs.signatures"
+        );
+        assert_eq!(args.file.as_deref(), Some("lib.lmd.md"));
+
+        // --phase on a file arg is now carried for the file branch too.
+        let args2 = parse_render_flags(&[
+            "plan.lmd.md".to_string(),
+            "--phase".to_string(),
+            "task-1".to_string(),
+        ]);
+        assert_eq!(args2.phase.as_deref(), Some("task-1"));
+        assert_eq!(args2.file.as_deref(), Some("plan.lmd.md"));
+        assert!(!args2.signatures);
+    }
 
     #[test]
     fn render_flags_parse_companion() {

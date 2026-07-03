@@ -31,3 +31,5 @@ mod test_env;
 
 pub use engine::{EngineContext, render, render_body, render_with_overrides};
 pub use fragments::FragmentRegistry;
+pub use macros::render_signature_index;
+pub use skills::render_source_with_phase;
