@@ -134,6 +134,10 @@ pub fn install_skill(name: &str, scope: Scope, project_root: &Path) -> std::io::
             }
         }
     }
+    // Materialize the project-level seeds (plan-recipes/plan-template, lang/*,
+    // tooling/*, dispatch-contract.ext) into the project root — absent-only, so
+    // user edits are never overwritten (Spec §6).
+    crate::seeds::materialize_contracts(project_root, ".lean-ctx/lean-md")?;
     Ok(target)
 }
 
@@ -282,6 +286,35 @@ mod tests {
         // Idempotent.
         install_skill("lmd-writing-plans", Scope::Local, &root).unwrap();
         assert!(skill_md.exists());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn install_wires_seeds() {
+        let root = std::env::temp_dir().join(format!("lmd_wire_seeds_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        install_skill("lmd-writing-plans", Scope::Local, &root).unwrap();
+        let base = root.join(".lean-ctx/lean-md");
+        assert!(
+            base.join("plan-recipes.lmd.md").exists(),
+            "install must materialize plan-recipes"
+        );
+        assert!(
+            base.join("plan-template.lmd.md").exists(),
+            "install must materialize plan-template"
+        );
+
+        // User edit is preserved on a second install (absent-only).
+        std::fs::write(base.join("plan-recipes.lmd.md"), "# user edit\n").unwrap();
+        install_skill("lmd-writing-plans", Scope::Local, &root).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(base.join("plan-recipes.lmd.md")).unwrap(),
+            "# user edit\n",
+            "second install must not overwrite user edits"
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }

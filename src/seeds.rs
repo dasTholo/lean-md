@@ -29,6 +29,8 @@ pub const PROJECT_SEEDS: &[(&str, &str)] = &[
         "dispatch-contract.ext.lmd.md",
         include_str!("../content/templates/dispatch-contract.ext.lmd.md"),
     ),
+    ("plan-recipes.lmd.md", PLAN_RECIPES),
+    ("plan-template.lmd.md", PLAN_TEMPLATE),
 ];
 
 /// Materialize embedded project seeds into `<project_root>/<contracts_dir>`.
@@ -71,6 +73,34 @@ mod tests {
                 "embedded seed must be non-empty"
             );
         }
+    }
+
+    #[test]
+    fn project_seeds_materialize() {
+        let root = std::env::temp_dir().join(format!("lmd_pseeds_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let written = materialize_contracts(&root, ".lean-ctx/lean-md").unwrap();
+        let base = root.join(".lean-ctx/lean-md");
+        assert!(
+            base.join("plan-recipes.lmd.md").exists(),
+            "plan-recipes must materialize at root"
+        );
+        assert!(
+            base.join("plan-template.lmd.md").exists(),
+            "plan-template must materialize at root"
+        );
+        assert!(written.iter().any(|p| p.ends_with("plan-recipes.lmd.md")));
+
+        // Absent-only: a second run writes nothing new.
+        let again = materialize_contracts(&root, ".lean-ctx/lean-md").unwrap();
+        assert!(
+            again.is_empty(),
+            "second run must be idempotent (absent-only)"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
