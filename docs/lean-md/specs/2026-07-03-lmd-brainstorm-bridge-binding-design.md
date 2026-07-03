@@ -41,7 +41,7 @@ Die entscheidende Einsicht: nicht jede writing-plans-Bridge gehört nach brainst
 | `@recall` | Kontext ziehen | **kein** brainstorm-Slot; einzigartiger Wert liegt im Inter-Task-Executor-Pfad, nicht am Brainstorm→Plan-Übergang (§2.1) |
 | `@smells` `@review` `@inspect` `@reformat` `@verify` | Change-Gates auf einem Diff | **N/A** — kein Diff zur Design-Zeit |
 
-∴ Der korrekte Design-Zeit-Satz ist bereits `@find @graph @impact` (+ `@remember` Write-Seite, §2.1). Die Change-Gates sind **bewusste Auslassungen** (Transparenz via GAP_LIST, §5), keine Löcher.
+∴ Der korrekte Design-Zeit-Satz ist bereits `@find @graph @impact` (+ `@remember` Write-Seite, §2.1). Die Change-Gates sind **bewusste Auslassungen** (Transparenz via scoped Code-Kommentar, §5), keine Löcher.
 
 ### 2.1 `@remember` als Zeiger-Index, kein Plan-Zubringer
 
@@ -52,6 +52,8 @@ Die entscheidende Einsicht: nicht jede writing-plans-Bridge gehört nach brainst
 **Kein brainstorm-`@recall`:** Der recall-Pfad mit einzigartigem Wert ist der **Inter-Task-Executor** (Task N `@remember` am Task-Ende → Task N+1 `@recall` am Task-Start) — dort trägt *keine Datei* den Kontext zwischen isoliert gerenderten Task-Phasen. Dieser Pfad lebt im Executor-Scope (writing-plans / subagent-driven-development), **nicht** in brainstorm.
 
 ## 3. Lücken schließen
+
+> **Sprach-Constraint (Projektregel):** Aller gewobene *Content* (Body-Prosa, `tooling/mcp-tools`-Zeile) **und** jeder Code-Kommentar ist **English** — nur dieses Spec-Dokument ist Deutsch. Die unten zitierten Snippets sind bereits English und normativ zu übernehmen.
 
 ### 3.1 `@find` in explore-Prosa weben
 
@@ -81,11 +83,13 @@ Diese eine Zeile schließt zugleich die REFACTOR-Rationalisierung aus §6 („`@
 
 **Koordination mit writing-plans-Spec:** Die `@find`-Zeile in `tooling/mcp-tools` ist ein **gemeinsamer** Bearbeitungspunkt. Falls beide Ports zeitlich versetzt laufen, trägt der zuerst laufende die Zeile ein; der zweite verifiziert nur Präsenz + Byte-Gate. Kein Doppel-Eintrag.
 
-## 5. Durchsetzung — COVERAGE + GAP_LIST
+## 5. Durchsetzung — COVERAGE + scoped Code-Kommentar
 
 - **COVERAGE:** `explore/find`-Row **behalten** (jetzt auch in Prosa demonstriert). `self-review/review`-Row **entfernen** (§3.2). **Keine** neuen Change-Gate-Rows.
-- **GAP_LIST** (heute `["ctx_benchmark", "ctx_package", "ctx_provider"]`) += transparente Design-Zeit-Auslassungen dokumentieren: `ctx_smells`, `ctx_review` (Code-Diff), `ctx_refactor reformat` sind **Task-Zeit-Gates**, bewusst nicht im brainstorm-Design-Zeit-Pfad. Der Datei-Header (`availability.rs` Z. 4) fordert genau das: „transparency, not a silent hole".
-- Gates bleiben grün: `every_covered_directive_is_registered` (removed row = weniger zu prüfen), `gap_list_rendered` (deckt die neuen GAP-Einträge), `coverage_carries_*` (unberührt — betreffen dispatch/companion-Rows).
+- **Design-Zeit-Auslassung als scoped Code-Kommentar** (nicht GAP_LIST): direkt an den brainstorm-COVERAGE-Rows dokumentieren, dass `ctx_smells`/`ctx_review`/`ctx_refactor reformat` **Task-Zeit-Gates** sind, bewusst nicht im brainstorm-Design-Zeit-Pfad, und **von der writing-plans-Execution covered** werden.
+  - **Warum nicht GAP_LIST:** `GAP_LIST` ist eine flache, byte-gepinnte Liste global-**ungenutzter** Tools (`benchmark/package/provider`). `smells/review/reformat` sind aber zur Task-Zeit **genutzt** (die Schwester-Spec writing-plans-binding §8 nimmt genau diese Backings in die writing-plans-COVERAGE auf). Sie in GAP_LIST zu legen mischte „nirgends genutzt" mit „nur Task-Zeit" und stünde im Widerspruch zur writing-plans-COVERAGE. Der Kommentar drückt die skill-scoped Semantik aus, die die flache Liste nicht kann. Der Datei-Header (`availability.rs` Z. 4) fordert Transparenz „not a silent hole" — der Kommentar erfüllt das.
+- **GAP_LIST bleibt unverändert** (`["ctx_benchmark", "ctx_package", "ctx_provider"]`) → `gap_list_is_byte_stable`/`gap_list_rendered` bleiben ohne Churn grün.
+- Gates bleiben grün: `every_covered_directive_is_registered` (removed row = weniger zu prüfen), `coverage_carries_*` (unberührt — betreffen dispatch/companion-Rows).
 
 ## 6. Verifikation — Split nach Änderungsart
 
@@ -115,7 +119,7 @@ Betrifft: `review`-Row entfernen (§3.2), GAP_LIST-Zeilen (§5).
 
 ## 7. Nicht-Ziele (YAGNI)
 
-- **Kein** `@smells`/`@review`/`@reformat`/`@inspect`/`@verify` in brainstorm — Change-Gates ohne Design-Zeit-Ziel (§2). Als GAP dokumentiert, nicht gewoben.
+- **Kein** `@smells`/`@review`/`@reformat`/`@inspect`/`@verify` in brainstorm — Change-Gates ohne Design-Zeit-Ziel (§2). `@review`/`ctx_review` ist ein **Code**-Review-Tool (drei Aktionen `review`/`diff-review`/`checklist`, alle code-basiert), **kein** Prosa-Spec-Reviewer — der Spec-Review läuft über `@dispatch → spec-reviewer`. Als scoped Code-Kommentar dokumentiert (§5), nicht gewoben.
 - **Kein** `@recall` in brainstorm — der recall-Pfad mit einzigartigem Wert ist der Inter-Task-Executor (Task N→N+1), nicht der Brainstorm→Plan-Übergang (redundant zur Spec-Datei, fragil cross-session; §2.1). brainstorm ist reine `@remember`-Write-Seite, und `@remember` ist ein **Zeiger-Index**, kein Voll-Duplikat der Spec (§2.1).
 - **Kein** neuer Usage-Referenz-File — der geteilte `tooling/mcp-tools`-Seed (§4) trägt beide Skills.
 - **Kein** neuer Gate — die bestehenden generischen Gates (§5) decken die Änderung.
@@ -124,7 +128,7 @@ Betrifft: `review`-Row entfernen (§3.2), GAP_LIST-Zeilen (§5).
 
 1. `content/skills/lmd-brainstorm/body.lmd.md` — eine `@find`-Zeile in der explore-Prosa **und** die `@remember`-Zeiger-Präzisierung in der Documentation-Phase (§3.1/§3.3; + Seed/Const-Sync falls embedded).
 2. `content/tooling/mcp-tools.lmd.md` — eine `@find`-Usage-Zeile (Seed + Const-Sync, Byte-Gate).
-3. `src/availability.rs` — `self-review/review`-Row **raus**, GAP_LIST += `ctx_smells`/`ctx_review`/`reformat`.
+3. `src/availability.rs` — `self-review/review`-Row **raus**; scoped Code-Kommentar (English) an den brainstorm-Rows: Design-Zeit-Auslassung von `smells`/`review`/`reformat` (Task-Zeit-Gates, von writing-plans covered). GAP_LIST **unverändert**.
 4. Pressure-Test (RED-Artefakt) für den `@find`-Weave gemäß `lmd-writing-skills`.
 
 Kleine, begründete Eingriffe — die Antwort auf „auch smells/graph binden?" ist **nein** (graph schon da, smells design-fremd); das echte Fix ist die `@find`-Konsistenz, die `@remember`-Zeiger-Klärung (kein Plan-Zubringer, kein Voll-Duplikat) plus Transparenz für die bewussten Auslassungen.
