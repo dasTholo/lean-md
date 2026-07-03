@@ -9,12 +9,14 @@ use std::path::{Path, PathBuf};
 const TDD_SKILL_MD: &str = include_str!("../content/skills/lmd-test-driven-development/SKILL.md");
 const BRAINSTORM_SKILL_MD: &str = include_str!("../content/skills/lmd-brainstorm/SKILL.md");
 const WRITING_SKILLS_SKILL_MD: &str = include_str!("../content/skills/lmd-writing-skills/SKILL.md");
+const WRITING_PLANS_SKILL_MD: &str = include_str!("../content/skills/lmd-writing-plans/SKILL.md");
 
 /// Installable lmd skills (name → embedded `SKILL.md` stub).
 pub const INSTALLABLE_SKILLS: &[(&str, &str)] = &[
     ("lmd-test-driven-development", TDD_SKILL_MD),
     ("lmd-brainstorm", BRAINSTORM_SKILL_MD),
     ("lmd-writing-skills", WRITING_SKILLS_SKILL_MD),
+    ("lmd-writing-plans", WRITING_PLANS_SKILL_MD),
 ];
 
 const WRITING_SKILLS_RENDER_GRAPHS: &str =
@@ -257,6 +259,31 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn writing_plans_install_writes_skill_md() {
+        let root = std::env::temp_dir().join(format!("lmd_wp_install_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let skill_md = install_skill("lmd-writing-plans", Scope::Local, &root).unwrap();
+        assert!(skill_md.exists(), "SKILL.md must be written");
+        let written = std::fs::read_to_string(&skill_md).unwrap();
+        assert!(
+            written.contains("name: lmd-writing-plans"),
+            "stub frontmatter missing"
+        );
+        assert!(
+            !written.to_lowercase().contains("superpowers"),
+            "reference-closure in stub"
+        );
+
+        // Idempotent.
+        install_skill("lmd-writing-plans", Scope::Local, &root).unwrap();
+        assert!(skill_md.exists());
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
