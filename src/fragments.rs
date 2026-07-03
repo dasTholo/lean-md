@@ -243,6 +243,36 @@ mod tests {
     }
 
     #[test]
+    fn hard_rules_slim() {
+        let reg = FragmentRegistry::with_builtins();
+        let hr = reg.resolve("hard-rules", Path::new(".")).unwrap();
+
+        // The one non-redundant rule survives.
+        assert!(
+            hr.to_lowercase().contains("never native"),
+            "must keep the never-native rule"
+        );
+        assert!(hr.contains("ctx_shell raw"), "must keep the never-raw rule");
+        // The lean-ctx marker stays (builtin_resolves_before_file depends on it).
+        assert!(hr.contains("lean-ctx"), "must keep the lean-ctx marker");
+        // Now points to the concrete seeds instead of restating them.
+        assert!(
+            hr.contains("tooling/mcp-tools"),
+            "must point to tooling/mcp-tools"
+        );
+        assert!(hr.contains("lang/"), "must point to lang/<lang>");
+        // Redundant prose removed (now lives in lang/rust + tooling/mcp-tools).
+        assert!(
+            !hr.contains("prefer symbol-aware"),
+            "redundant *.rs prose must be gone"
+        );
+        assert!(
+            !hr.contains("reformat before"),
+            "redundant reformat prose must be gone"
+        );
+    }
+
+    #[test]
     fn test_first_core_is_a_builtin_with_iron_law() {
         let reg = FragmentRegistry::with_builtins();
         let out = reg.resolve("test-first-core", Path::new(".")).unwrap();
