@@ -74,7 +74,7 @@ Der Nutzer-Wunsch: das Makro prüft, ob das (IDE-)Backend verfügbar ist — wen
 
 Kurzblock in `file-structure` (Blast-Radius bei der Task-Zerlegung) + `write-plan`:
 
-- `@recall <query>` — den Plan aus den in der Brainstorm-Phase gemerkten Spec-Decisions seeden (ctx_knowledge recall), statt den Kontext neu zu erfinden.
+- `@recall <query>` — **ergänzend** (nicht verbindlich): die in der Brainstorm-Phase via `@remember` gesicherten Design-Decisions ziehen (ctx_knowledge recall). Nützlich v.a. **cross-session** — läuft `writing-plans` getrennt vom Brainstorm, trägt `@recall` verworfene Alternativen / Ablehnungsgründe, die nicht in die Spec-Prosa kamen. Die **Spec-Datei bleibt die primäre Quelle**; `@recall` erfindet keinen Pflicht-Schritt und hängt nicht am Knowledge-Store-Zustand (leerer Store → Autor liest einfach die Spec).
 - `@graph`/`@impact <symbol>` — vor Task-Grenzen die reale Dependency-Reichweite messen (ctx_callgraph/ctx_impact); begründet, wie invasiv ein Task ist.
 - `@find <intent>` — semantisch die Stelle finden, die ein Task ankert (ctx_semantic_search).
 
@@ -107,11 +107,12 @@ Der Body-Pointer wird präzisiert: `tooling/mcp-tools` ist die **Usage-Referenz*
 ```
 
 **Bedingte Slots (Conditional auf beobachtbarem Prädikat, nicht „optional"):**
+- **Task-Start — baut dieser Task auf Decisions eines früheren Tasks auf** → `@call recall_context("<was der frühere Task remembered hat>")`. Das ist der **zielführende, symmetrische recall-Pfad**: zwischen isoliert gerenderten Task-Phasen (`render --phase task-N`) trägt keine Datei den Kontext — `remember_decision` am Ende von Task N (Verify-&-Close) → `recall_context` am Start von Task N+1 ist das einzige Vehikel.
 - **bei Symbol-Umbau (rename/move/extract)** → der Task nutzt `@refactor` (§7) und ankert Betroffene via `@call callers("<symbol>")`.
 - **bei Änderung an öffentlichem API / > 1 berührter Datei** → `@call review_change()` als Post-Change-Gate.
 - **IDE-Backend-Quality-Pass gewünscht** → `@call inspect("src/foo.rs")` (mit `@smells`-Fallback, §4a).
 
-`check_smells`/`recall_context` bleiben im `--signatures`-Index auffindbar für Autoren, die sie brauchen. Der `no_orphan_call`-Gate feuert nur für tatsächlich verwendete `@call`s — ungenutzte Recipes in der Lib sind erlaubt.
+`check_smells` bleibt im `--signatures`-Index auffindbar für Autoren, die es brauchen. Der `no_orphan_call`-Gate feuert nur für tatsächlich verwendete `@call`s — ungenutzte Recipes in der Lib sind erlaubt.
 
 ## 7. `content/lang/rust.lmd.md` — `@refactor` festhalten
 
