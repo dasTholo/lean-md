@@ -183,7 +183,7 @@ next: render phase "handoff".
 
 After saving the plan, offer the execution choice:
 
-> "Plan complete and saved to `docs/lean-md/plans/<filename>.md`. Two execution
+> "Plan complete and saved to `docs/lean-md/plans/<filename>.lmd.md`. Two execution
 > options:
 >
 > **1. Subagent-Driven (recommended)** — dispatch a fresh subagent per task, review

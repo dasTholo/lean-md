@@ -22,6 +22,13 @@
   crate; `Cargo.toml` + `src/` live at the repo root).
 - **No worktrees** — work directly on the current branch
 - **No Brief-/Report-Files**: ctx_session
+- **Rendering lmd-skills (this dev-repo)**: the `SKILL.md` stubs point at the MCP
+  tool `ctx_md_render`, which is **not registered** in this repo's lean-ctx
+  instance — that call fails. Render phases **directly via the CLI**; do NOT probe
+  MCP / `ctx_call` first:
+  `cargo run -q --bin lean-md -- render --skill <skill> --phase <phase> --consumer=ai`
+  (companion instead of phase: `--companion <name>`). **No release build** —
+  `cargo run` suffices (cached after the first compile).
 
 ## Subagent-Driven Execution
 
