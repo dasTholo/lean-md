@@ -169,16 +169,17 @@ mod tests {
             !out.to_lowercase().contains("jetbrains"),
             "stale backing 'jetbrains' in hard-rules"
         );
-        // Today's backings must be named.
+        // Post-slim invariant: hard-rules no longer names language-specific
+        // backings (ctx_refactor/@symbol/@edit/ctx_search:symbol) inline —
+        // those moved to `lang/<lang>` (Spec §7). hard-rules must instead
+        // carry the pointers that delegate to them.
         assert!(
-            out.contains("ctx_refactor"),
-            "hard-rules must name ctx_refactor"
+            out.contains("lang/"),
+            "hard-rules must point to lang/<lang> for symbol/edit/reformat backings"
         );
-        assert!(out.contains("@symbol"), "hard-rules must name @symbol");
-        assert!(out.contains("@edit"), "hard-rules must name @edit");
         assert!(
-            out.contains("ctx_search:symbol"),
-            "hard-rules must name ctx_search:symbol for *.rs (@symbol backing)"
+            out.contains("tooling/mcp-tools"),
+            "hard-rules must point to tooling/mcp-tools for I/O backings"
         );
     }
 
