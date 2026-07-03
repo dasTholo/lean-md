@@ -10,6 +10,8 @@ use crate::engine::{EngineContext, render_body};
 use crate::header::{Consumer, parse_header};
 
 const LMD_BRAINSTORM_BODY: &str = include_str!("../content/skills/lmd-brainstorm/body.lmd.md");
+const LMD_WRITING_PLANS_BODY: &str =
+    include_str!("../content/skills/lmd-writing-plans/body.lmd.md");
 const LMD_TEST_DRIVEN_DEVELOPMENT_BODY: &str =
     include_str!("../content/skills/lmd-test-driven-development/body.lmd.md");
 const LMD_WRITING_SKILLS_BODY: &str =
@@ -57,6 +59,7 @@ const SKILLS: &[(&str, &str)] = &[
         LMD_TEST_DRIVEN_DEVELOPMENT_BODY,
     ),
     ("lmd-writing-skills", LMD_WRITING_SKILLS_BODY),
+    ("lmd-writing-plans", LMD_WRITING_PLANS_BODY),
 ];
 
 /// Embedded body source for a known lmd skill, or `None` if unknown.
@@ -1424,6 +1427,78 @@ Run: {{ var test_cmd }} demo
         let jail = std::path::PathBuf::from(".");
         let out = render_companion("lmd-writing-plans", "plan-reviewer", None, None, jail).unwrap();
         assert!(!out.trim().is_empty(), "companion must render non-empty");
+    }
+
+    #[test]
+    fn writing_plans_all_phases_render_nonempty() {
+        let jail = std::path::PathBuf::from(".");
+        for p in [
+            "pre-context",
+            "file-structure",
+            "task-sizing",
+            "plan-format",
+            "write-plan",
+            "self-review",
+            "handoff",
+        ] {
+            let out = render_skill("lmd-writing-plans", Some(p), None, None, jail.clone())
+                .unwrap_or_else(|_| panic!("phase {p} failed to render"));
+            assert!(!out.trim().is_empty(), "phase {p} must render non-empty");
+        }
+        assert!(
+            skill_body("lmd-writing-plans").is_some(),
+            "lmd-writing-plans must be in the SKILLS registry"
+        );
+    }
+
+    #[test]
+    fn writing_plans_phase_isolation() {
+        let jail = std::path::PathBuf::from(".");
+        // (phase, own marker present, foreign marker absent)
+        let cases = [
+            ("file-structure", "map out which files", "Execution Handoff"),
+            (
+                "task-sizing",
+                "Bite-Sized Task Granularity",
+                "Writing the plan",
+            ),
+            (
+                "plan-format",
+                "No-loss rule inside a task",
+                "Execution Handoff",
+            ),
+            (
+                "handoff",
+                "Execution Handoff",
+                "Bite-Sized Task Granularity",
+            ),
+        ];
+        for (phase, own, foreign) in cases {
+            let out =
+                render_skill("lmd-writing-plans", Some(phase), None, None, jail.clone()).unwrap();
+            assert!(out.contains(own), "phase {phase} missing own marker: {out}");
+            assert!(
+                !out.contains(foreign),
+                "cross-phase leak in {phase}: {foreign}"
+            );
+        }
+    }
+
+    #[test]
+    fn dispatch_plan_reviewer_composes() {
+        // Rendering self-review executes the @dispatch: the composed output must carry
+        // (a) the auto-prepended contract (hard-rules marker) and (b) the plan-reviewer
+        // brief, for role=review.
+        let jail = std::path::PathBuf::from(".");
+        let out = render_skill("lmd-writing-plans", Some("self-review"), None, None, jail).unwrap();
+        assert!(
+            out.contains("You are a plan document reviewer"),
+            "reviewer brief missing: {out}"
+        );
+        assert!(
+            out.contains("lean-ctx"),
+            "auto-prepended contract (hard-rules) missing: {out}"
+        );
     }
 
     #[test]

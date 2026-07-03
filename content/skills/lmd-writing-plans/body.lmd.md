@@ -1,0 +1,203 @@
+@lean-md
+consumer: ai
+
+@phase "pre-context"
+
+## Writing Implementation Plans
+
+Write comprehensive implementation plans assuming the engineer has zero context
+for our codebase and questionable taste. Document what they need: which files to
+touch for each task, code, testing, docs they might need to check, how to test it.
+Give them the whole plan as bite-sized tasks. DRY. YAGNI. TDD. Frequent commits.
+
+Assume a skilled developer who knows almost nothing about our toolset or problem
+domain, and doesn't know good test design very well.
+
+**Announce at start:** "I'm using the lmd-writing-plans skill to create the
+implementation plan."
+
+**Tool discipline (reference, not a gate):** all I/O and code-intel run through
+lean-ctx tools — see `tooling/mcp-tools`. Language-specific symbol/edit/reformat
+conventions live in the project's lang-pack — detect the project language from its
+manifest/extensions (via `@list`/`@search`) and reference the matching pack; in a
+Rust project that is `lang/rust`. The plan directive vocabulary is in
+`gloss/directives`.
+
+## Scope Check
+
+If the spec covers multiple independent subsystems, it should have been broken into
+sub-project specs during brainstorming. If it wasn't, suggest breaking this into
+separate plans — one per subsystem. Each plan should produce working, testable
+software on its own.
+
+next: render phase "file-structure".
+@phase-end
+
+@phase "file-structure"
+
+## File Structure
+
+Before defining tasks, map out which files will be created or modified and what
+each one is responsible for. This is where decomposition decisions get locked in.
+
+- Design units with clear boundaries and well-defined interfaces. Each file should
+  have one clear responsibility.
+- You reason best about code you can hold in context at once, and your edits are
+  more reliable when files are focused. Prefer smaller, focused files over large
+  ones that do too much.
+- Files that change together should live together. Split by responsibility, not by
+  technical layer.
+- In existing codebases, follow established patterns. If the codebase uses large
+  files, don't unilaterally restructure — but if a file you're modifying has grown
+  unwieldy, including a split in the plan is reasonable.
+
+This structure informs the task decomposition. Each task should produce
+self-contained changes that make sense independently.
+
+next: render phase "task-sizing".
+@phase-end
+
+@phase "task-sizing"
+
+## Task Right-Sizing
+
+A task is the smallest unit that carries its own test cycle and is worth a fresh
+reviewer's gate. When drawing task boundaries: fold setup, configuration,
+scaffolding, and documentation steps into the task whose deliverable needs them;
+split only where a reviewer could meaningfully reject one task while approving its
+neighbor. Each task ends with an independently testable deliverable.
+
+## Bite-Sized Task Granularity
+
+Each step is one action (2-5 minutes):
+- "Write the failing test" — step
+- "Run it to make sure it fails" — step
+- "Implement the minimal code to make the test pass" — step
+- "Run the tests and make sure they pass" — step
+- "Commit" — step
+
+next: render phase "plan-format".
+@phase-end
+
+@phase "plan-format"
+
+## Plan Format — write the plan as a `.lmd.md` document
+
+A generated plan is a `.lmd.md` rendered task-on-demand. The executing controller
+renders only the current task: `lean-md render <plan.lmd.md> --phase task-N` —
+phase-isolation delivers exactly that task block (no cross-task leak). Copy the
+shape from `.lean-ctx/lean-md/plan-template.lmd.md` and the macro library from
+`.lean-ctx/lean-md/plan-recipes.lmd.md`.
+
+**Meta-head (body-top, outside the phases):** Goal / Architecture / Global
+Constraints — once, `@include`-referenceable — plus `@var` declarations (e.g.
+`test_cmd`) and `@import .lean-ctx/lean-md/plan-recipes /` for the macro
+vocabulary. The Global Constraints block carries the spec's project-wide
+requirements verbatim; every task implicitly includes it.
+
+**One `@phase "task-N"` per task.**
+
+**No-loss rule inside a task (binding):**
+- **existing** code → anchor it (`@symbol name` / `@read path mode=signatures` /
+  `path:line`), resolved just-in-time from the warm cache — do NOT duplicate it
+  verbatim.
+- **new** code (does not exist yet) → verbatim, exactly as a context-free plan
+  would.
+- Interfaces / Consumes-Produces / commands / "Expected:" → verbatim, strict
+  (No-Placeholders holds for intent and interfaces).
+- Verification → `@read mode=diff` instead of copy-paste inspection.
+
+**Boilerplate** (TDD cycle, commit, test-run) → `@call <recipe>(...)`; it expands
+to full text at render time, so the executor loses nothing. To discover which
+recipes exist, read the macro API index instead of the whole library:
+`lean-md render .lean-ctx/lean-md/plan-recipes.lmd.md --signatures`.
+
+## No Placeholders
+
+Every step must contain the actual content an engineer needs. Never write: "TBD" /
+"TODO" / "implement later"; "add appropriate error handling / validation / edge
+cases"; "write tests for the above" without the test code; "similar to Task N"
+without repeating the reference; steps that describe what to do without showing
+how; references to types/functions/methods not defined in any task. For **existing**
+code an anchor is not a placeholder — it resolves to real code on render; for
+**new** code, show the code.
+
+## Remember
+
+- Exact file paths always.
+- Complete content in every step — new code shown verbatim, existing code anchored.
+- Exact commands with expected output.
+- DRY, YAGNI, TDD, frequent commits.
+
+next: render phase "write-plan".
+@phase-end
+
+@phase "write-plan"
+
+## Writing the plan
+
+Save plans to `docs/lean-md/plans/YYYY-MM-DD-<feature-name>.md` (user preferences
+for plan location override this default).
+
+If the spec covers multiple independent subsystems, write one plan per subsystem —
+each producing working, testable software on its own — plus a short index plan that
+states the decomposition, ordering and dependencies.
+
+Persist the key plan decisions as durable facts, then commit the plan document(s).
+
+next: render phase "self-review".
+@phase-end
+
+@phase "self-review"
+
+## Self-Review
+
+After writing the complete plan, look at the spec with fresh eyes and check the
+plan against it. This is a checklist you run yourself.
+
+1. **Spec coverage:** Skim each section/requirement in the spec. Can you point to a
+   task that implements it? List any gaps.
+2. **Placeholder scan:** Search your plan for the red flags from "No Placeholders".
+   Fix them. An anchor to existing code is NOT a placeholder.
+3. **Type consistency:** Do the types, method signatures and property names in
+   later tasks match what earlier tasks defined? A function called `clearLayers()`
+   in Task 3 but `clearFullLayers()` in Task 7 is a bug.
+
+If you find issues, fix them inline. If you find a spec requirement with no task,
+add the task.
+
+For an independent second pass, dispatch the plan-reviewer subagent (its brief is
+the reviewer companion; the dispatch contract is auto-prepended):
+
+@dispatch skill="lmd-writing-plans" companion="plan-reviewer" role=review to_agent="{{ controller_id }}"
+
+The reviewer checks `PLAN_FILE_PATH` against `SPEC_FILE_PATH`, posts findings, and
+returns a status (`Approved | Issues Found`).
+
+next: render phase "handoff".
+@phase-end
+
+@phase "handoff"
+
+## Execution Handoff
+
+After saving the plan, offer the execution choice:
+
+> "Plan complete and saved to `docs/lean-md/plans/<filename>.md`. Two execution
+> options:
+>
+> **1. Subagent-Driven (recommended)** — dispatch a fresh subagent per task, review
+> between tasks, fast iteration.
+>
+> **2. Inline Execution** — execute tasks in this session with checkpoints for
+> review.
+>
+> Which approach?"
+
+- **If Subagent-Driven:** use the lmd-subagent-driven-development skill — fresh
+  subagent per task + two-stage review.
+- **If Inline Execution:** use the lmd-executing-plans skill — batch execution with
+  checkpoints.
+
+This is the terminal phase — there is no "next" render.
+@phase-end
