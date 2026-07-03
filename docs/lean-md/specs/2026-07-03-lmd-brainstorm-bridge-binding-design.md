@@ -37,13 +37,19 @@ Die entscheidende Einsicht: nicht jede writing-plans-Bridge gehört nach brainst
 |---|---|---|
 | `@graph` / `@impact` | Task-Blast-Radius | **schon gewoben** (explore + approaches) ✅ |
 | `@find` | Task semantisch ankern | COVERAGE hat's, **Prosa fehlt** → §3 |
-| `@remember` | Task-Gotcha sichern | schon in write-spec ✅ (brainstorm ist der *Writer*) |
-| `@recall` | Plan aus Spec-Decisions seeden | *Reader-Seite* → gehört zu writing-plans (symmetrisch, nicht duplizieren) |
+| `@remember` | durables Design-Gedächtnis | schon in write-spec ✅ — als **Zeiger-Index**, nicht als Plan-Zubringer (§2.1) |
+| `@recall` | Kontext ziehen | **kein** brainstorm-Slot; einzigartiger Wert liegt im Inter-Task-Executor-Pfad, nicht am Brainstorm→Plan-Übergang (§2.1) |
 | `@smells` `@review` `@inspect` `@reformat` `@verify` | Change-Gates auf einem Diff | **N/A** — kein Diff zur Design-Zeit |
 
-∴ Der korrekte Design-Zeit-Satz ist bereits `@find @graph @impact` (+ `@remember` Write-Seite). Die Change-Gates sind **bewusste Auslassungen** (Transparenz via GAP_LIST, §5), keine Löcher.
+∴ Der korrekte Design-Zeit-Satz ist bereits `@find @graph @impact` (+ `@remember` Write-Seite, §2.1). Die Change-Gates sind **bewusste Auslassungen** (Transparenz via GAP_LIST, §5), keine Löcher.
 
-**Symmetrie `@remember`/`@recall`:** brainstorm merkt Spec-Decisions (`@remember`, write-spec); writing-plans zieht sie (`@recall`, Plan-Seeding). Diese Rollen-Trennung ist beabsichtigt und bleibt.
+### 2.1 `@remember` als Zeiger-Index, kein Plan-Zubringer
+
+**Verworfene Annahme:** brainstorms `@remember` speist ein verbindliches Plan-`@recall`. Das ist **redundant** — der Plan-Autor liest die committete Spec-Datei ohnehin als Input, und sie ist die vollständigere Quelle — und **fragil**: cross-session / in neuer Session / ohne den ursprünglichen `@remember` ist der recall leer. Einen verbindlichen Schritt darauf zu bauen macht den Prozess zerbrechlich.
+
+**Beibehaltene Rolle:** `@remember` schreibt einen **kompakten Zeiger-Index** in ctx_knowledge — `decided X · Gist · siehe <spec-path>` —, **kein** Voll-Duplikat der Spec. Die **committete Spec-Datei bleibt die autoritative Vollquelle**; der Index macht die Entscheidung cross-session semantisch auffindbar und degradiert sauber zu „geh die Datei lesen". Das deckt die `AGENTS.md`-Vorgabe „Active Documentation" (ctx_knowledge nach signifikanten Tasks — ein fertiger Design-Spec *ist* ein solcher).
+
+**Kein brainstorm-`@recall`:** Der recall-Pfad mit einzigartigem Wert ist der **Inter-Task-Executor** (Task N `@remember` am Task-Ende → Task N+1 `@recall` am Task-Start) — dort trägt *keine Datei* den Kontext zwischen isoliert gerenderten Task-Phasen. Dieser Pfad lebt im Executor-Scope (writing-plans / subagent-driven-development), **nicht** in brainstorm.
 
 ## 3. Lücken schließen
 
@@ -56,6 +62,12 @@ COVERAGE hat `explore/find→ctx_semantic_search`, aber die Prosa nennt nur `@li
 ### 3.2 `self-review/review→ctx_review`-Row entfernen
 
 `ctx_review` reviewt **Code-Diffs** (impact + caller + smells). Der brainstorm-`self-review` reviewt **Spec-Prosa**, real über `@dispatch → spec-reviewer` (eigene COVERAGE-Row). Die `review`-Row ist damit eine **Fehl-Registrierung**. **Entscheidung: entfernen.** `self-review` bleibt über die `dispatch`-Row covered; kein Verhalten geht verloren.
+
+### 3.3 `@remember`-Prosa auf Zeiger-Form präzisieren
+
+Die Documentation-Phase (`write-spec`) webt `@remember` heute unspezifisch („record durable design facts alongside the commit"). Damit die §2.1-Entscheidung *gelehrt* statt nur spezifiziert ist, wird die Prosa präzisiert — der Fakt ist ein **Zeiger**, kein Duplikat:
+
+> Use `@remember` to record a **compact pointer** — the decision, a one-line gist, and the spec path — **not** a duplicate of the spec. The committed spec file stays the source of truth; the pointer just makes the decision findable across sessions.
 
 ## 4. Usage-Referenz (DRY über den geteilten Seed)
 
@@ -81,7 +93,9 @@ Die Änderungen zerfallen in zwei Klassen mit unterschiedlicher Verifikation.
 
 ### A) Skill-Body-/Prosa-Edits → `lmd-writing-skills` (RED→GREEN→REFACTOR)
 
-Betrifft: `@find`-Weave in explore (§3.1) + Usage-Ref-Zeile (§4). Die Iron Law („NO SKILL WITHOUT A FAILING TEST FIRST") gilt **explizit für Edits**.
+Betrifft: `@find`-Weave in explore (§3.1) + Usage-Ref-Zeile (§4) + `@remember`-Zeiger-Präzisierung (§3.3). Die Iron Law („NO SKILL WITHOUT A FAILING TEST FIRST") gilt **explizit für Edits**.
+
+Nur der `@find`-Weave ist ein **neuer Directive-Reach** und trägt den RED-Test unten. Die `@remember`-Präzisierung (§3.3) ist eine **Guidance-Schärfung** (kein neuer Reach) — sie reitet auf Render-Smoke + spec-reviewer, kein eigener RED nötig.
 
 1. **RED — Baseline-Pressure-Test zuerst.** Szenario: ein Brainstorming-Agent exploriert eine Codebase, in der die ankernde Stelle nur **semantisch** (nicht per Keyword/Pfad) findbar ist. Ohne den Edit greift er zu `@search` oder gibt auf → **beobachteter Fehlschlag**. Ohne diesen beobachteten Fail ist nicht bewiesen, dass der `@find`-Weave das Richtige lehrt.
 2. **GREEN — minimaler Edit:** `@find`-Zeile in explore-Prosa + Usage-Ref-Zeile → Agent greift zu `@find`.
@@ -102,15 +116,15 @@ Betrifft: `review`-Row entfernen (§3.2), GAP_LIST-Zeilen (§5).
 ## 7. Nicht-Ziele (YAGNI)
 
 - **Kein** `@smells`/`@review`/`@reformat`/`@inspect`/`@verify` in brainstorm — Change-Gates ohne Design-Zeit-Ziel (§2). Als GAP dokumentiert, nicht gewoben.
-- **Kein** `@recall` in brainstorm — Reader-Seite lebt in writing-plans; brainstorm ist die `@remember`-Write-Seite.
+- **Kein** `@recall` in brainstorm — der recall-Pfad mit einzigartigem Wert ist der Inter-Task-Executor (Task N→N+1), nicht der Brainstorm→Plan-Übergang (redundant zur Spec-Datei, fragil cross-session; §2.1). brainstorm ist reine `@remember`-Write-Seite, und `@remember` ist ein **Zeiger-Index**, kein Voll-Duplikat der Spec (§2.1).
 - **Kein** neuer Usage-Referenz-File — der geteilte `tooling/mcp-tools`-Seed (§4) trägt beide Skills.
 - **Kein** neuer Gate — die bestehenden generischen Gates (§5) decken die Änderung.
 
 ## 8. Reales Delta (Zusammenfassung)
 
-1. `content/skills/lmd-brainstorm/body.lmd.md` — eine `@find`-Zeile in der explore-Prosa (+ Seed/Const-Sync falls embedded).
+1. `content/skills/lmd-brainstorm/body.lmd.md` — eine `@find`-Zeile in der explore-Prosa **und** die `@remember`-Zeiger-Präzisierung in der Documentation-Phase (§3.1/§3.3; + Seed/Const-Sync falls embedded).
 2. `content/tooling/mcp-tools.lmd.md` — eine `@find`-Usage-Zeile (Seed + Const-Sync, Byte-Gate).
 3. `src/availability.rs` — `self-review/review`-Row **raus**, GAP_LIST += `ctx_smells`/`ctx_review`/`reformat`.
 4. Pressure-Test (RED-Artefakt) für den `@find`-Weave gemäß `lmd-writing-skills`.
 
-Vier kleine, begründete Eingriffe — die Antwort auf „auch smells/graph binden?" ist **nein** (graph schon da, smells design-fremd); das echte Fix ist die `@find`-Konsistenz plus Transparenz für die bewussten Auslassungen.
+Kleine, begründete Eingriffe — die Antwort auf „auch smells/graph binden?" ist **nein** (graph schon da, smells design-fremd); das echte Fix ist die `@find`-Konsistenz, die `@remember`-Zeiger-Klärung (kein Plan-Zubringer, kein Voll-Duplikat) plus Transparenz für die bewussten Auslassungen.
