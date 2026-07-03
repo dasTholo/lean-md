@@ -195,8 +195,10 @@ next: render phase "write-spec".
 - Write the spec clearly and concisely — tight prose, no filler.
 - Persist the key design decisions as durable facts, then commit the design
   document to git.
-- Use `@edit` to write the spec file and `@remember` to record durable design
-  facts alongside the commit.
+- Use `@edit` to write the spec file. Use `@remember` to record a compact
+  pointer — the decision, a one-line gist, and the spec path — NOT a duplicate of
+  the spec; the committed spec file stays the source of truth, the pointer just
+  makes the decision findable across sessions.
 
 next: render phase "self-review".
 @phase-end
