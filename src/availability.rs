@@ -14,7 +14,12 @@ pub const COVERAGE: &[(&str, &str, &str, &str)] = &[
     ("lmd-brainstorm", "approaches", "impact", "ctx_impact"),
     ("lmd-brainstorm", "write-spec", "edit", "ctx_edit"),
     ("lmd-brainstorm", "write-spec", "remember", "ctx_knowledge"),
-    ("lmd-brainstorm", "self-review", "review", "ctx_review"),
+    // brainstorm is design-time: it produces a spec, not a diff. The change-gates
+    // (ctx_smells, ctx_review, ctx_refactor reformat) are deliberately NOT in this
+    // path — they are task-time gates covered by lmd-writing-plans execution. The
+    // spec review itself runs via the spec-reviewer @dispatch below, not ctx_review
+    // (a code-review tool, not a prose-spec reviewer). Documented here for
+    // transparency (not a silent hole); GAP_LIST stays for globally-unused tools.
     // self-review composes an @dispatch brief to the spec-reviewer companion.
     (
         "lmd-brainstorm",
