@@ -9,6 +9,12 @@ This applies to NEW skills AND EDITS. Wrote the skill before the baseline test?
 Delete it. Start over. Delete means delete — not "keep as reference", not
 "adapt it while writing the test", not "just this once".
 
+**Editing an existing skill `.lmd.md` (raw source for edit anchors):** 
+a SKILL.md body, `_includes` fragment or companion is a rendered artifact — `ctx_read` (any mode) 
+renders it, never shows the source (`@phase`/`@include`/`@define` vanish). 
+Read the raw bytes to edit with `lean-md source <file>`; rendera `--phase`/`--companion` 
+only to preview what an agent will see.
+
 Violating the letter of the rules is violating the spirit of the rules.
 
 **TDD (test-driven development) mapping for skills:**
@@ -18,7 +24,7 @@ Violating the letter of the rules is violating the spirit of the rules.
 - GREEN = the agent complies WITH the skill present
 - REFACTOR = close loopholes while keeping compliance
 
-**Why this is TDD (the WARUM):** see `lmd-test-driven-development` — same
+**Why this is TDD:** see `lmd-test-driven-development` — same
 RED -> GREEN -> REFACTOR cycle, same Iron Law, applied to documentation
 instead of code.
 

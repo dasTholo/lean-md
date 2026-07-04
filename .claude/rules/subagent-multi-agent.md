@@ -50,13 +50,10 @@ write verbatim. This is the `AGENTS.md` "never `ctx_shell raw=true` unless
 compression is provably wrong" exception — for code-to-write it *is* provably
 wrong.
 
-**Never `ctx_read` a plan `.lmd.md` — render it.** It's a rendered artifact:
-`mode=full`/`auto` renders it whole-doc (→ `@import` NotFound cascade, lost
-`@phase` isolation), `mode=raw` still renders it (macros consumed). Controller
-orientation = render each `--phase`. To read the **raw source** of a `.lmd.md`
-you must EDIT (exact edit anchors, Fall B), use `lean-md source <file>` — the
-normative `.lmd.md`-access rule lives in the `hard-rules` seed (see it via any
-skill render); this file no longer restates it.
+**Never `ctx_read` a plan `.lmd.md` — render it** (`ctx_read` any mode renders it,
+never shows source). Controller orientation = render each `--phase`; to read the
+**raw source** of a `.lmd.md` you must EDIT (exact edit anchors, Fall B) use
+`lean-md source <file>`.
 
 > **Single source of truth for tool params/signatures:**
 > `docs/reference/appendix-mcp-tools.md` (liegt im lean-ctx-Repo; im lean-md-Repo
