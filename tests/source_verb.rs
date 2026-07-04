@@ -11,7 +11,8 @@ const BIN: &str = env!("CARGO_BIN_EXE_lean-md");
 const FIXTURE: &str = "# Fixture\n@import ./does-not-exist /\n@define greet(name) = Hello name\n@call greet(\"world\")\ntail line\n";
 
 fn write_fixture() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join("lmd_source_verb_test");
+    let dir = std::env::temp_dir().join(format!("lmd_source_verb_test_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("fixture.lmd.md");
     std::fs::write(&path, FIXTURE).unwrap();
@@ -43,20 +44,14 @@ fn source_emits_raw_bytes_verbatim() {
 #[test]
 fn render_consumes_macros_source_does_not() {
     let path = write_fixture();
-    let source = Command::new(BIN)
-        .arg("source")
-        .arg(&path)
-        .output()
-        .expect("run lean-md source");
     let rendered = Command::new(BIN)
         .arg("render")
         .arg(&path)
         .output()
         .expect("run lean-md render");
-    let source = String::from_utf8(source.stdout).unwrap();
     let rendered = String::from_utf8(rendered.stdout).unwrap();
-    // Counter-assert: the renderer consumes the @define macro; raw source keeps it.
-    assert_ne!(rendered, source, "render must differ from raw source");
+    // Counter-assert: the renderer consumes the @define macro; the raw source (FIXTURE) keeps it.
+    assert_ne!(rendered, FIXTURE, "render must differ from raw source");
     assert!(
         !rendered.contains("@define greet(name)"),
         "render must consume the @define macro"
