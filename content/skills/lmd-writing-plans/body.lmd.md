@@ -17,7 +17,8 @@ domain, and doesn't know good test design very well.
 implementation plan."
 
 **Tool discipline (reference, not a gate):** all I/O and code-intel run through
-lean-ctx tools — see `tooling/mcp-tools`. Language-specific symbol/edit/reformat
+lean-ctx tools — the directive **usage reference** (purpose · minimal form ·
+when-to-use) is `tooling/mcp-tools`. Language-specific symbol/edit/reformat
 conventions live in the project's lang-pack — detect the project language from its
 manifest/extensions (via `@list`/`@search`) and reference the matching pack; in a
 Rust project that is `lang/rust`. The plan directive vocabulary is in
@@ -50,6 +51,20 @@ each one is responsible for. This is where decomposition decisions get locked in
 - In existing codebases, follow established patterns. If the codebase uses large
   files, don't unilaterally restructure — but if a file you're modifying has grown
   unwieldy, including a split in the plan is reasonable.
+
+## Authoring with code-intel (measure before you decompose)
+
+Before drawing task boundaries, measure the real dependency reach — don't guess:
+
+- `@graph <callers|callees> <symbol>` / `@impact <symbol>` — the real dependency
+  reach of a symbol (ctx_callgraph / ctx_impact). Justifies how invasive a task is.
+- `@find <intent>` — locate the code a task anchors to, semantically
+  (ctx_semantic_search).
+- `@recall <query>` — **supplementary** (not mandatory): pull design decisions the
+  brainstorm phase saved via `@remember` (ctx_knowledge recall). Useful mainly
+  cross-session — carries rejected alternatives that never made it into the spec
+  prose. The **spec file stays the primary source**; an empty knowledge store just
+  means you read the spec.
 
 This structure informs the task decomposition. Each task should produce
 self-contained changes that make sense independently.
@@ -111,6 +126,10 @@ requirements verbatim; every task implicitly includes it.
 to full text at render time, so the executor loses nothing. To discover which
 recipes exist, read the macro API index instead of the whole library:
 `lean-md render .lean-ctx/lean-md/plan-recipes.lmd.md --signatures`.
+
+**Verification uses recipes, not copy-paste.** Inspect a change with
+`@call verify("path/to/file")` (unified diff). For a public-API or multi-file
+change, add the post-change gate `@call review_change()`.
 
 ## No Placeholders
 

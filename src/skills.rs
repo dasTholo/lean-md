@@ -1485,6 +1485,24 @@ Run: {{ var test_cmd }} demo
     }
 
     #[test]
+    fn writing_plans_body_weaves_code_intel() {
+        // §5: file-structure teaches @graph/@impact/@find/@recall for decomposition;
+        // plan-format routes verification through @call verify / review_change.
+        assert!(
+            LMD_WRITING_PLANS_BODY.contains("@graph")
+                && LMD_WRITING_PLANS_BODY.contains("@impact")
+                && LMD_WRITING_PLANS_BODY.contains("@find")
+                && LMD_WRITING_PLANS_BODY.contains("@recall"),
+            "file-structure must weave the code-intel authoring directives"
+        );
+        assert!(
+            LMD_WRITING_PLANS_BODY.contains("@call verify")
+                && LMD_WRITING_PLANS_BODY.contains("@call review_change"),
+            "plan-format must route verification through recipes"
+        );
+    }
+
+    #[test]
     fn dispatch_plan_reviewer_composes() {
         // Rendering self-review executes the @dispatch: the composed output must carry
         // (a) the auto-prepended contract (hard-rules marker) and (b) the plan-reviewer
