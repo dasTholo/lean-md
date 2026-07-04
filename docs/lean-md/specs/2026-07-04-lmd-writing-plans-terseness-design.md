@@ -198,12 +198,19 @@ Entdeckt beim GREEN-Pressure-Test der Bridge-Bindung (Ledger `lmd-core-followups
   Kandidaten: `src/bridges/call.rs`, `src/macros.rs`. Eigener systematic-debugging + TDD-Zyklus,
   **separater Commit**; #498 + bestehende `macros`/`bridges::call`-Tests grün. **Diese Spec setzt
   den Fix voraus.**
+  **✅ GELANDET** (2026-07-04, Commit `30d872e`): Fix in `src/macros.rs` = neuer `split_call_args`-
+  Helper (quote-bewusster Top-Level-Komma-Split + Quote-Stripping) + 4 Tests; `parse_call_signature`-
+  Signatur unverändert. Details s. „Status Prerequisites + deferred Follow-ups" unten.
 - **Prerequisite — Bug 3:** `render <plan>.lmd.md` **ohne** `--phase` lässt
   `@import .lean-ctx/lean-md/plan-recipes` mit NotFound fehlschlagen → jeder `@call` kaskadiert
   mit „macro not found". Mit `--phase task-N` funktioniert derselbe Import. Erklärt zugleich die
   `ctx_read`-`.lmd.md`-Unzuverlässigkeit (interner Whole-Document-Pfad). **Fix** = Whole-Doc-Render
   löst `@import` **identisch** zum `--phase`-Pfad auf (Import-Basis: `jail_root`/working-dir).
   Kandidaten: `src/engine.rs`, `src/phases.rs`, `@import`-Bridge. Separater Commit.
+  **✅ GELANDET** (2026-07-04, Commit `154b3af`): Fix lag in `src/bin/lean_md.rs::cmd_render` (nicht
+  engine/phases) — der Whole-Doc-`else`-Zweig nutzt jetzt `render_source_with_phase(&source, None, …)`
+  mit `std::env::current_dir()`-Jail statt `do_render(&source, file_jail, …)`; `do_render` bleibt für
+  den MCP-Pfad. + neuer Integrationstest `tests/whole_doc_import.rs`. Details unten.
 - **Follow-up — Directive-Grammatik (eigenes Audit-Spec):** `gloss/directives.lmd.md`
   `graph:callers|callees|dependents` nutzen **benannte** Slots `{callers}`/`{callees}`/
   `{dependents}`, während die Call-Form positional ist (`@graph callers <symbol>`) → Slot bleibt
@@ -215,6 +222,39 @@ Entdeckt beim GREEN-Pressure-Test der Bridge-Bindung (Ledger `lmd-core-followups
   bare, zeilenführende Directives werden live dispatcht (#498).
 - **Verifiziert-real, kein Concern:** der `@query git diff | @review diff-review`-Pipe
   (`ReviewBridge::accepts_pipe() == true`, `src/bridges/review.rs:28`, Test `:170`).
+
+### Status Prerequisites + deferred Follow-ups (Bug-1/Bug-3-SDD-Lauf, 2026-07-04)
+
+**Bug 1 + Bug 3 sind GELANDET** (SDD-Lauf, durable Knowledge `sdd-renderer-prereq-plan`, Branch
+`feat-lmd-v2`, lokal/unpushed): Bug 1 = `30d872e`, Bug 3 = `154b3af`. Voll-Gate grün: nextest
+479/0, clippy `-D warnings` clean, #498-Byte-Stabilität gewahrt, Final-Whole-Branch-Review „ready
+to merge". Der abgeleitete Phase-1-Plan darf quoted, kommahaltige Recipe-Args nun voraussetzen
+(das Preflight-Ordering-Gate oben bleibt trotzdem verpflichtend — es beweist das Landen im Plan).
+
+**PFLICHT bei Phase-1-Aufnahme — durable Knowledge ABRUFEN:** Bevor der abgeleitete Terseness-Plan
+geschrieben/ausgeführt wird, MUSS der Autor die im SDD-Lauf persistierten Befunde abrufen — sie
+sind der maßgebliche Kontext, nicht diese Prosa allein:
+`ctx_knowledge action=recall query="renderer-prereq follow-up"` bzw. die Keys
+`sdd-renderer-prereq-plan`, `followup-split-call-args-quote-strip`,
+`followup-wholedoc-var-prepass-asymmetry`, `followup-load-file-dead-jail`,
+`followup-do-render-doc-stale`, `bug1-fixed`, `bug3-fixed`.
+
+**PFLICHT — deferred Follow-ups FIXEN** (im SDD-Lauf bewusst zurückgestellt, non-blocking, aber
+MÜSSEN vor Phase-1-Abschluss adressiert werden — als eigene Tasks des abgeleiteten Plans):
+
+- **(A) [plan-mandated → Human-Entscheid]** `split_call_args` (`src/macros.rs`) nutzt
+  `cur.trim().trim_matches('"')` → strippt **alle** umschließenden Quote-Layer, nicht „eine" wie
+  Doc-Kommentar + Plan-Prosa versprechen; kein Test exponiert den genesteten Fall (`""a""` → `a`
+  statt `"a"`). Fix: echtes single-layer-Stripping (`strip_prefix('"')`/`strip_suffix('"')`) ODER
+  Doc-Kommentar ans Verhalten angleichen.
+- **(B) [plan-mandated, by-design → Human-Entscheid]** Der Bug-3-Fix routet whole-doc-CLI-Render
+  über `render_source_with_phase`, das einen var-prepass (`vars.toml` + `@var`-Defaults) fährt, den
+  der MCP-Pfad (`do_render`) nicht hat → CLI/MCP-Asymmetrie beim plain (non-skill) Render, untestet.
+  Entscheiden: dokumentieren oder angleichen.
+- **(C) [Minor]** `load_file` (`src/bin/lean_md.rs`) liefert einen jetzt binärweit toten
+  Parent-Dir-Jail (beide Call-Sites verwerfen ihn) → könnte nur `String` returnen.
+- **(D) [Minor]** `do_render`-Doc-Kommentar („shared by `cmd_render` and …") ist veraltet —
+  `cmd_render` ruft es nicht mehr auf (nur noch der MCP-Pfad).
 
 ## Explizite Nicht-Ziele (YAGNI)
 

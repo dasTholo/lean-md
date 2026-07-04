@@ -49,6 +49,11 @@ andockt; SDD **konsumiert** das Ergebnis (`crp: compact`-Header + Recipe-Layer) 
    (Shadow-git-Sicherheitsnetz) und `@compress`→`ctx_compress` (Session-Checkpoint, in
    Phasen via `@call compress()` aufrufbar). Schließt die ctx_checkpoint-Bridge-Lücke; s.
    Abschnitt „Neue Directive-Bridges".
+7. **Neue Renderer-Capability (in diesem Port zu erstellen): `render --list-phases`.** Eine
+   import-unabhängige Phase-Outline — geordneter `name<TAB>title`-Index aller `@phase`-Blöcke
+   ohne Body-Render. Schließt die Preflight-„Overview"-Lücke (Controller kennt Anzahl + IDs +
+   Titel aller Tasks ohne Content) und ist **Bug-3-immun** (betritt den Whole-Doc-`@import`-
+   Pfad nie). S. Abschnitt „Neue Renderer-Capability: Phase-Outline".
 
 ## Architektur & Datei-Layout
 
@@ -74,6 +79,12 @@ Registrierung in der Bridge-Registry, 2 Gloss-Rows in `content/gloss/directives.
 `task_return()`), Sink-Rename `checkpoint→compress` (+ Alias) und `fire_agent`-Erweiterung
 um `return`/`handoff`/`sync` (+ `to_agent`-Attr) in `src/phases.rs`.
 
+Neue Renderer-Capability (Details s. „Neue Renderer-Capability: Phase-Outline"):
+`src/phases.rs` bekommt `iter_phase_blocks(source) -> Vec<(name, raw_body)>` (geteilter,
+geordneter Phasen-Scanner) + `outline_phases(source) -> Vec<PhaseOutline>` (`{ name, title }`);
+`capture_phase_bodies` wird auf `iter_phase_blocks` umgebaut (kein Doppel-Parser). CLI-Flag
+`--list-phases` in `src/bin/lean_md.rs::cmd_render` (früher Zweig); Lib-Re-Export in `src/lib.rs`.
+
 **Design-Prinzip:** Body = schlanke Koordinations-Prosa; die eigentlichen
 Subagent-Instruktionen leben isoliert in den Companions (einzeln testbar) — analog
 `lmd-brainstorm/spec-reviewer` und `lmd-writing-plans/plan-reviewer`.
@@ -83,7 +94,7 @@ Subagent-Instruktionen leben isoliert in den Companions (einzeln testbar) — an
 | Phase | Inhalt (aus superpowers-SKILL.md portiert) |
 |---|---|
 | `orient` | When-to-use-Check; Tool-Discipline; dedizierter Feature-Branch (nicht `main`) + optional `@checkpoint action=snapshot` (Shadow-git); Resume aus Ledger (`ctx_session load` / `ctx_knowledge recall`) |
-| `preflight` | Plan-Struktur lesen, Todos anlegen, Pre-Flight-Konflikt-Scan (EINE gebündelte Frage an den Menschen vor Task 1) |
+| `preflight` | Phasen enumerieren via `render <plan> --list-phases` (geordneter `name`/`title`-Index, import-unabhängig — **kein** whole-doc `ctx_read`); Todos je Phase anlegen; Pre-Flight-Konflikt-Scan (EINE gebündelte Frage an den Menschen vor Task 1) |
 | `dispatch` | Per-Task: Brief = `lean-md render <plan> --phase task-N` + Warm-`ctx_multi_read`; `@checkpoint action=snapshot` vor + nach den Implementer-Edits (erfasst die exakte Änderung); Model-Selection-Rubrik; `@dispatch` implementer; Status-Handling |
 | `review` | Reviewer holt Diff selbst (`@read mode=diff`); `@dispatch` task-reviewer (2 Verdikte); ⚠️-Item-Auflösung; Reviewer-Prompt-Discipline; Fix-Loop; Task-complete + Ledger-Zeile |
 | `final-review` | verpflichtender `@review diff-review`-Vorlauf (`@query git diff merge-base..HEAD \| @review diff-review`) + `@smells`-Scan → `@dispatch` code-reviewer (most-capable) mit den Vorlauf-Findings als Input (Companion darf optional `ctx_quality delta` vs. BASE ziehen); EIN Fix-Subagent für alle Findings |
@@ -117,6 +128,11 @@ Alle Phasen tragen `next:`-Pointer.
 Der superpowers-Ansatz bewegt alles als Dateien (brief/report/diff), um den
 Controller-Kontext sauber zu halten. lean-md erreicht dasselbe über **Warm-Cache +
 Memory/Coordination-Tools** — kein `.superpowers/sdd/`-Verzeichnis, keine Bash-Skripte.
+
+**Preflight (einmal, vor Task 1):** `render <plan> --list-phases` liefert den geordneten
+Phasen-Index (`name<TAB>title`) → Todos + Task-Zählung, **ohne** Body-Content im
+Controller-Kontext und **ohne** den Bug-3-anfälligen Whole-Doc-Pfad. Der eigentliche
+Task-Brief bleibt der Phasen-Render (`render --phase task-N`, raw-captured).
 
 Per-Task-Zyklus:
 
@@ -267,6 +283,46 @@ umbenannt (deprecated Alias `checkpoint` bleibt für Back-Compat, feuert weiter 
 `@compress`/`ctx_compress`/`on-complete=compress` = Session-Compaction. **`ctx_checkpoint`
 bleibt KEIN Worktree-Ersatz** (Snapshot/Restore ≠ Isolation) — s. Nicht-Ziele.
 
+## Neue Renderer-Capability: Phase-Outline (`render --list-phases`)
+
+**Zweck:** SDDs `preflight` braucht die **Struktur** eines Plans (wie viele Tasks, welche
+`@phase`-IDs, welcher Titel) — nicht deren Inhalt. Heute gibt es dafür keinen sauberen Weg:
+Whole-Doc-Render scheitert an Bug 3, `ctx_read mode=full` rendert ebenfalls whole-doc, und
+`--phase` blind durchprobieren kennt die Namen nicht vorab. Die Outline schließt genau diese Lücke.
+
+**Surface:** `lean-md render <plan> --list-phases` → geordnete `name<TAB>title`-Zeilen:
+
+    task-1	Task 1 — Bug 1: quote-aware @call-arg split
+    task-2	Task 2 — Bug 3: whole-doc render resolves @import
+
+- Früher Zweig in `cmd_render`: Source laden → `outline_phases` → Index → exit. Kein Render,
+  **kein `@import`**, keine Bodies.
+- **Mutually exclusive** mit `--phase` (Fehler bei beidem). `--consumer`/`--crp` werden
+  ignoriert (strukturelle Ausgabe — kein CRP-Suffix, kein `<!-- crp:… -->`-Footer).
+- **Import-unabhängig ∴ Bug-3-immun:** scannt nur die `@phase "name"`-Marker im Plan selbst.
+
+**Mechanik (Lib-Kern, nicht CLI-only):**
+- `iter_phase_blocks(source) -> Vec<(name, raw_body)>` — geteilter, **geordneter** Phasen-
+  Scanner; erbt die `@phase`/`@phase-end`-Semantik (unterminated/nested = sichtbarer Fehler,
+  identisch zu `capture_phase_bodies`).
+- `outline_phases(source) -> Vec<PhaseOutline>` mit `PhaseOutline { name, title }`. **Titel** =
+  erste `## `/`# `-Überschrift im Body (`#`/Spaces gestrippt); Fallback: erste nicht-leere
+  Nicht-Directive-Zeile; sonst leer.
+- `capture_phase_bodies` wird auf `iter_phase_blocks` umgebaut → **eine** Quelle der
+  Phasen-Grenzen-Semantik (kein zweiter Parser).
+- Das CLI-Flag ist nur **ein** Konsument von `outline_phases`; dieselbe Lib-Funktion trägt
+  später eine MCP-Variante (`ctx_md_outline` / `ctx_md_render`-Modus) — echte Pipeline, nicht
+  CLI-Sonderfall.
+
+**Reichweite:** läuft auf jeder Render-Source (Plan-Datei **und** `--skill X`, gleicher
+Source-Load-Pfad) → Skill-Phasen fallen gratis mit ab.
+
+**Landing-Unabhängigkeit:** Bug-3-immun, daher **nicht** an die Bug-1/Bug-3-Prerequisites
+gekoppelt — kann eigenständig landen (eigener Commit).
+
+**YAGNI:** kein JSON, keine Intent-Zeile, kein Global-Constraints-Dump — nur der geordnete
+`name<TAB>title`-Index, byte-stabil (#498).
+
 ## Testing & Gates
 
 `src/skills.rs`:
@@ -309,6 +365,18 @@ Neue Bridges (`src/bridges/checkpoint.rs`, `src/bridges/compress.rs`, `src/phase
 - `recipe_task_return_expands` — `@call task_return("status: DONE")` → `on-complete=return=…`.
 - `post_diary_sinks_unchanged` — bestehende post/diary-Sinks bleiben grün (Regressionsschutz).
 
+Phase-Outline (`src/phases.rs`, `src/bin/lean_md.rs`):
+- `iter_phase_blocks_orders_phases` — zwei `@phase`-Blöcke → geordnete `(name, body)`-Liste.
+- `outline_derives_title_from_first_heading` / `outline_title_falls_back_when_no_heading`.
+- `outline_is_import_independent` — Source mit fehlendem `@import` listet trotzdem alle Phasen
+  (kein NotFound, kein Bug-3-Pfad).
+- `outline_is_byte_stable` (#498) — zwei Läufe byte-identisch.
+- `capture_phase_bodies_still_matches` — Refactor auf `iter_phase_blocks` lässt die
+  bestehenden `capture_phase_bodies`-Tests grün (Regressionsschutz).
+- CLI-Integration `render_list_phases_emits_index` — `--list-phases` auf einer Plandatei
+  emittiert `task-1<TAB>…\ntask-2<TAB>…`; `list_phases_and_phase_mutually_exclusive` — Fehler
+  bei beidem; phasenlose/leere Source → leerer Output, exit 0.
+
 writing-plans (Terseness-Spec-owned, hier nur referenziert — **nicht** in SDDs Test-Scope):
 - `writing_plans_teaches_crp_compact_and_no_repeat`, `plan_template_header_declares_crp_compact`,
   `plan_recipes_carry_gate_and_render_check` gehören dem **Terseness-Spec**. SDD verlässt sich
@@ -335,3 +403,5 @@ Behavioral (Plan-Task-Ebene, kein `cargo`-Gate):
 - **Kein SDD-Scope:** Terseness-Autorenregeln (Body `plan-format`/`bite-sized`/No-Loss),
   `gate`/`render_check`-Recipes, `lint_cmd`, `vars.toml`, Bug-1/Bug-3-Fixes — alle im
   **Terseness-Spec** (Prerequisite). SDD referenziert, spezifiziert nicht.
+- **Phase-Outline:** kein JSON, keine Intent-Zeile, kein Global-Constraints-Dump; nur
+  `name<TAB>title`. Kein separater `outline`-Subcommand (Flag an `render` genügt).

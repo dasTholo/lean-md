@@ -19,7 +19,7 @@ lean-ctx runtime already does natively:
 
 | superpowers SDD script         | lean-ctx replacement (use this)                                          |
 |--------------------------------|--------------------------------------------------------------------------|
-| `scripts/task-brief PLAN N`    | controller `ctx_read` of the plan's task section + warm `ctx_multi_read` |
+| `scripts/task-brief PLAN N`    | controller renders the phase via the **CLI** (`lean-md render … --phase task-N`, raw-captured) + warm `ctx_multi_read` — see "Plan brief = CLI phase render" below |
 | `scripts/review-package B H`   | reviewer reads the diff via `ctx_read(mode=diff)` / `ctx_shell git diff` |
 | `.superpowers/sdd/progress.md` | `ctx_session action=task` (progress) + `ctx_knowledge action=remember`   |
 | pasted task/report history     | `ctx_agent action=post` / `action=handoff` (baton), `action=diary`       |
@@ -29,6 +29,38 @@ Progress, briefs, reports and review packages move through `ctx_session`,
 git-ignored scratch ledger. **git commits themselves ARE allowed on the working
 branch** (the committed code is the deliverable); only the SDD *bash tooling* is
 replaced by lean-ctx tools.
+
+## Plan brief = CLI phase render (until `lmd-subagent-driven-development` exists)
+
+Plans are `.lmd.md` with `@phase` isolation — the task brief is the **phase
+render**, never a raw slice or a whole-doc read of the plan.
+
+**Render path (temporary):** the native `lmd-subagent-driven-development` skill does
+not exist yet, and its intended consumption tool `ctx_md_render` is **not
+registered** in this repo's lean-ctx instance (nor is it the default backend — the
+CLI is). Until the port lands, the controller produces each brief with the **CLI
+renderer**, capturing it **raw**:
+
+    ctx_shell(command="cargo run -q --bin lean-md -- render <plan>.lmd.md --phase task-N --consumer=ai", raw=true)
+
+**`raw=true` is mandatory here — do not stack a second compressor.** lean-md's
+render is already the terse, byte-stable (#498) artifact; `--consumer=ai`/`crp`
+only *append* an `output_rules` suffix, they never rewrite code. Piping the CLI
+stdout through dense `ctx_shell` (default) re-compresses it and mangles the code an
+implementer must write **verbatim**: `String`→`str`, `Command`→`cmd`,
+`String::new()`→`str::new()`, dropped `#[test]`/braces. This is exactly the
+`AGENTS.md` "never `ctx_shell raw=true` unless compression is provably wrong"
+exception — for code-to-write it *is* provably wrong. (Once the native skill + a
+registered `ctx_md_render` exist, the render returns in-process as a tool result
+and this workaround retires — the `raw` flag is a CLI-path artifact, not a
+lean-md-concept requirement.)
+
+**Never `ctx_read` a plan `.lmd.md` — render it.** It's a rendered artifact, not a
+source file; the CLI phase render above is its only access path. A direct read is
+never the right tool: `mode=full`/`auto` *renders* it whole-doc (→ `@import`
+NotFound cascade, Bug 3 open, + lost `@phase` isolation), and `mode=raw` bypasses
+the phase machinery you actually want. Controller orientation = render each
+`--phase`; whole-doc overview returns once Bug 3 lands.
 
 > **Single source of truth for tool params/signatures:**
 > `docs/reference/appendix-mcp-tools.md` (liegt im lean-ctx-Repo; im lean-md-Repo
@@ -61,6 +93,8 @@ after `ToolSearch`. (Profiles for reference — `minimal` = 6 tools, `standard` 
 > **cross-process** case — separate Cursor/Claude/Codex processes — which does not
 > apply to subagent-driven-development.) Subagents just `ctx_read` — **never
 > `fresh`** (mtime auto-validation keeps cached entries current), **never `raw`**.
+> (Subagents never read the plan `.lmd.md` at all — the brief is rendered and
+> handed to them; see "Plan brief = CLI phase render".)
 
 | Need                              | Tool                           | Note                                                                                                                                                                                                                                                                          |
 |-----------------------------------|--------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
