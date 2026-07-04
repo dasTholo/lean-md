@@ -10,14 +10,15 @@ crp: compact
 
 A `.lmd.md` plan renders ONE task at a time: `lean-md render <plan.lmd.md> --phase task-N`.
 Everything a task needs sits inside its `@phase` block; shared vocabulary lives in the
-meta-head above (the two active lines `@var test_cmd …` and `@import … /plan-recipes /`).
+meta-head above (the three active lines `@var test_cmd …`, `@var lint_cmd …` and `@import … /plan-recipes /`).
 Prose lines and inline-code directives are guidance — only a directive that STARTS a line
 is active.
 
 ## Meta-head (already active above)
 
-`@var test_cmd default="cargo test"` declares the test command once; override it in
-`.lean-ctx/lean-md/vars.toml` (vars.toml wins) with no plan edit. `@import
+`@var test_cmd default="cargo test"` and `@var lint_cmd default="cargo clippy …"` declare the
+test and lint commands once; override either in `.lean-ctx/lean-md/vars.toml` (vars.toml wins)
+with no plan edit. `@import
 .lean-ctx/lean-md/plan-recipes /` loads the macro library so `@call` resolves in every
 task phase. Below the meta-head, write Goal / Architecture / Global Constraints as prose
 copied from the spec.
