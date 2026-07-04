@@ -106,6 +106,17 @@ pub fn parse_call_signature(raw: &str) -> Option<(String, Vec<String>)> {
     Some((name, args))
 }
 
+/// Strip exactly ONE surrounding pair of double quotes (if present) from an
+/// already-trimmed arg segment. Leaves nested/inner quotes intact so
+/// `""a""` → `"a"`, not `a`.
+fn strip_one_quote_layer(s: &str) -> String {
+    let s = s.trim();
+    s.strip_prefix('"')
+        .and_then(|inner| inner.strip_suffix('"'))
+        .unwrap_or(s)
+        .to_string()
+}
+
 /// Split call args on top-level commas — commas inside `"..."` are literal —
 /// then strip one surrounding layer of double quotes from each segment.
 /// Unquoted segments keep their legit top-level-comma separation (multi-arg
@@ -122,13 +133,13 @@ fn split_call_args(inner: &str) -> Vec<String> {
                 cur.push(ch);
             }
             ',' if !in_quotes => {
-                args.push(cur.trim().trim_matches('"').to_string());
+                args.push(strip_one_quote_layer(&cur));
                 cur.clear();
             }
             _ => cur.push(ch),
         }
     }
-    args.push(cur.trim().trim_matches('"').to_string());
+    args.push(strip_one_quote_layer(&cur));
     args
 }
 
@@ -742,6 +753,17 @@ Run: `{{ test_cmd }} {{ name }}`
             args,
             vec!["src/foo.rs".to_string(), "feat: add foo, bar".to_string()],
             "quoted comma-bearing arg must survive intact, no quote leak"
+        );
+    }
+
+    #[test]
+    fn call_args_strip_only_one_quote_layer() {
+        // Follow-up A: single-layer stripping — a nested quote survives.
+        let (_, a) = parse_call_signature(r#"note(""a"", "b")"#).unwrap();
+        assert_eq!(
+            a,
+            vec!["\"a\"".to_string(), "b".to_string()],
+            "only one surrounding quote layer may be stripped"
         );
     }
 }
