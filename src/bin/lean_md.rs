@@ -172,7 +172,7 @@ fn cmd_render(rest: &[String]) {
         eprintln!("lean-md render: missing <file.lmd.md>");
         std::process::exit(1);
     };
-    let (source, file_jail) = load_file(&file);
+    let (source, _file_jail) = load_file(&file);
     let rendered: String = if a.signatures {
         let jail = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         lean_md::render_signature_index(&source, jail)
@@ -186,7 +186,14 @@ fn cmd_render(rest: &[String]) {
             }
         }
     } else {
-        do_render(&source, file_jail, a.consumer, a.crp)
+        let jail = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        match lean_md::render_source_with_phase(&source, None, a.consumer, a.crp, jail) {
+            Ok(out) => out,
+            Err(e) => {
+                eprintln!("render error: {e:?}");
+                std::process::exit(1);
+            }
+        }
     };
     match a.out {
         Some(out) => {
