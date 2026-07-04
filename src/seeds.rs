@@ -180,6 +180,29 @@ consumer: ai
     }
 
     #[test]
+    fn plan_template_header_declares_crp_compact() {
+        // Terseness rework: the template header binds crp: compact (drives the dispatch
+        // CRP line + apply_crp_hook deterministically), alongside consumer: ai.
+        assert!(
+            PLAN_TEMPLATE.contains("consumer: ai"),
+            "template header must keep consumer: ai"
+        );
+        assert!(
+            PLAN_TEMPLATE.contains("crp: compact"),
+            "template header must declare crp: compact"
+        );
+    }
+
+    #[test]
+    fn plan_template_meta_declares_lint_cmd() {
+        // The meta-head declares lint_cmd once (pattern of test_cmd); vars.toml wins.
+        assert!(
+            PLAN_TEMPLATE.contains("@var lint_cmd"),
+            "template meta-head must declare @var lint_cmd"
+        );
+    }
+
+    #[test]
     fn plan_template_self_documents() {
         // Self-documenting: guidance markers present, no superpowers token.
         assert!(PLAN_TEMPLATE.contains("One @phase per task"));
@@ -306,7 +329,8 @@ consumer: ai
         );
         for call in [
             "@call verify(",
-            "@call reformat_commit(",
+            "@call gate(",
+            "@call commit(",
             "@call remember_decision(",
         ] {
             assert!(

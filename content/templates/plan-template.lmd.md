@@ -1,7 +1,9 @@
 @lean-md
 consumer: ai
+crp: compact
 
 @var test_cmd default="cargo test" desc="project test runner command"
+@var lint_cmd default="cargo clippy --all-targets -- -D warnings" desc="project lint gate"
 @import .lean-ctx/lean-md/plan-recipes /
 
 # <Feature> Implementation Plan — copy this template into docs/lean-md/plans/
@@ -43,8 +45,9 @@ New code (shown verbatim because it does not exist yet):
 ### Verify & Close (every task ends here — fixed order)
 
 @call verify(src/foo.rs)
-@call reformat_commit(src/foo.rs, feat: add foo)
-@call remember_decision(foo is now the canonical helper fn)
+@call gate(src/foo.rs)
+@call commit("src/foo.rs", "feat: add foo")
+@call remember_decision("foo is now the canonical helper fn")
 
 **Conditional slots (each guarded by an observable predicate, not "optional"):**
 
@@ -59,4 +62,6 @@ New code (shown verbatim because it does not exist yet):
   post-change gate.
 - IDE-backend quality pass wanted → `@call inspect("src/foo.rs")` (with `@smells`
   fallback).
+- The task edits a skill-/plan-`.lmd.md` seed → `@call render_check("<skill>", "<phase>")`
+  (render-smoke of the affected phase render).
 @phase-end
