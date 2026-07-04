@@ -264,6 +264,21 @@ consumer: ai
     }
 
     #[test]
+    fn plan_recipes_carry_gate_and_render_check() {
+        // Terseness rework: the recipe layer must expose the pre-commit gate and the
+        // lmd render smoke so plans can @call them.
+        let defined = defined_macro_names(PLAN_RECIPES);
+        assert!(
+            defined.contains("gate"),
+            "plan-recipes must define the gate quality-bar recipe"
+        );
+        assert!(
+            defined.contains("render_check"),
+            "plan-recipes must define the render_check smoke recipe"
+        );
+    }
+
+    #[test]
     fn no_orphan_call() {
         // Every @call NAME(...) starting a line in plan-template hits a @define NAME(...)
         // in plan-recipes (static check; runtime already surfaces `macro not found`).

@@ -69,3 +69,16 @@ Run: `@recall {{ query }}` — pull the durable context a prior task saved.
 <!-- Who calls this symbol — anchor for refactor tasks (ctx_callgraph) -->
 Run: `@graph callers {{ symbol }}` — list callers to anchor a refactor.
 @define-end
+
+@define gate(paths)
+<!-- Pre-commit quality bar: reformat, lint, full test suite (lint_cmd/test_cmd via vars.toml) -->
+1. Run: `@reformat {{ paths }}`
+2. Run: {{ var lint_cmd }} — Expected: clean.
+3. Run: {{ var test_cmd }} — Expected: PASS.
+@define-end
+
+@define render_check(skill, phase)
+<!-- Render one skill/plan phase via the CLI; assert non-empty + byte-stable (#498) -->
+Run: cargo run -q --bin lean-md -- render --skill {{ skill }} --phase {{ phase }} --consumer=ai
+— Expected: non-empty, no eval err, byte-stable across two runs.
+@define-end
