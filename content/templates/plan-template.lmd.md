@@ -25,8 +25,8 @@ copied from the spec.
 For EXISTING code, anchor it instead of pasting: `@read src/lib.rs mode=signatures`,
 `@symbol some_fn`, or `path:line`. For NEW code, show it verbatim. Keep interfaces,
 commands and "Expected:" verbatim. Verify with `@read mode=diff`. For boilerplate, call a
-recipe: `@call test("case_name")`, `@call commit("paths", "message")`, `@call
-tdd("case")`. Discover the recipes with `lean-md render
+recipe: `@call test(case_name)`, `@call commit(paths, message)`, `@call
+tdd(case)`. Discover the recipes with `lean-md render
 .lean-ctx/lean-md/plan-recipes.lmd.md --signatures`.
 
 @phase "task-1"

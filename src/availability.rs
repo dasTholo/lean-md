@@ -97,7 +97,12 @@ pub const COVERAGE: &[(&str, &str, &str, &str)] = &[
         "find",
         "ctx_semantic_search",
     ),
-    ("lmd-writing-plans", "write-plan", "recall", "ctx_knowledge"),
+    (
+        "lmd-writing-plans",
+        "file-structure",
+        "recall",
+        "ctx_knowledge",
+    ),
     ("lmd-writing-plans", "plan-format", "review", "ctx_review"),
     ("lmd-writing-plans", "plan-format", "smells", "ctx_smells"),
     (
@@ -213,7 +218,7 @@ mod tests {
         assert!(has("file-structure", "graph"), "file-structure → graph");
         assert!(has("file-structure", "impact"), "file-structure → impact");
         assert!(has("file-structure", "find"), "file-structure → find");
-        assert!(has("write-plan", "recall"), "write-plan → recall");
+        assert!(has("file-structure", "recall"), "file-structure → recall");
         assert!(has("plan-format", "review"), "plan-format → review");
         assert!(has("plan-format", "smells"), "plan-format → smells");
         assert!(has("plan-format", "reformat"), "plan-format → reformat");
