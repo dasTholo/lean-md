@@ -728,4 +728,20 @@ Run: `{{ test_cmd }} {{ name }}`
         );
         assert!(!out.contains('"'), "no quote leak: {out}");
     }
+
+    #[test]
+    fn preflight_bug1_commit_quoted_comma_arg_survives() {
+        // Spec Preflight gate: the exact repro the terseness template will rely on —
+        // a quoted comma-bearing message must survive as ONE arg with its inner comma,
+        // with no quote leak. Proves Bug 1 (30d872e) is present before later tasks
+        // introduce quoted recipe args.
+        let (name, args) =
+            parse_call_signature(r#"commit("src/foo.rs", "feat: add foo, bar")"#).unwrap();
+        assert_eq!(name, "commit");
+        assert_eq!(
+            args,
+            vec!["src/foo.rs".to_string(), "feat: add foo, bar".to_string()],
+            "quoted comma-bearing arg must survive intact, no quote leak"
+        );
+    }
 }
