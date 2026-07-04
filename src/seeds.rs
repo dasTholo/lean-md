@@ -1,8 +1,9 @@
 //! Project materialization of lang/tooling/.ext seeds (Spec §5.4, layer B).
 //! Seeds are binary-embedded (`include_str!`); `materialize_contracts` copies
-//! them into the project's `contracts_dir` ONLY when the target is absent, so a
-//! user's edits are never clobbered. Resolution order: project file overrides
-//! the embedded seed (handled by FragmentRegistry's jailed file fallback).
+//! them into the project's `contracts_dir`. Absent-only by default, so a user's
+//! edits are never clobbered; an explicit `force` refresh overwrites a stale
+//! derived seed after the embedded copy changed. Resolution order: project file
+//! overrides the embedded seed (handled by FragmentRegistry's jailed file fallback).
 
 use std::path::{Path, PathBuf};
 
@@ -34,16 +35,19 @@ pub const PROJECT_SEEDS: &[(&str, &str)] = &[
 ];
 
 /// Materialize embedded project seeds into `<project_root>/<contracts_dir>`.
-/// Absent-only (idempotent); returns the paths actually written.
+/// `force=false` is absent-only (idempotent, never clobbers user edits); `force=true`
+/// overwrites an existing target to refresh a stale derived seed after the embedded
+/// copy changed. Returns the paths actually written.
 pub fn materialize_contracts(
     project_root: &Path,
     contracts_dir: &str,
+    force: bool,
 ) -> std::io::Result<Vec<PathBuf>> {
     let base = project_root.join(contracts_dir);
     let mut written = Vec::new();
     for (rel, content) in PROJECT_SEEDS {
         let target = base.join(rel);
-        if target.exists() {
+        if !force && target.exists() {
             continue;
         }
         if let Some(parent) = target.parent() {
@@ -90,7 +94,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
 
-        let written = materialize_contracts(&root, ".lean-ctx/lean-md").unwrap();
+        let written = materialize_contracts(&root, ".lean-ctx/lean-md", false).unwrap();
         let base = root.join(".lean-ctx/lean-md");
         assert!(
             base.join("plan-recipes.lmd.md").exists(),
@@ -103,7 +107,7 @@ mod tests {
         assert!(written.iter().any(|p| p.ends_with("plan-recipes.lmd.md")));
 
         // Absent-only: a second run writes nothing new.
-        let again = materialize_contracts(&root, ".lean-ctx/lean-md").unwrap();
+        let again = materialize_contracts(&root, ".lean-ctx/lean-md", false).unwrap();
         assert!(
             again.is_empty(),
             "second run must be idempotent (absent-only)"
@@ -118,7 +122,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         let dir = ".lean-ctx/lean-md";
 
-        let first = materialize_contracts(&root, dir).unwrap();
+        let first = materialize_contracts(&root, dir, false).unwrap();
         assert_eq!(
             first.len(),
             PROJECT_SEEDS.len(),
@@ -129,10 +133,47 @@ mod tests {
         }
 
         // Second run: targets exist → absent-only → writes nothing.
-        let second = materialize_contracts(&root, dir).unwrap();
+        let second = materialize_contracts(&root, dir, false).unwrap();
         assert!(
             second.is_empty(),
             "materialize must be idempotent (absent-only)"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn materialize_force_refreshes_stale_seed() {
+        // M2: a stale local seed (an old derived copy) must be refreshed by force=true,
+        // while force=false stays absent-only and leaves an existing target untouched.
+        let root = std::env::temp_dir().join(format!("lmd_seeds_force_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+
+        // Seed once, then overwrite a target with stale content.
+        materialize_contracts(&root, dir, false).unwrap();
+        let stale = root.join(dir).join("plan-recipes.lmd.md");
+        std::fs::write(&stale, "# stale derived copy\n").unwrap();
+
+        // Absent-only refuses to refresh it.
+        let noop = materialize_contracts(&root, dir, false).unwrap();
+        assert!(noop.is_empty(), "force=false must stay absent-only");
+        assert_eq!(
+            std::fs::read_to_string(&stale).unwrap(),
+            "# stale derived copy\n",
+            "force=false must not clobber an existing target"
+        );
+
+        // force=true rewrites it back to the embedded seed content.
+        let refreshed = materialize_contracts(&root, dir, true).unwrap();
+        assert!(
+            refreshed.iter().any(|p| p.ends_with("plan-recipes.lmd.md")),
+            "force=true must (re)write plan-recipes"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&stale).unwrap(),
+            PLAN_RECIPES,
+            "force=true must refresh the stale seed to the embedded content"
         );
 
         let _ = std::fs::remove_dir_all(&root);
@@ -146,7 +187,7 @@ mod tests {
         let vars_dir = root.join(".lean-ctx/lean-md");
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&vars_dir).unwrap();
-        materialize_contracts(&root, ".lean-ctx/lean-md").unwrap();
+        materialize_contracts(&root, ".lean-ctx/lean-md", false).unwrap();
         // PLAN_RECIPES is not yet a PROJECT_SEEDS entry (that wiring lands in
         // Subplan-4-Task-2), so stage it directly at the resolver's target path
         // for this test — same target Task-2's PROJECT_SEEDS entry will use.
@@ -214,7 +255,7 @@ consumer: ai
         let root = std::env::temp_dir().join(format!("lmd_tmpl_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
-        materialize_contracts(&root, ".lean-ctx/lean-md").unwrap();
+        materialize_contracts(&root, ".lean-ctx/lean-md", false).unwrap();
         // plan-template's meta-head imports plan-recipes; same staging note as
         // plan_recipes_import above (PROJECT_SEEDS wiring lands in Task-2).
         std::fs::write(

@@ -102,8 +102,16 @@ fn target_dir(name: &str, scope: Scope, project_root: &Path) -> PathBuf {
 }
 
 /// Materialize a skill's `SKILL.md` into the chosen scope. Atomic-ish,
-/// idempotent (overwrites the stub — byte-stable content, #498).
-pub fn install_skill(name: &str, scope: Scope, project_root: &Path) -> std::io::Result<PathBuf> {
+/// idempotent (overwrites the stub — byte-stable content, #498). `force=true`
+/// additionally refreshes the project-level seeds even when they already exist
+/// (a stale derived seed after an embedded-seed edit); `force=false` keeps the
+/// seeds absent-only so user edits are never clobbered.
+pub fn install_skill(
+    name: &str,
+    scope: Scope,
+    project_root: &Path,
+    force: bool,
+) -> std::io::Result<PathBuf> {
     let body = skill_md(name).ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -135,9 +143,10 @@ pub fn install_skill(name: &str, scope: Scope, project_root: &Path) -> std::io::
         }
     }
     // Materialize the project-level seeds (plan-recipes/plan-template, lang/*,
-    // tooling/*, dispatch-contract.ext) into the project root — absent-only, so
-    // user edits are never overwritten (Spec §6).
-    crate::seeds::materialize_contracts(project_root, ".lean-ctx/lean-md")?;
+    // tooling/*, dispatch-contract.ext) into the project root — absent-only unless
+    // `force`, so user edits are never overwritten by a plain reinstall (Spec §6);
+    // `--force` refreshes a stale derived seed after an embedded-seed edit.
+    crate::seeds::materialize_contracts(project_root, ".lean-ctx/lean-md", force)?;
     Ok(target)
 }
 
@@ -169,7 +178,8 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         // A set CLAUDE_CONFIG_DIR must NOT affect the local target.
         unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", "/tmp/should-be-ignored") };
-        let target = install_skill("lmd-test-driven-development", Scope::Local, &root).unwrap();
+        let target =
+            install_skill("lmd-test-driven-development", Scope::Local, &root, false).unwrap();
         unsafe { std::env::remove_var("CLAUDE_CONFIG_DIR") };
         let expected = root.join(".claude/skills/lmd-test-driven-development/SKILL.md");
         assert_eq!(target, expected, "local target must be project-relative");
@@ -177,7 +187,7 @@ mod tests {
         let body = std::fs::read_to_string(&target).unwrap();
         assert!(body.contains("name: lmd-test-driven-development"));
         // Idempotent: second install is fine, file still present.
-        install_skill("lmd-test-driven-development", Scope::Local, &root).unwrap();
+        install_skill("lmd-test-driven-development", Scope::Local, &root, false).unwrap();
         assert!(target.exists());
         // Remove takes it away.
         remove_skill("lmd-test-driven-development", Scope::Local, &root).unwrap();
@@ -191,7 +201,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&pin);
         unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", pin.to_str().unwrap()) };
         let project = std::env::temp_dir().join("lmd_install_global_proj");
-        let target = install_skill("lmd-test-driven-development", Scope::Global, &project).unwrap();
+        let target = install_skill(
+            "lmd-test-driven-development",
+            Scope::Global,
+            &project,
+            false,
+        )
+        .unwrap();
         let expected = pin.join("skills/lmd-test-driven-development/SKILL.md");
         assert_eq!(
             target, expected,
@@ -205,7 +221,7 @@ mod tests {
     #[test]
     fn unknown_skill_install_errors() {
         let root = std::env::temp_dir();
-        let err = install_skill("nope", Scope::Local, &root).unwrap_err();
+        let err = install_skill("nope", Scope::Local, &root, false).unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
     }
 
@@ -215,7 +231,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
 
-        let skill_md = install_skill("lmd-brainstorm", Scope::Local, &root).unwrap();
+        let skill_md = install_skill("lmd-brainstorm", Scope::Local, &root, false).unwrap();
         let dir = skill_md.parent().unwrap();
         let scripts = dir.join("scripts");
 
@@ -246,7 +262,7 @@ mod tests {
         }
 
         // Idempotent: a second install keeps the assets present.
-        install_skill("lmd-brainstorm", Scope::Local, &root).unwrap();
+        install_skill("lmd-brainstorm", Scope::Local, &root, false).unwrap();
         assert!(scripts.join("server.cjs").exists());
 
         let _ = std::fs::remove_dir_all(&root);
@@ -271,7 +287,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
 
-        let skill_md = install_skill("lmd-writing-plans", Scope::Local, &root).unwrap();
+        let skill_md = install_skill("lmd-writing-plans", Scope::Local, &root, false).unwrap();
         assert!(skill_md.exists(), "SKILL.md must be written");
         let written = std::fs::read_to_string(&skill_md).unwrap();
         assert!(
@@ -284,7 +300,7 @@ mod tests {
         );
 
         // Idempotent.
-        install_skill("lmd-writing-plans", Scope::Local, &root).unwrap();
+        install_skill("lmd-writing-plans", Scope::Local, &root, false).unwrap();
         assert!(skill_md.exists());
 
         let _ = std::fs::remove_dir_all(&root);
@@ -296,7 +312,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
 
-        install_skill("lmd-writing-plans", Scope::Local, &root).unwrap();
+        install_skill("lmd-writing-plans", Scope::Local, &root, false).unwrap();
         let base = root.join(".lean-ctx/lean-md");
         assert!(
             base.join("plan-recipes.lmd.md").exists(),
@@ -309,7 +325,7 @@ mod tests {
 
         // User edit is preserved on a second install (absent-only).
         std::fs::write(base.join("plan-recipes.lmd.md"), "# user edit\n").unwrap();
-        install_skill("lmd-writing-plans", Scope::Local, &root).unwrap();
+        install_skill("lmd-writing-plans", Scope::Local, &root, false).unwrap();
         assert_eq!(
             std::fs::read_to_string(base.join("plan-recipes.lmd.md")).unwrap(),
             "# user edit\n",
@@ -320,11 +336,38 @@ mod tests {
     }
 
     #[test]
+    fn install_force_refreshes_stale_seed() {
+        // M2: `skill install --force` refreshes a stale local seed via install_skill(force=true),
+        // where a plain reinstall (absent-only) would leave it stale.
+        let root = std::env::temp_dir().join(format!("lmd_force_seed_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        install_skill("lmd-writing-plans", Scope::Local, &root, false).unwrap();
+        let seed = root.join(".lean-ctx/lean-md/plan-recipes.lmd.md");
+        std::fs::write(&seed, "# stale\n").unwrap();
+
+        // force=true rewrites the stale seed back to the embedded content.
+        install_skill("lmd-writing-plans", Scope::Local, &root, true).unwrap();
+        let refreshed = std::fs::read_to_string(&seed).unwrap();
+        assert_ne!(
+            refreshed, "# stale\n",
+            "force reinstall must refresh the stale seed"
+        );
+        assert!(
+            refreshed.contains("@define gate("),
+            "refreshed seed must carry the current embedded recipes"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn writing_skills_install_materializes_asset() {
         let root = std::env::temp_dir().join(format!("lmd_ws_asset_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
-        let skill_md = install_skill("lmd-writing-skills", Scope::Local, &root).unwrap();
+        let skill_md = install_skill("lmd-writing-skills", Scope::Local, &root, false).unwrap();
         let dir = skill_md.parent().unwrap();
         let asset = dir.join("render-graphs.js");
         assert!(
@@ -337,7 +380,7 @@ mod tests {
             "asset content must be the render script"
         );
         // Idempotent: second install keeps the asset present.
-        install_skill("lmd-writing-skills", Scope::Local, &root).unwrap();
+        install_skill("lmd-writing-skills", Scope::Local, &root, false).unwrap();
         assert!(asset.exists());
         let _ = std::fs::remove_dir_all(&root);
     }

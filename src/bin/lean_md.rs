@@ -310,13 +310,16 @@ fn cmd_skill(rest: &[String]) {
     } else {
         Scope::Local
     };
+    // --force / --refresh re-materialises the project seeds even if they already exist
+    // (refresh a stale derived seed after an embedded-seed edit); default is absent-only.
+    let force = rest.iter().any(|a| a == "--force" || a == "--refresh");
     let Some(name) = name else {
         eprintln!("lean-md skill: missing <name>");
         std::process::exit(1);
     };
     let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     match sub {
-        "install" => match install_skill(name, scope, &project_root) {
+        "install" => match install_skill(name, scope, &project_root, force) {
             Ok(target) => println!("installed {name} → {}", target.display()),
             Err(e) => {
                 eprintln!("lean-md skill install: {e}");
@@ -672,13 +675,24 @@ mod tests {
 
     #[test]
     fn do_render_runs_var_prepass_like_cli_whole_doc() {
-        // Follow-up B: the MCP whole-doc path must apply the @var pre-pass (@var default),
-        // exactly like the CLI whole-doc render — no CLI/MCP asymmetry on plain sources.
-        let src = "@lean-md\nconsumer: ai\n\n@var greeting default=\"hello\"\n{{ var greeting }}\n";
+        // Follow-up B (M3, strengthened): a FORWARD reference — {{ var }} used BEFORE its
+        // @var declaration — resolves ONLY if the @var pre-pass ran (render_source_with_phase
+        // scans every @var default up front). A plain default that sits AFTER its use would
+        // resolve either way, so it does not discriminate; the forward form does.
+        let src = "@lean-md\nconsumer: ai\n\n{{ var greeting }}\n@var greeting default=\"hello\"\n";
         let out = do_render(src, std::path::PathBuf::from("."), None, None);
         assert!(
             out.contains("hello"),
-            "MCP do_render must resolve the @var default via the pre-pass: {out}"
+            "do_render must run the @var pre-pass so a forward reference resolves: {out}"
+        );
+        // Discrimination guard: the pre-fix routing (render_with_overrides, no pre-pass)
+        // leaves the forward reference unresolved — this test genuinely fails against the
+        // old code path, so it is a discriminator, not a pass-regardless regression guard.
+        let without_prepass =
+            lean_md::engine::render_with_overrides(src, None, None, std::path::PathBuf::from("."));
+        assert!(
+            !without_prepass.contains("hello"),
+            "guard: without the pre-pass a forward reference must NOT resolve: {without_prepass}"
         );
     }
 }
