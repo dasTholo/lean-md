@@ -29,6 +29,11 @@
   `cargo run -q --bin lean-md -- render --skill <skill> --phase <phase> --consumer=ai`
   (companion instead of phase: `--companion <name>`). **No release build** —
   `cargo run` suffices (cached after the first compile).
+- **Reading `.lmd.md` raw source (Fall B — edit anchors):**
+  `cargo run -q --bin lean-md -- source <file>` — raw bytes, bypasses the
+  renderer. **Never** `ctx_read`/`raw`/`cat` for `.lmd.md` *source* (all render
+  it → `@import` NotFound, `@define`/`@phase` consumed). The normative rule lives
+  in the `hard-rules` seed; this is just the dev-repo CLI form.
 
 ## Subagent-Driven Execution
 

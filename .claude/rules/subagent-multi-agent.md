@@ -44,23 +44,19 @@ renderer**, capturing it **raw**:
     ctx_shell(command="cargo run -q --bin lean-md -- render <plan>.lmd.md --phase task-N --consumer=ai", raw=true)
 
 **`raw=true` is mandatory here — do not stack a second compressor.** lean-md's
-render is already the terse, byte-stable (#498) artifact; `--consumer=ai`/`crp`
-only *append* an `output_rules` suffix, they never rewrite code. Piping the CLI
-stdout through dense `ctx_shell` (default) re-compresses it and mangles the code an
-implementer must write **verbatim**: `String`→`str`, `Command`→`cmd`,
-`String::new()`→`str::new()`, dropped `#[test]`/braces. This is exactly the
-`AGENTS.md` "never `ctx_shell raw=true` unless compression is provably wrong"
-exception — for code-to-write it *is* provably wrong. (Once the native skill + a
-registered `ctx_md_render` exist, the render returns in-process as a tool result
-and this workaround retires — the `raw` flag is a CLI-path artifact, not a
-lean-md-concept requirement.)
+render is already the terse, byte-stable (#498) artifact; piping it through the
+dense `ctx_shell` default re-compresses and mangles the code an implementer must
+write verbatim. This is the `AGENTS.md` "never `ctx_shell raw=true` unless
+compression is provably wrong" exception — for code-to-write it *is* provably
+wrong.
 
-**Never `ctx_read` a plan `.lmd.md` — render it.** It's a rendered artifact, not a
-source file; the CLI phase render above is its only access path. A direct read is
-never the right tool: `mode=full`/`auto` *renders* it whole-doc (→ `@import`
-NotFound cascade, Bug 3 open, + lost `@phase` isolation), and `mode=raw` bypasses
-the phase machinery you actually want. Controller orientation = render each
-`--phase`; whole-doc overview returns once Bug 3 lands.
+**Never `ctx_read` a plan `.lmd.md` — render it.** It's a rendered artifact:
+`mode=full`/`auto` renders it whole-doc (→ `@import` NotFound cascade, lost
+`@phase` isolation), `mode=raw` still renders it (macros consumed). Controller
+orientation = render each `--phase`. To read the **raw source** of a `.lmd.md`
+you must EDIT (exact edit anchors, Fall B), use `lean-md source <file>` — the
+normative `.lmd.md`-access rule lives in the `hard-rules` seed (see it via any
+skill render); this file no longer restates it.
 
 > **Single source of truth for tool params/signatures:**
 > `docs/reference/appendix-mcp-tools.md` (liegt im lean-ctx-Repo; im lean-md-Repo
