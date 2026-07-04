@@ -82,3 +82,18 @@ Run: `@graph callers {{ symbol }}` — list callers to anchor a refactor.
 Run: cargo run -q --bin lean-md -- render --skill {{ skill }} --phase {{ phase }} --consumer=ai
 — Expected: non-empty, no eval err, byte-stable across two runs.
 @define-end
+
+@define snapshot(label)
+<!-- Shadow-git safety-net snapshot before/after implementer edits (ctx_checkpoint) -->
+Run: `@checkpoint action=snapshot label="{{ label }}"` — capture a restore point.
+@define-end
+
+@define compress()
+<!-- Session-context checkpoint at a phase boundary (ctx_compress, long conversations) -->
+Run: `@compress action=checkpoint` — checkpoint the controller conversation.
+@define-end
+
+@define task_return(report)
+<!-- Distil a task's category/key:value status into parent knowledge (ctx_agent return) -->
+@on complete=return="{{ report }}"
+@define-end
