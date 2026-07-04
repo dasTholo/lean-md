@@ -40,4 +40,24 @@ New code (shown verbatim because it does not exist yet):
 
 @call test(foo_adds_one)
 @call commit(src/foo.rs, feat: add foo)
+
+### Verify & Close (every task ends here — fixed order)
+
+@call verify("src/foo.rs")
+@call reformat_commit("src/foo.rs", "feat: add foo")
+@call remember_decision("foo is now the canonical helper fn")
+
+**Conditional slots (each guarded by an observable predicate, not "optional"):**
+
+- Task start — this task builds on a prior task's decision →
+  `@call recall_context("<what the earlier task remembered>")`. This is the
+  symmetric recall path: between isolation-rendered task phases (`render --phase
+  task-N`) no file carries context — `remember_decision` at the end of task N →
+  `recall_context` at the start of task N+1 is the only vehicle.
+- On a symbol change (rename/move/extract) → the task uses `@refactor` and anchors
+  the affected sites via `@call callers("<symbol>")`.
+- On a public-API change / more than one touched file → `@call review_change()` as a
+  post-change gate.
+- IDE-backend quality pass wanted → `@call inspect("src/foo.rs")` (with `@smells`
+  fallback).
 @phase-end

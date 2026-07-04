@@ -283,6 +283,32 @@ consumer: ai
     }
 
     #[test]
+    fn plan_template_has_verify_and_close_contract() {
+        // §6: every task ends with the fixed Verify & Close sequence; conditional
+        // slots hang on observable predicates (refactor / multi-file / prior-task).
+        assert!(
+            PLAN_TEMPLATE.contains("Verify & Close"),
+            "template must define the Verify & Close sequence"
+        );
+        for call in [
+            "@call verify(",
+            "@call reformat_commit(",
+            "@call remember_decision(",
+        ] {
+            assert!(
+                PLAN_TEMPLATE.contains(call),
+                "Verify & Close must include {call}"
+            );
+        }
+        assert!(
+            PLAN_TEMPLATE.contains("@call recall_context(")
+                && PLAN_TEMPLATE.contains("@call callers(")
+                && PLAN_TEMPLATE.contains("@call review_change("),
+            "template must offer the conditional slots (recall/callers/review_change)"
+        );
+    }
+
+    #[test]
     fn mcp_tools_is_a_usage_reference() {
         // §5a: tooling/mcp-tools is the directive USAGE reference for plan authors —
         // one line per woven directive: purpose · minimal form · when-to-use.
