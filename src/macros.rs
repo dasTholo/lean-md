@@ -101,9 +101,35 @@ pub fn parse_call_signature(raw: &str) -> Option<(String, Vec<String>)> {
     let args: Vec<String> = if inner.trim().is_empty() {
         Vec::new()
     } else {
-        inner.split(',').map(|s| s.trim().to_string()).collect()
+        split_call_args(inner)
     };
     Some((name, args))
+}
+
+/// Split call args on top-level commas — commas inside `"..."` are literal —
+/// then strip one surrounding layer of double quotes from each segment.
+/// Unquoted segments keep their legit top-level-comma separation (multi-arg
+/// recipes like `reformat_commit(paths, msg)`), so this never breaks the
+/// existing unquoted call form.
+fn split_call_args(inner: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut cur = String::new();
+    let mut in_quotes = false;
+    for ch in inner.chars() {
+        match ch {
+            '"' => {
+                in_quotes = !in_quotes;
+                cur.push(ch);
+            }
+            ',' if !in_quotes => {
+                args.push(cur.trim().trim_matches('"').to_string());
+                cur.clear();
+            }
+            _ => cur.push(ch),
+        }
+    }
+    args.push(cur.trim().trim_matches('"').to_string());
+    args
 }
 
 /// Substitute `{{ p }}` (flexible inner whitespace) for each `params[i]` with
@@ -660,5 +686,46 @@ Run: `{{ test_cmd }} {{ name }}`
             !idx.contains("Run: `"),
             "macro body must not appear in index"
         );
+    }
+
+    #[test]
+    fn call_args_split_is_quote_aware() {
+        // Comma inside "..." must NOT split the arg; surrounding quotes are stripped.
+        let (n, a) = parse_call_signature(r#"commit("src/foo.rs", "feat: add foo, bar")"#).unwrap();
+        assert_eq!(n, "commit");
+        assert_eq!(
+            a,
+            vec!["src/foo.rs".to_string(), "feat: add foo, bar".to_string()]
+        );
+    }
+
+    #[test]
+    fn call_args_strip_surrounding_quotes_no_leak() {
+        let (_, a) = parse_call_signature(r#"commit("a", "b")"#).unwrap();
+        assert_eq!(
+            a,
+            vec!["a".to_string(), "b".to_string()],
+            "quotes must be stripped, none leaked"
+        );
+    }
+
+    #[test]
+    fn call_args_unquoted_still_split_on_top_level_comma() {
+        // Regression: unquoted multi-arg recipes keep their legit comma separator.
+        let (_, a) = parse_call_signature("format(rust/src, --check)").unwrap();
+        assert_eq!(a, vec!["rust/src".to_string(), "--check".to_string()]);
+    }
+
+    #[test]
+    fn call_expands_quoted_comma_arg_without_quote_leak() {
+        // End-to-end: a quoted comma arg must survive the full render pipeline.
+        let out = crate::engine::render(
+            "@define note(a, b)\n[{{ a }}|{{ b }}]\n@define-end\n\n@call note(\"x\", \"y, z\") /\n",
+        );
+        assert!(
+            out.contains("[x|y, z]"),
+            "quoted comma arg must survive intact: {out}"
+        );
+        assert!(!out.contains('"'), "no quote leak: {out}");
     }
 }
