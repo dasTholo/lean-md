@@ -7,3 +7,19 @@
   time to find the spot a design or task anchors to; for structural (keyword/path)
   lookup use `@search` instead.
 - No external MCP backings (no serena, no JetBrains MCP) — ctx_refactor covers the surface.
+
+## Directive usage reference (for the plan author)
+
+- `@refactor <op> <symbol>` — LSP-safe symbol edits via ctx_refactor. Ops:
+  `rename` / `move` / `extract`. **Use** for symbol changes in Rust instead of
+  `@edit` (`@edit` for non-symbol edits only).
+- `@review diff-review` — fused review verdict (impact + caller + smells) on a diff.
+  **Use** as a post-change gate.
+- `@smells [scan|summary] <path>` — code-smell findings (ctx_smells). **Use** as a
+  quality gate on changed files.
+- `@graph <callers|callees|dependents> <symbol>` — call/dep graph
+  (ctx_callgraph / ctx_graph). **Use** for task decomposition & as a refactor anchor.
+- `@impact <symbol>` — blast radius before edits (ctx_impact). **Use** to justify a
+  task's invasiveness.
+- `@recall <query>` / `@remember <content>` — read/write durable knowledge
+  (ctx_knowledge). **Use** to seed spec decisions / save task gotchas.

@@ -281,4 +281,33 @@ consumer: ai
             }
         }
     }
+
+    #[test]
+    fn mcp_tools_is_a_usage_reference() {
+        // §5a: tooling/mcp-tools is the directive USAGE reference for plan authors —
+        // one line per woven directive: purpose · minimal form · when-to-use.
+        let seed = PROJECT_SEEDS
+            .iter()
+            .find(|(p, _)| *p == "tooling/mcp-tools.lmd.md")
+            .map(|(_, c)| *c)
+            .expect("mcp-tools seed must be registered");
+        for directive in [
+            "@refactor",
+            "@review",
+            "@smells",
+            "@graph",
+            "@impact",
+            "@recall",
+            "@remember",
+        ] {
+            assert!(
+                seed.contains(directive),
+                "mcp-tools usage reference must document {directive}"
+            );
+        }
+        assert!(
+            seed.contains("Use") || seed.contains("Nutze"),
+            "usage reference must carry when-to-use guidance"
+        );
+    }
 }
