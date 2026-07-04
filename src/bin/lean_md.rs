@@ -18,20 +18,16 @@ use serde_json::{Value, json};
 
 // ─── Shared helpers ────────────────────────────────────────────────────────
 
-/// Load source text from a file path.  Returns (source, jail_root).
-fn load_file(path: &str) -> (String, std::path::PathBuf) {
-    let source = match std::fs::read_to_string(path) {
+/// Load source text from a file path. (The parent-dir jail is dead since the Bug-3
+/// fix — both render/check paths jail on the cwd — so this returns text only.)
+fn load_file(path: &str) -> String {
+    match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("lean-md: read {path}: {e}");
             std::process::exit(1);
         }
-    };
-    let jail = std::path::Path::new(path).parent().map_or_else(
-        || std::path::PathBuf::from("."),
-        std::path::Path::to_path_buf,
-    );
-    (source, jail)
+    }
 }
 
 /// Core render logic for the MCP `ctx_md_render` whole-document handler.
@@ -177,7 +173,7 @@ fn cmd_render(rest: &[String]) {
         eprintln!("lean-md render: missing <file.lmd.md>");
         std::process::exit(1);
     };
-    let (source, _file_jail) = load_file(&file);
+    let source = load_file(&file);
     let rendered: String = if a.signatures {
         let jail = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         lean_md::render_signature_index(&source, jail)
@@ -218,7 +214,7 @@ fn cmd_check(rest: &[String]) {
         eprintln!("lean-md check: missing <file.lmd.md>");
         std::process::exit(1);
     };
-    let (source, _jail) = load_file(file);
+    let source = load_file(file);
     println!("{}", do_check(&source));
 }
 
