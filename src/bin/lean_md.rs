@@ -10,7 +10,6 @@
 //!   mcp              — stdio JSON-RPC 2.0 MCP server (line-delimited framing)
 
 use lean_md::crp_proto::CrpMode;
-use lean_md::engine::render_with_overrides;
 use lean_md::header::{Consumer, parse_header};
 use lean_md::skill_install::{Scope, install_skill, remove_skill};
 use lean_md::skill_vars::{InitOutcome, render_vars_template, scan_var_decls, write_vars_template};
@@ -35,14 +34,20 @@ fn load_file(path: &str) -> (String, std::path::PathBuf) {
     (source, jail)
 }
 
-/// Core render logic — shared by `cmd_render` and the MCP `ctx_md_render` handler.
+/// Core render logic for the MCP `ctx_md_render` whole-document handler.
+/// Routes through `render_source_with_phase(.., None, ..)` so the MCP surface runs the
+/// same `@var`/vars.toml pre-pass as the CLI whole-doc render — CLI and MCP stay
+/// byte-identical for plain (non-skill) `.lmd.md` sources (#498). (`cmd_render` no
+/// longer calls this after the Bug-3 fix; only the MCP handler does.)
 fn do_render(
     source: &str,
     jail: std::path::PathBuf,
     consumer: Option<Consumer>,
     crp: Option<CrpMode>,
 ) -> String {
-    render_with_overrides(source, consumer, crp, jail)
+    // phase=None can never be PhaseNotFound → the Result is always Ok.
+    lean_md::render_source_with_phase(source, None, consumer, crp, jail)
+        .unwrap_or_else(|e| format!("<!-- lmd render error: {e:?} -->"))
 }
 
 /// Core check logic — shared by `cmd_check` and the MCP `ctx_md_check` handler.
@@ -666,6 +671,18 @@ mod tests {
         assert!(
             schema.get("companion").is_some(),
             "ctx_md_render must expose a 'companion' param: {schema}"
+        );
+    }
+
+    #[test]
+    fn do_render_runs_var_prepass_like_cli_whole_doc() {
+        // Follow-up B: the MCP whole-doc path must apply the @var pre-pass (@var default),
+        // exactly like the CLI whole-doc render — no CLI/MCP asymmetry on plain sources.
+        let src = "@lean-md\nconsumer: ai\n\n@var greeting default=\"hello\"\n{{ var greeting }}\n";
+        let out = do_render(src, std::path::PathBuf::from("."), None, None);
+        assert!(
+            out.contains("hello"),
+            "MCP do_render must resolve the @var default via the pre-pass: {out}"
         );
     }
 }
