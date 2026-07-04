@@ -233,6 +233,33 @@ consumer: ai
     }
 
     #[test]
+    fn plan_recipes_carry_code_intel_macros() {
+        // §4/§4a: the macro library must expose the code-intel recipes so plans can
+        // @call them — presence is the enforced contract, not a suggestion.
+        let defined: std::collections::HashSet<String> = PLAN_RECIPES
+            .lines()
+            .filter_map(|l| l.trim_start().strip_prefix("@define "))
+            .filter_map(|s| s.split('(').next())
+            .map(|s| s.trim().to_string())
+            .collect();
+        for name in [
+            "verify",
+            "review_change",
+            "check_smells",
+            "inspect",
+            "reformat_commit",
+            "remember_decision",
+            "recall_context",
+            "callers",
+        ] {
+            assert!(
+                defined.contains(name),
+                "plan-recipes must define the {name} code-intel macro"
+            );
+        }
+    }
+
+    #[test]
     fn no_orphan_call() {
         // Every @call NAME(...) starting a line in plan-template hits a @define NAME(...)
         // in plan-recipes (static check; runtime already surfaces `macro not found`).
