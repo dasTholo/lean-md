@@ -1,8 +1,7 @@
 # Rust language pack (lmd)
 - Build/test via @query — never a raw shell loop:
   @query "cargo clippy --all-targets" # zero warnings is the bar
-- Symbol nav/refactor: @symbol / ctx_refactor
-- Reformat before commit: ctx_refactor action=reformat (rustfmt).
+- Symbol navigation (read/locate): @symbol — for symbol EDITS see the refactor rule below.
 
 ## Plan-content rule: symbol changes go through @refactor
 

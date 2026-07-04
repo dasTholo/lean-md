@@ -39,13 +39,12 @@ New code (shown verbatim because it does not exist yet):
     pub fn foo(x: u32) -> u32 { x + 1 }
 
 @call test(foo_adds_one)
-@call commit(src/foo.rs, feat: add foo)
 
 ### Verify & Close (every task ends here — fixed order)
 
-@call verify("src/foo.rs")
-@call reformat_commit("src/foo.rs", "feat: add foo")
-@call remember_decision("foo is now the canonical helper fn")
+@call verify(src/foo.rs)
+@call reformat_commit(src/foo.rs, feat: add foo)
+@call remember_decision(foo is now the canonical helper fn)
 
 **Conditional slots (each guarded by an observable predicate, not "optional"):**
 

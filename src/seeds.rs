@@ -59,6 +59,15 @@ pub fn materialize_contracts(
 mod tests {
     use super::*;
 
+    /// Macro names defined in a plan-recipes source (`@define NAME(...)`).
+    fn defined_macro_names(src: &str) -> std::collections::HashSet<String> {
+        src.lines()
+            .filter_map(|l| l.trim_start().strip_prefix("@define "))
+            .filter_map(|s| s.split('(').next())
+            .map(|s| s.trim().to_string())
+            .collect()
+    }
+
     #[test]
     fn seeds_are_non_empty_and_unique() {
         assert!(!PROJECT_SEEDS.is_empty());
@@ -236,12 +245,7 @@ consumer: ai
     fn plan_recipes_carry_code_intel_macros() {
         // §4/§4a: the macro library must expose the code-intel recipes so plans can
         // @call them — presence is the enforced contract, not a suggestion.
-        let defined: std::collections::HashSet<String> = PLAN_RECIPES
-            .lines()
-            .filter_map(|l| l.trim_start().strip_prefix("@define "))
-            .filter_map(|s| s.split('(').next())
-            .map(|s| s.trim().to_string())
-            .collect();
+        let defined = defined_macro_names(PLAN_RECIPES);
         for name in [
             "verify",
             "review_change",
@@ -263,12 +267,7 @@ consumer: ai
     fn no_orphan_call() {
         // Every @call NAME(...) starting a line in plan-template hits a @define NAME(...)
         // in plan-recipes (static check; runtime already surfaces `macro not found`).
-        let defined: std::collections::HashSet<String> = PLAN_RECIPES
-            .lines()
-            .filter_map(|l| l.trim_start().strip_prefix("@define "))
-            .filter_map(|s| s.split('(').next())
-            .map(|s| s.trim().to_string())
-            .collect();
+        let defined = defined_macro_names(PLAN_RECIPES);
         assert!(defined.contains("test") && defined.contains("commit") && defined.contains("tdd"));
 
         for line in PLAN_TEMPLATE.lines() {
