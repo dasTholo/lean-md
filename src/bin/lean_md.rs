@@ -123,11 +123,13 @@ fn main() {
         "check" => cmd_check(&args[1..]),
         "mcp" => cmd_mcp(),
         "skill" => cmd_skill(&args[1..]),
+        "source" => cmd_source(&args[1..]),
         _ => {
             eprintln!(
-                "Usage: lean-md <render|check|mcp|skill> [args]\n\
+                "Usage: lean-md <render|check|mcp|skill|source> [args]\n\
                  \n  render <file.lmd.md|--skill NAME [--phase P | --companion C]> [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md]\
                  \n  check  <file.lmd.md>\
+                 \n  source <file.lmd.md>  (raw file bytes, no rendering — for edit anchors)\
                  \n  mcp                   (stdio JSON-RPC 2.0 MCP server)\
                  \n  skill  <install|remove> <name> [--global|--local]\
                  \n  skill  vars --init [name]"
@@ -215,6 +217,18 @@ fn cmd_check(rest: &[String]) {
     };
     let (source, _jail) = load_file(file);
     println!("{}", do_check(&source));
+}
+
+fn cmd_source(rest: &[String]) {
+    // Raw source bytes — bypasses the renderer entirely (no @import/@define/
+    // @phase processing, no --consumer/--crp). Fall B: exact edit anchors for
+    // `.lmd.md` seeds. Pure function of file content → byte-stable (#498).
+    let Some(file) = rest.iter().find(|a| !a.starts_with('-')) else {
+        eprintln!("lean-md source: missing <file.lmd.md>");
+        std::process::exit(1);
+    };
+    let (source, _jail) = load_file(file);
+    print!("{source}");
 }
 
 // ─── mcp subcommand ────────────────────────────────────────────────────────
