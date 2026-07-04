@@ -79,6 +79,33 @@ pub const COVERAGE: &[(&str, &str, &str, &str)] = &[
         "dispatch",
         "fragment-compose",
     ),
+    (
+        "lmd-writing-plans",
+        "file-structure",
+        "graph",
+        "graph_index",
+    ),
+    (
+        "lmd-writing-plans",
+        "file-structure",
+        "impact",
+        "ctx_impact",
+    ),
+    (
+        "lmd-writing-plans",
+        "file-structure",
+        "find",
+        "ctx_semantic_search",
+    ),
+    ("lmd-writing-plans", "write-plan", "recall", "ctx_knowledge"),
+    ("lmd-writing-plans", "plan-format", "review", "ctx_review"),
+    ("lmd-writing-plans", "plan-format", "smells", "ctx_smells"),
+    (
+        "lmd-writing-plans",
+        "plan-format",
+        "reformat",
+        "ctx_refactor",
+    ),
 ];
 
 /// Tools deliberately outside the brainstorming directive surface. Note: TDD's
@@ -180,5 +207,15 @@ mod tests {
             "self-review must map to dispatch"
         );
         assert!(rows.iter().any(|r| r.1 == "pre-context"));
+
+        // §8: the new code-intel COVERAGE rows make the binding a test, not intent.
+        let has = |step: &str, dir: &str| rows.iter().any(|r| r.1 == step && r.2 == dir);
+        assert!(has("file-structure", "graph"), "file-structure → graph");
+        assert!(has("file-structure", "impact"), "file-structure → impact");
+        assert!(has("file-structure", "find"), "file-structure → find");
+        assert!(has("write-plan", "recall"), "write-plan → recall");
+        assert!(has("plan-format", "review"), "plan-format → review");
+        assert!(has("plan-format", "smells"), "plan-format → smells");
+        assert!(has("plan-format", "reformat"), "plan-format → reformat");
     }
 }
