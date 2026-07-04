@@ -1503,6 +1503,26 @@ Run: {{ var test_cmd }} demo
     }
 
     #[test]
+    fn writing_plans_teaches_crp_compact_and_no_repeat() {
+        // Terseness rework: plan-format teaches the crp: compact convention and the
+        // "avoid repeating ambient context" output rule; bite-sized routes the standard
+        // cycle through recipes.
+        assert!(
+            LMD_WRITING_PLANS_BODY.contains("crp: compact"),
+            "plan-format must name the crp: compact convention"
+        );
+        assert!(
+            LMD_WRITING_PLANS_BODY.contains("avoid repeating ambient context"),
+            "plan-format must teach output_rule #2 (no ambient repetition)"
+        );
+        assert!(
+            LMD_WRITING_PLANS_BODY.contains("@call gate")
+                && LMD_WRITING_PLANS_BODY.contains("@call tdd"),
+            "bite-sized must express the standard cycle as recipe @calls"
+        );
+    }
+
+    #[test]
     fn dispatch_plan_reviewer_composes() {
         // Rendering self-review executes the @dispatch: the composed output must carry
         // (a) the auto-prepended contract (hard-rules marker) and (b) the plan-reviewer

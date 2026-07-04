@@ -84,12 +84,17 @@ neighbor. Each task ends with an independently testable deliverable.
 
 ## Bite-Sized Task Granularity
 
-Each step is one action (2-5 minutes):
-- "Write the failing test" — step
-- "Run it to make sure it fails" — step
-- "Implement the minimal code to make the test pass" — step
-- "Run the tests and make sure they pass" — step
-- "Commit" — step
+Each step is one concrete action (2-5 minutes). The standard TDD → gate → commit
+cycle is boilerplate — express it as recipe `@call`s, not five spelled-out prose
+steps, so the plan stays terse and the executor still gets the full text on render:
+
+- `@call tdd(<case>)` — one red-to-green cycle (failing test, run red, implement,
+  run green).
+- `@call gate(<paths>)` — the pre-commit quality bar (reformat, lint, full test suite).
+- `@call commit(<paths>, "<message>")` — stage and commit.
+
+Spell out only what a recipe cannot carry: the actual test code, the new production
+code, the exact interfaces, and any task-specific "Expected:" checks.
 
 next: render phase "plan-format".
 @phase-end
@@ -121,6 +126,22 @@ requirements verbatim; every task implicitly includes it.
 - Interfaces / Consumes-Produces / commands / "Expected:" → verbatim, strict
   (No-Placeholders holds for intent and interfaces).
 - Verification → `@read mode=diff` instead of copy-paste inspection.
+
+**Terseness — the plan-template header carries `crp: compact`** (alongside
+`consumer: ai`), and every task obeys two output rules:
+
+- **output_rule #1 (no-loss):** new code verbatim; interfaces / commands / "Expected:"
+  verbatim; existing code anchored — never dropped.
+- **output_rule #2 (avoid repeating ambient context):** a plan never restates context
+  the executor already carries. Repo/build plumbing (`include_str!` seed sync, manifest
+  layout) appears at most ONCE as a Meta-head Architecture anchor, never per task;
+  toolset rationale the dispatch contract re-supplies (Iron-Law quotes, spec-§
+  cross-refs, determinism/#498 reminders) is omitted entirely. This rule touches ONLY
+  ambient context — Intent, Interfaces/Consumes-Produces, NEW code, Commands and
+  "Expected:" always stay verbatim.
+
+**Future constraint:** once `lmd-executing-plans` is ported it MUST prepend the same
+dispatch baseline — otherwise the omission leaks during inline execution.
 
 **Boilerplate** (TDD cycle, commit, test-run) → `@call <recipe>(...)`; it expands
 to full text at render time, so the executor loses nothing. To discover which
@@ -181,6 +202,9 @@ plan against it. This is a checklist you run yourself.
 3. **Type consistency:** Do the types, method signatures and property names in
    later tasks match what earlier tasks defined? A function called `clearLayers()`
    in Task 3 but `clearFullLayers()` in Task 7 is a bug.
+4. **Ambient-context scan:** ambient context (repo/build plumbing, toolset rationale)
+   appears once in the Meta-head, not repeated per task. Move any per-task restatement
+   up into the Meta-head Architecture / Global Constraints block.
 
 If you find issues, fix them inline. If you find a spec requirement with no task,
 add the task.
