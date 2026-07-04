@@ -310,4 +310,27 @@ consumer: ai
             "usage reference must carry when-to-use guidance"
         );
     }
+
+    #[test]
+    fn rust_lang_pack_pins_refactor_rule() {
+        // §7: Rust tasks with rename/move/extract must instruct @refactor
+        // (ctx_refactor) — no hand-edits; @edit only for non-symbol changes.
+        let seed = PROJECT_SEEDS
+            .iter()
+            .find(|(p, _)| *p == "lang/rust.lmd.md")
+            .map(|(_, c)| *c)
+            .expect("rust lang seed must be registered");
+        assert!(
+            seed.contains("@refactor"),
+            "rust pack must instruct @refactor"
+        );
+        assert!(
+            seed.contains("rename") && seed.contains("extract"),
+            "rust pack must name the refactor ops"
+        );
+        assert!(
+            seed.contains("@edit"),
+            "rust pack must scope @edit to non-symbol changes"
+        );
+    }
 }
