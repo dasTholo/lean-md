@@ -12,6 +12,8 @@ const WRITING_SKILLS_SKILL_MD: &str = include_str!("../content/skills/lmd-writin
 const WRITING_PLANS_SKILL_MD: &str = include_str!("../content/skills/lmd-writing-plans/SKILL.md");
 const SDD_SKILL_MD: &str =
     include_str!("../content/skills/lmd-subagent-driven-development/SKILL.md");
+const EXECUTING_PLANS_SKILL_MD: &str =
+    include_str!("../content/skills/lmd-executing-plans/SKILL.md");
 
 /// Installable lmd skills (name → embedded `SKILL.md` stub).
 pub const INSTALLABLE_SKILLS: &[(&str, &str)] = &[
@@ -20,6 +22,7 @@ pub const INSTALLABLE_SKILLS: &[(&str, &str)] = &[
     ("lmd-writing-skills", WRITING_SKILLS_SKILL_MD),
     ("lmd-writing-plans", WRITING_PLANS_SKILL_MD),
     ("lmd-subagent-driven-development", SDD_SKILL_MD),
+    ("lmd-executing-plans", EXECUTING_PLANS_SKILL_MD),
 ];
 
 const WRITING_SKILLS_RENDER_GRAPHS: &str =
@@ -346,6 +349,46 @@ mod tests {
             quoted || !value.contains(": "),
             "unquoted description scalar must not contain ': ' (YAML mapping indicator): {value}"
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn executing_plans_install_writes_skill_md() {
+        let root =
+            std::env::temp_dir().join(format!("lmd_execplans_install_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let skill_md = install_skill("lmd-executing-plans", Scope::Local, &root, false).unwrap();
+        assert!(skill_md.exists(), "SKILL.md must be written");
+        let written = std::fs::read_to_string(&skill_md).unwrap();
+        assert!(
+            written.contains("name: lmd-executing-plans"),
+            "stub frontmatter missing"
+        );
+        // Reference-closure: a native port must not name the upstream skill source.
+        assert!(
+            !written.contains("superpowers"),
+            "native port must not carry a 'superpowers' reference"
+        );
+        // Frontmatter-scalar guard: single-line, non-empty description; unquoted must be free
+        // of the ': ' YAML mapping indicator (else it silently parses as a nested map).
+        let desc_line = written
+            .lines()
+            .find(|l| l.starts_with("description:"))
+            .expect("description key missing");
+        let value = desc_line["description:".len()..].trim();
+        assert!(
+            !value.is_empty(),
+            "description must be a non-empty same-line scalar: {desc_line:?}"
+        );
+        let quoted = value.starts_with('"') || value.starts_with('\'');
+        assert!(
+            quoted || !value.contains(": "),
+            "unquoted description scalar must not contain ': ': {value}"
+        );
+        // Idempotent: a second install over the existing dir is a no-op success.
+        let again = install_skill("lmd-executing-plans", Scope::Local, &root, false).unwrap();
+        assert_eq!(again, skill_md, "install must be idempotent");
         let _ = std::fs::remove_dir_all(&root);
     }
 
