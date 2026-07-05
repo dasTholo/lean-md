@@ -122,22 +122,53 @@ fn strip_one_quote_layer(s: &str) -> String {
 /// Unquoted segments keep their legit top-level-comma separation (multi-arg
 /// recipes like `reformat_commit(paths, msg)`), so this never breaks the
 /// existing unquoted call form.
+///
+/// A segment is a *quoted field* when its first non-space char is `"`. Inside a
+/// quoted field the closing quote is the first `"` that is followed — ignoring
+/// spaces — by a top-level comma or end-of-input; any earlier `"` stays literal.
+/// This keeps inner double-quotes AND their surrounding commas intact instead of
+/// letting an inner quote flip comma-protection parity (which truncated the arg).
 fn split_call_args(inner: &str) -> Vec<String> {
+    let chars: Vec<char> = inner.chars().collect();
+    let n = chars.len();
     let mut args = Vec::new();
     let mut cur = String::new();
-    let mut in_quotes = false;
-    for ch in inner.chars() {
-        match ch {
-            '"' => {
-                in_quotes = !in_quotes;
+    let mut seg_started = false;
+    let mut quoted = false;
+    let mut i = 0;
+    while i < n {
+        let ch = chars[i];
+        if !seg_started {
+            if ch == ' ' {
                 cur.push(ch);
+                i += 1;
+                continue;
             }
-            ',' if !in_quotes => {
-                args.push(strip_one_quote_layer(&cur));
-                cur.clear();
-            }
-            _ => cur.push(ch),
+            seg_started = true;
+            quoted = ch == '"';
         }
+        if quoted && ch == '"' {
+            // Closing quote iff the next non-space char is a top-level comma or EOF.
+            let mut j = i + 1;
+            while j < n && chars[j] == ' ' {
+                j += 1;
+            }
+            if j >= n || chars[j] == ',' {
+                quoted = false;
+            }
+            cur.push(ch);
+            i += 1;
+            continue;
+        }
+        if ch == ',' && !quoted {
+            args.push(strip_one_quote_layer(&cur));
+            cur.clear();
+            seg_started = false;
+            i += 1;
+            continue;
+        }
+        cur.push(ch);
+        i += 1;
     }
     args.push(strip_one_quote_layer(&cur));
     args
@@ -764,6 +795,34 @@ Run: `{{ test_cmd }} {{ name }}`
             a,
             vec!["\"a\"".to_string(), "b".to_string()],
             "only one surrounding quote layer may be stripped"
+        );
+    }
+
+    #[test]
+    fn call_args_single_quoted_field_survives_inner_quotes_and_comma() {
+        // Regression: a single quoted arg whose content has inner double-quotes AND a
+        // comma must survive as ONE arg. The closing quote is the `"` before a top-level
+        // comma or EOF, so inner quotes stay literal instead of flipping comma-protection
+        // parity (pre-fix that split the arg and truncated everything after the comma).
+        let (n, a) =
+            parse_call_signature(r#"remember_decision("prints "[dry-run], fast" mode")"#).unwrap();
+        assert_eq!(n, "remember_decision");
+        assert_eq!(
+            a,
+            vec![r#"prints "[dry-run], fast" mode"#.to_string()],
+            "quoted field with inner quotes + comma must survive intact as one arg"
+        );
+    }
+
+    #[test]
+    fn call_args_odd_inner_quote_before_comma_does_not_truncate() {
+        // Regression: an unbalanced inner quote before a comma must NOT reopen the split.
+        let (_, a) =
+            parse_call_signature(r#"recall_context("the "fast path, is default")"#).unwrap();
+        assert_eq!(
+            a,
+            vec![r#"the "fast path, is default"#.to_string()],
+            "an odd inner quote must not let a following comma split the arg"
         );
     }
 }
