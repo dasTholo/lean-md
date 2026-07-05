@@ -235,8 +235,9 @@ After saving the plan, offer the execution choice:
 - **If Inline Execution:** use the lmd-executing-plans skill — batch execution with
   checkpoints.
 
-Pass the execution baton through the lean-ctx runtime only — **never** a
-report/brief file: `ctx_agent` (`action=handoff`) carries it to the executing agent.
+Record the execution handoff through the lean-ctx runtime only — **never** a
+report/brief file: `ctx_session` (`action=status`) captures the chosen execution
+mode and plan pointer for whoever picks the plan up.
 
 This is the terminal phase — there is no "next" render.
 @phase-end
