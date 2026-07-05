@@ -169,7 +169,13 @@ If the spec covers multiple independent subsystems, write one plan per subsystem
 each producing working, testable software on its own — plus a short index plan that
 states the decomposition, ordering and dependencies.
 
-Persist the key plan decisions as durable facts, then commit the plan document(s).
+Persist plan state through the lean-ctx runtime only — **never** a `scratchpad/…`,
+`/tmp/…` or git-ignored ledger file. Task progress and intermediate state ->
+`ctx_session` (`action=task|finding|decision|status`); durable decisions/facts/
+gotchas -> `ctx_knowledge` (`action=remember`); multi-agent coordination ->
+`ctx_agent`. Then commit the plan document(s). Writing plan/task state to a scratch
+file is a contract violation (see `CLAUDE.md` "No Brief-/Report-Files" and
+`subagent-multi-agent.md`).
 
 next: render phase "self-review".
 @phase-end
@@ -191,6 +197,10 @@ plan against it. This is a checklist you run yourself.
 
 If you find issues, fix them inline. If you find a spec requirement with no task,
 add the task.
+
+Persist any gaps/findings from this pass through the lean-ctx runtime only —
+**never** a scratch/ledger file: `ctx_session` (`action=finding`) for what this
+review surfaces.
 
 For an independent second pass, dispatch the plan-reviewer subagent (its brief is
 the reviewer companion; the dispatch contract is auto-prepended):
@@ -224,6 +234,9 @@ After saving the plan, offer the execution choice:
   subagent per task + two-stage review.
 - **If Inline Execution:** use the lmd-executing-plans skill — batch execution with
   checkpoints.
+
+Pass the execution baton through the lean-ctx runtime only — **never** a
+report/brief file: `ctx_agent` (`action=handoff`) carries it to the executing agent.
 
 This is the terminal phase — there is no "next" render.
 @phase-end
