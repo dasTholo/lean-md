@@ -434,27 +434,24 @@ fn is_on_complete(trimmed: &str) -> bool {
     false
 }
 
-/// Pre-pass (Spec D-4): captures every `@phase "name" … @phase-end` block RAW in
-/// `ctx.phase_bodies` so that `@dispatch phase="name"` can look it up by name.
-/// Render-FREE and lifecycle-FREE (no `session_decision`, no
-/// `@on complete` firing) — the Work-Bridges stay verbatim (D-3). Flat v1
-/// phases: not nested; a second `@phase` before `@phase-end` does not
-/// close implicitly — defensively only the first complete block per name is captured.
-pub(crate) fn capture_phase_bodies(ctx: &Rc<EngineContext>, body: &str) {
+/// Ordered scan of every `@phase "name" … @phase-end` block → `(name, raw_body)`.
+/// Single source of the phase-boundary semantics (flat v1: not nested; the first
+/// complete block per name wins). Both `capture_phase_bodies` and `outline_phases`
+/// consume this — no second parser. Byte-stable (#498).
+pub(crate) fn iter_phase_blocks(source: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
     let mut open: Option<(String, Vec<&str>)> = None;
-    for line in body.lines() {
+    for line in source.lines() {
         let trimmed = line.trim_start();
         if trimmed.starts_with("@phase-end") {
-            if let Some((name, lines)) = open.take() {
-                ctx.phase_bodies
-                    .borrow_mut()
-                    .entry(name)
-                    .or_insert_with(|| lines.join("\n"));
+            if let Some((name, lines)) = open.take()
+                && !out.iter().any(|(n, _)| *n == name)
+            {
+                out.push((name, lines.join("\n")));
             }
             continue;
         }
         if let Some(rest) = trimmed.strip_prefix("@phase") {
-            // `@phase-end` is handled above; here only real openers.
             if open.is_none() {
                 open = Some((parse_phase_name(rest), Vec::new()));
             }
@@ -463,6 +460,58 @@ pub(crate) fn capture_phase_bodies(ctx: &Rc<EngineContext>, body: &str) {
         if let Some((_, lines)) = open.as_mut() {
             lines.push(line);
         }
+    }
+    out
+}
+
+/// A phase's identity for a preflight overview: its name + a human title.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PhaseOutline {
+    pub name: String,
+    pub title: String,
+}
+
+/// Import-independent phase index: name + title, no body render, no `@import`.
+/// Title = first `#`/`##` heading in the body (hashes/spaces stripped); else the
+/// first non-empty non-directive line; else empty. Byte-stable (#498).
+pub fn outline_phases(source: &str) -> Vec<PhaseOutline> {
+    iter_phase_blocks(source)
+        .into_iter()
+        .map(|(name, body)| {
+            let title = phase_title(&body);
+            PhaseOutline { name, title }
+        })
+        .collect()
+}
+
+/// Derive a display title from a raw phase body (see `outline_phases`).
+fn phase_title(body: &str) -> String {
+    // First markdown heading wins.
+    for line in body.lines() {
+        let t = line.trim_start();
+        if let Some(h) = t.strip_prefix('#') {
+            return h.trim_start_matches('#').trim().to_string();
+        }
+    }
+    // Fallback: first non-empty, non-directive line.
+    for line in body.lines() {
+        let t = line.trim();
+        if !t.is_empty() && !t.starts_with('@') {
+            return t.to_string();
+        }
+    }
+    String::new()
+}
+
+/// Pre-pass (Spec D-4): captures every `@phase "name" … @phase-end` block RAW in
+/// `ctx.phase_bodies` so that `@dispatch phase="name"` can look it up by name.
+/// Render-FREE and lifecycle-FREE (no `session_decision`, no
+/// `@on complete` firing) — the Work-Bridges stay verbatim (D-3). Flat v1
+/// phases: not nested; a second `@phase` before `@phase-end` does not
+/// close implicitly — defensively only the first complete block per name is captured.
+pub(crate) fn capture_phase_bodies(ctx: &Rc<EngineContext>, body: &str) {
+    for (name, raw) in iter_phase_blocks(body) {
+        ctx.phase_bodies.borrow_mut().entry(name).or_insert(raw);
     }
 }
 
@@ -928,5 +977,50 @@ trailing prose
             !out.contains("## Phase: A3-parser"),
             "ai: no heading: {out}"
         );
+    }
+
+    #[test]
+    fn iter_phase_blocks_orders_phases() {
+        let src = "@phase \"task-1\"\nA body\n@phase-end\n@phase \"task-2\"\nB body\n@phase-end\n";
+        let blocks = super::iter_phase_blocks(src);
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].0, "task-1");
+        assert_eq!(blocks[1].0, "task-2");
+        assert!(blocks[0].1.contains("A body"));
+        assert!(blocks[1].1.contains("B body"));
+    }
+
+    #[test]
+    fn outline_derives_title_from_first_heading() {
+        let src = "@phase \"task-1\"\n## Task 1 — bug split\nprose\n@phase-end\n";
+        let o = super::outline_phases(src);
+        assert_eq!(o.len(), 1);
+        assert_eq!(o[0].name, "task-1");
+        assert_eq!(o[0].title, "Task 1 — bug split");
+    }
+
+    #[test]
+    fn outline_title_falls_back_when_no_heading() {
+        // No heading → first non-empty, non-directive line; else empty.
+        let src = "@phase \"task-1\"\n@read a.rs\nfirst prose line\n@phase-end\n@phase \"task-2\"\n@phase-end\n";
+        let o = super::outline_phases(src);
+        assert_eq!(o[0].title, "first prose line");
+        assert_eq!(o[1].title, "");
+    }
+
+    #[test]
+    fn outline_is_import_independent() {
+        // A source whose @import target is missing still lists every phase — the
+        // outline scans @phase markers only, never entering the render/import path.
+        let src = "@import .lean-ctx/lean-md/nope /\n@phase \"task-1\"\n## T1\n@phase-end\n";
+        let o = super::outline_phases(src);
+        assert_eq!(o.len(), 1);
+        assert_eq!(o[0].name, "task-1");
+    }
+
+    #[test]
+    fn outline_is_byte_stable() {
+        let src = "@phase \"task-1\"\n## T1\n@phase-end\n@phase \"task-2\"\n## T2\n@phase-end\n";
+        assert_eq!(super::outline_phases(src), super::outline_phases(src));
     }
 }
