@@ -71,10 +71,15 @@ impl PhaseScope {
 /// named pair's key is the sink; its value is the payload; remaining pairs are
 /// attrs (e.g. `category=`, `key=`, `confidence=`).
 ///
-/// Valueless sinks (`capture=auto`, `checkpoint`) are detected first — they
-/// carry their payload inline as `key=value` tokens rather than quoted strings,
-/// so the generic pair-parser would split them incorrectly.
+/// Valueless sinks (`capture=auto`, `checkpoint`/`compress`/`sync`) are detected
+/// first — they carry their payload inline as `key=value` tokens (or no value at
+/// all) rather than quoted strings, so the generic pair-parser would split them
+/// incorrectly.
 fn parse_on_complete(rest: &str) -> Option<OnComplete> {
+    // `@on complete=X` (attached, no space before the sink) is equivalent to the
+    // space form `@on complete X` — normalize by stripping a leading `=` so both
+    // forms tokenize identically downstream.
+    let rest = rest.strip_prefix('=').unwrap_or(rest).trim_start();
     let head = rest.split_whitespace().next().unwrap_or("");
     if head == "capture=auto" {
         return Some(OnComplete {
@@ -83,9 +88,10 @@ fn parse_on_complete(rest: &str) -> Option<OnComplete> {
             attrs: vec![],
         });
     }
-    if head == "checkpoint" {
+    // Bare (valueless) sinks that carry no `key=value` pair.
+    if matches!(head, "checkpoint" | "compress" | "sync") {
         return Some(OnComplete {
-            sink: "checkpoint".into(),
+            sink: head.to_string(),
             value: String::new(),
             attrs: vec![],
         });
@@ -127,8 +133,17 @@ fn fire_action(ctx: &Rc<EngineContext>, scope: &PhaseScope, action: &OnComplete)
                 ctx, category, &key, &value, confidence,
             );
         }
-        "post" => fire_agent(ctx, "post", &value, attr(&action.attrs, "category")),
-        "diary" => fire_agent(ctx, "diary", &value, attr(&action.attrs, "category")),
+        "post" => fire_agent(ctx, "post", &value, attr(&action.attrs, "category"), None),
+        "diary" => fire_agent(ctx, "diary", &value, attr(&action.attrs, "category"), None),
+        "return" => fire_agent(ctx, "return", &value, attr(&action.attrs, "category"), None),
+        "handoff" => fire_agent(
+            ctx,
+            "handoff",
+            &value,
+            None,
+            attr(&action.attrs, "to_agent"),
+        ),
+        "sync" => fire_agent(ctx, "sync", "", None, None),
         "capture" => {
             // value == "auto": scan body tool outputs → session findings via the
             // outbound `ctx_session` finding sink. Determinism #498: no output
@@ -160,9 +175,9 @@ fn fire_action(ctx: &Rc<EngineContext>, scope: &PhaseScope, action: &OnComplete)
                 }
             }
         }
-        "checkpoint" => {
-            // Outbound checkpoint: ask the backend to compress the live session.
-            // Headless → BACKEND_REQUIRED envelope, discarded (#498: no body output).
+        "compress" | "checkpoint" => {
+            // Canonical `compress`; deprecated alias `checkpoint`. Both compact the live
+            // session via ctx_compress. Headless → discarded BACKEND_REQUIRED (#498).
             let _ = ctx.backend.call(
                 "ctx_compress",
                 serde_json::json!({ "action": "checkpoint" }),
@@ -175,12 +190,21 @@ fn fire_action(ctx: &Rc<EngineContext>, scope: &PhaseScope, action: &OnComplete)
 /// Team-bus / diary sink → outbound `ctx_agent`. Degrades to a discarded
 /// BACKEND_REQUIRED envelope when no backend/agent is reachable (§4.4); the
 /// server enforces agent registration. Determinism #498: output not rendered.
-fn fire_agent(ctx: &Rc<EngineContext>, action: &str, message: &str, category: Option<&str>) {
+fn fire_agent(
+    ctx: &Rc<EngineContext>,
+    action: &str,
+    message: &str,
+    category: Option<&str>,
+    to_agent: Option<&str>,
+) {
     let mut payload = serde_json::Map::new();
     payload.insert("action".into(), action.into());
     payload.insert("message".into(), message.into());
     if let Some(category) = category {
         payload.insert("category".into(), category.into());
+    }
+    if let Some(to_agent) = to_agent {
+        payload.insert("to_agent".into(), to_agent.into());
     }
     let _ = ctx
         .backend
@@ -522,6 +546,8 @@ mod tests {
 
     use crate::engine::{EngineContext, render};
     use crate::header::LeanMdHeader;
+
+    use super::render_with_phases;
 
     #[test]
     fn capture_phase_bodies_extracts_raw_body_without_lifecycle() {
@@ -1022,5 +1048,71 @@ trailing prose
     fn outline_is_byte_stable() {
         let src = "@phase \"task-1\"\n## T1\n@phase-end\n@phase \"task-2\"\n## T2\n@phase-end\n";
         assert_eq!(super::outline_phases(src), super::outline_phases(src));
+    }
+
+    #[test]
+    fn oncomplete_compress_sink_fires_ctx_compress() {
+        let (ctx, calls) = recording_ctx(std::env::temp_dir());
+        let doc = "@phase \"P\"\nbody\n@on complete=compress\n@phase-end\n";
+        let _ = render_with_phases(&ctx, doc);
+        let c = calls.borrow();
+        assert!(
+            find_call(&c, "ctx_compress", "checkpoint").is_some(),
+            "compress sink must fire ctx_compress action=checkpoint: {c:?}"
+        );
+    }
+
+    #[test]
+    fn oncomplete_checkpoint_alias_still_fires() {
+        let (ctx, calls) = recording_ctx(std::env::temp_dir());
+        let doc = "@phase \"P\"\nbody\n@on complete=checkpoint\n@phase-end\n";
+        let _ = render_with_phases(&ctx, doc);
+        let c = calls.borrow();
+        assert!(
+            find_call(&c, "ctx_compress", "checkpoint").is_some(),
+            "deprecated checkpoint alias must still fire ctx_compress: {c:?}"
+        );
+    }
+
+    #[test]
+    fn oncomplete_return_sink_fires_ctx_agent_return() {
+        let (ctx, calls) = recording_ctx(std::env::temp_dir());
+        let doc = "@phase \"P\"\nbody\n@on complete=return=\"status: DONE\"\n@phase-end\n";
+        let _ = render_with_phases(&ctx, doc);
+        let c = calls.borrow();
+        let call = find_call(&c, "ctx_agent", "return").expect("return sink must fire ctx_agent");
+        assert_eq!(call["message"], "status: DONE");
+    }
+
+    #[test]
+    fn oncomplete_handoff_sink_passes_to_agent() {
+        let (ctx, calls) = recording_ctx(std::env::temp_dir());
+        let doc = "@phase \"P\"\nbody\n@on complete=handoff=\"baton text\" to_agent=\"ctrl-1\"\n@phase-end\n";
+        let _ = render_with_phases(&ctx, doc);
+        let c = calls.borrow();
+        let call = find_call(&c, "ctx_agent", "handoff").expect("handoff sink must fire ctx_agent");
+        assert_eq!(call["message"], "baton text");
+        assert_eq!(call["to_agent"], "ctrl-1");
+    }
+
+    #[test]
+    fn oncomplete_sync_sink_fires() {
+        let (ctx, calls) = recording_ctx(std::env::temp_dir());
+        let doc = "@phase \"P\"\nbody\n@on complete=sync\n@phase-end\n";
+        let _ = render_with_phases(&ctx, doc);
+        let c = calls.borrow();
+        assert!(
+            find_call(&c, "ctx_agent", "sync").is_some(),
+            "sync sink must fire: {c:?}"
+        );
+    }
+
+    #[test]
+    fn post_diary_sinks_unchanged() {
+        // Regression: the existing post/diary sinks keep firing ctx_agent.
+        let (ctx, calls) = recording_ctx(std::env::temp_dir());
+        let doc = "@phase \"P\"\nbody\n@on complete=post=\"hi\" category=status\n@phase-end\n";
+        let _ = render_with_phases(&ctx, doc);
+        assert!(find_call(&calls.borrow(), "ctx_agent", "post").is_some());
     }
 }
