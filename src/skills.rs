@@ -58,6 +58,8 @@ const LMD_SDD_TASK_REVIEWER: &str = include_str!(
 const LMD_SDD_CODE_REVIEWER: &str = include_str!(
     "../content/skills/lmd-subagent-driven-development/companions/code-reviewer.lmd.md"
 );
+const LMD_EXECUTING_PLANS_BODY: &str =
+    include_str!("../content/skills/lmd-executing-plans/body.lmd.md");
 
 /// Registry of embedded lmd skill bodies (name → binary-embedded body source).
 /// Replaces the hardcoded `match` so new skills are a one-line table entry
@@ -71,6 +73,7 @@ const SKILLS: &[(&str, &str)] = &[
     ("lmd-writing-skills", LMD_WRITING_SKILLS_BODY),
     ("lmd-writing-plans", LMD_WRITING_PLANS_BODY),
     ("lmd-subagent-driven-development", LMD_SDD_BODY),
+    ("lmd-executing-plans", LMD_EXECUTING_PLANS_BODY),
 ];
 
 /// Embedded body source for a known lmd skill, or `None` if unknown.
@@ -475,6 +478,78 @@ mod tests {
             assert!(
                 !out.contains(foreign),
                 "phase {phase} leaked foreign content '{foreign}': {out}"
+            );
+        }
+    }
+
+    #[test]
+    fn executing_plans_all_phases_render_nonempty() {
+        let jail = std::path::PathBuf::from(".");
+        for p in [
+            "orient",
+            "preflight",
+            "execute",
+            "checkpoint",
+            "final-gate",
+            "finish",
+        ] {
+            let out = render_skill("lmd-executing-plans", Some(p), None, None, jail.clone())
+                .unwrap_or_else(|_| panic!("phase {p} failed to render"));
+            assert!(!out.trim().is_empty(), "phase {p} must render non-empty");
+        }
+        assert!(
+            skill_body("lmd-executing-plans").is_some(),
+            "lmd-executing-plans must be in the SKILLS registry"
+        );
+        // Reference-closure (Global Constraint): the body is a native port — it must not
+        // carry the upstream `superpowers` token. This is the body's half of the test gate
+        // (SKILL.md's half is asserted in Task 2's install test).
+        assert!(
+            !skill_body("lmd-executing-plans")
+                .unwrap()
+                .to_lowercase()
+                .contains("superpowers"),
+            "body seed must be reference-closed (no superpowers token)"
+        );
+    }
+
+    #[test]
+    fn executing_plans_orient_carries_hard_rules_baseline() {
+        // orient @include hard-rules → the ambient baseline must be present inline,
+        // and it must render clean (no unfilled dispatch-contract {{ }} eval errors).
+        let out = render_skill(
+            "lmd-executing-plans",
+            Some("orient"),
+            None,
+            None,
+            std::path::PathBuf::from("."),
+        )
+        .unwrap();
+        assert!(
+            out.contains("Hard Rules (lmd built-in)"),
+            "orient must inline the ambient baseline via @include hard-rules: {out}"
+        );
+        assert!(
+            !out.contains("eval err:"),
+            "orient must render clean — no unfilled template-var eval errors: {out}"
+        );
+    }
+
+    #[test]
+    fn executing_plans_phase_isolation_no_cross_leak() {
+        let jail = std::path::PathBuf::from(".");
+        // (phase, own marker, foreign marker that must NOT appear)
+        for (phase, own, foreign) in [
+            ("execute", "per-task loop", "whole-branch review"),
+            ("final-gate", "whole-branch review", "per-task loop"),
+            ("finish", "branch completion", "per-task loop"),
+        ] {
+            let out =
+                render_skill("lmd-executing-plans", Some(phase), None, None, jail.clone()).unwrap();
+            assert!(out.contains(own), "phase {phase} missing own marker: {out}");
+            assert!(
+                !out.contains(foreign),
+                "cross-phase leak in {phase}: found foreign marker {foreign}"
             );
         }
     }
