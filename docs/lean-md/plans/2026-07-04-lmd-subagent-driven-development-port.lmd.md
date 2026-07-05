@@ -1,4 +1,4 @@
-@lean-md 0.4
+@lean-md
 consumer: ai
 crp: compact
 
@@ -86,29 +86,20 @@ neue `outline_phases`; das CLI-Flag `--list-phases` ist nur ein Konsument der Li
 
 ## Global Constraints
 
-- **Tests**: immer `cargo nextest run`, nie `cargo test`.
-- **Shell**: kein `&&`/`||`/`;`-Chaining — jeder Befehl ist eine eigene Invocation.
-- **Pre-commit** (pro geänderter Datei): rustfmt (via `@reformat`/`cargo fmt`), dann `git add`.
 - **#498 Byte-Stabilität**: alle Tool-/Render-Outputs sind deterministische Funktionen von
-  (Content, Mode, CRP, Task) — keine Timestamps/Counter. Bestehende Tests bleiben grün.
-- **Sprache**: gewobener Seed-Content (Body/Companions) + Rust-Code/-Kommentare = **Englisch**;
-  Plan-/Task-Prosa = Deutsch.
-- **Render dieses Plans**: pro Task via `lean-md render <plan>.lmd.md --phase task-N`.
-- **Prerequisites (extern, NICHT in diesem Plan)**:
-  - **Bug-1-Fix** (quote/komma-bewusster `@call`-Argument-Split, `src/macros.rs`) muss vor
-    **Task 5** landen — `task_return(...)` ist ein quoted Ein-Arg-Recipe mit Binnen-Kommas/
-    Semikolons. Geliefert von
-    `docs/lean-md/plans/2026-07-04-lmd-renderer-prereq-bug1-bug3.lmd.md` (Task 1).
-  - **`crp: compact`** im `plan-template` (Terseness-Deliverable) ist bereits im Template
-    verankert; **Task 6**s `dispatch_threads_crp_compact_into_contract` verifiziert nur die
-    bestehende crp-Threading-Mechanik für den `compact`-Wert (kein Engine-Change nötig).
-- **Task-abhängigkeiten**: T2→T1; T5→T3,T4 (+Bug-1 extern); T6→T2,T3,T4,T5. T1/T3/T4 sind
-  landing-unabhängig.
+  (Content, Mode, CRP, Task) — keine Timestamps/Counter; das Fragment-Konsistenz-Gate
+  (built-in `include_str!` == on-disk Seed) bleibt grün.
 - **Seed-Verdrahtung statt -Erstellung**: die 5 Seed-Dateien unter
   `content/skills/lmd-subagent-driven-development/` und die 3 Recipes in `plan-recipes.lmd.md`
   sind bereits materialisiert (s. Architecture). Tasks 5/6 registrieren/verifizieren sie —
-  sie tippen keinen Seed-Content ab. Der Brief nennt den Zielpfad; bei Bedarf raw via
-  `lean-md source`.
+  sie tippen keinen Seed-Content ab. Non-Goal: kein Engine-/Renderer-Verhaltenswechsel außerhalb
+  der in Tasks 1–4 benannten Interfaces.
+- **Seed-Content-Sprache**: gewobener Seed (Body/Companions) + Rust-Code/-Kommentare = Englisch
+  (Reviewer-prüfbare Deliverable-Eigenschaft).
+- **Prerequisites**: Bug-1 (quote/komma-bewusster `@call`-Arg-Split, `src/macros.rs`) ist gelandet
+  (`1539cd4`) → Task 5 `task_return` erfüllbar. **Bug-3** (Whole-Doc-Render löst `@import` wie
+  `--phase` auf) hat noch keinen Commit → Task 5s Whole-Doc-`@import`-Testpfad verifizieren, bevor
+  Task 5 grün gilt. Beide aus `2026-07-04-lmd-renderer-prereq-bug1-bug3.lmd.md`.
 
 @phase "task-1"
 
@@ -127,6 +118,16 @@ neue `outline_phases`; das CLI-Flag `--list-phases` ist nur ein Konsument der Li
 erster kompletter Block pro Name). `iter_phase_blocks` extrahiert genau diese Scan-Schleife als
 **geordnete** `(name, body)`-Liste; `capture_phase_bodies` wird zum dünnen Konsumenten (eine
 Quelle der Grenz-Semantik, kein zweiter Parser).
+
+Blast-Radius vor dem Umbau messen — die Caller-Menge begrenzt den (internen) Refactor:
+
+@graph callers capture_phase_bodies
+
+Erwartung: 3 Prod-Caller (`render_body` in `engine.rs`, `render_skill` + `render_source_with_phase`
+in `skills.rs`), alle über die **unveränderte** `(ctx, body)`-Signatur → kein Caller-Edit nötig;
+nur der Schleifen-Body zieht auf `iter_phase_blocks` um. (Meldet der Live-Graph leer, ist der
+Callgraph-Index kalt bzw. auflösungsblind für cross-module `crate::`/`super::`-Aufrufe → mit
+`@search action=symbol capture_phase_bodies` gegenprüfen.)
 
 ### 1. RED — failing tests
 
@@ -637,6 +638,14 @@ Run: `cargo nextest run` — Expected: alle Tests PASS (GREEN), inkl. der neuen 
 (`src/phases.rs:111`), `@symbol fire_agent` (`src/phases.rs:178`). Beachte: `parse_on_complete`
 hat heute einen Bare-Token-Sonderfall für `checkpoint` (L86-92), weil valuelose Tokens keine
 `named_pairs` bilden — `compress`/`sync` brauchen dieselbe Behandlung.
+
+Signatur-Blast-Radius — `fire_agent` bekommt einen 4. Param `to_agent`:
+
+@graph callers fire_agent
+
+Erwartung: die `post`/`diary`-Arme in `fire_action` (L130-131) sind die einzigen Caller → beide
+Arme müssen den 4. Param (`None`) mitführen; die neuen Arme (`return`/`handoff`/`sync`) kommen
+daneben.
 
 ### 1. RED — failing tests
 
