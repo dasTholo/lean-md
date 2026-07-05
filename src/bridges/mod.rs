@@ -5,6 +5,8 @@
 pub mod addressing;
 pub mod architecture;
 pub mod call;
+pub mod checkpoint;
+pub mod compress;
 pub mod count;
 pub mod date;
 pub mod dispatch;
@@ -119,6 +121,8 @@ pub fn default_registry() -> BridgeRegistry {
     let mut reg = BridgeRegistry::new();
     reg.register(Box::new(architecture::ArchitectureBridge));
     reg.register(Box::new(call::CallBridge));
+    reg.register(Box::new(checkpoint::CheckpointBridge));
+    reg.register(Box::new(compress::CompressBridge));
     reg.register(Box::new(count::CountBridge));
     reg.register(Box::new(date::DateBridge));
     reg.register(Box::new(dispatch::DispatchBridge));
@@ -159,6 +163,13 @@ mod tests {
         assert!(reg.get("read").is_some());
         assert!(reg.get("nope").is_none());
     }
+    #[test]
+    fn checkpoint_and_compress_bridges_registered() {
+        let reg = default_registry();
+        assert!(reg.get("checkpoint").is_some(), "checkpoint bridge missing");
+        assert!(reg.get("compress").is_some(), "compress bridge missing");
+    }
+
     #[test]
     fn default_registry_has_all_core_bridges() {
         let reg = default_registry();

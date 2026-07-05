@@ -30,3 +30,5 @@
 | count            | Count: `{raw}`                         |
 | refactor         | Refactor: `{raw}`                      |
 | reformat         | Format code: `{0}`                     |
+| checkpoint       | Checkpoint (shadow-git) `{raw}`        |
+| compress         | Compress session `{raw}`               |
