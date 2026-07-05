@@ -112,8 +112,21 @@ shape from `.lean-ctx/lean-md/plan-template.lmd.md` and the macro library from
 **Meta-head (body-top, outside the phases):** Goal / Architecture / Global
 Constraints — once, `@include`-referenceable — plus `@var` declarations (e.g.
 `test_cmd`) and `@import .lean-ctx/lean-md/plan-recipes /` for the macro
-vocabulary. The Global Constraints block carries the spec's project-wide
-requirements verbatim; every task implicitly includes it.
+vocabulary.
+
+**Global Constraints — spec-derived invariants only.** This block is a
+Controller/Reviewer artifact, NOT implementer context: a `--phase task-N` render
+delivers only the task block, never the meta-head prose, so a task inherits the
+block only when it explicitly `@include`s it. The controller authors it and hands
+it to the reviewer verbatim during review — it is the lens the reviewer holds over
+the whole diff. Write ONLY invariants the review must enforce: project-wide
+non-goals, determinism/#498 requirements as a test gate, cross-task prerequisites,
+and task dependencies. Do NOT restate ambient project rules — they already reach
+the implementer through their real channels, and repeating them violates
+output_rule #2:
+- test-runner / lint / fmt commands → `@var` + `.lean-ctx/lean-md/vars.toml` (plus recipes).
+- subagent behaviour (shell-chaining, language split, commit form) →
+  `.lean-ctx/lean-md/dispatch-contract.ext.lmd.md`, which `@dispatch` composes onto every subagent.
 
 **One `@phase "task-N"` per task.**
 
@@ -214,9 +227,13 @@ plan against it. This is a checklist you run yourself.
 3. **Type consistency:** Do the types, method signatures and property names in
    later tasks match what earlier tasks defined? A function called `clearLayers()`
    in Task 3 but `clearFullLayers()` in Task 7 is a bug.
-4. **Ambient-context scan:** ambient context (repo/build plumbing, toolset rationale)
-   appears once in the Meta-head, not repeated per task. Move any per-task restatement
-   up into the Meta-head Architecture / Global Constraints block.
+4. **Global-Constraints scan (backstop):** does Global Constraints hold only
+   spec-derived invariants (non-goals, #498/determinism gates, cross-task
+   prerequisites, task dependencies)? Ambient project rules —
+   test-runner/lint/fmt, shell-chaining, language split, commit form — belong in
+   `vars.toml` / `dispatch-contract.ext`, not the plan; move any that slipped in.
+   Ambient context (repo/build plumbing, toolset rationale) still appears once in
+   the Meta-head, not per task.
 
 If you find issues, fix them inline. If you find a spec requirement with no task,
 add the task.
