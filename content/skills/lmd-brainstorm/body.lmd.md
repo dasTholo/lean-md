@@ -196,7 +196,7 @@ next: render phase "write-spec".
 - Persist design state through the lean-ctx runtime only — **never** a
   `scratchpad/…`, `/tmp/…` or git-ignored ledger file: durable decisions/facts ->
   `ctx_knowledge` (`action=remember`); progress/intermediate state -> `ctx_session`.
-  Then commit the design document to git. (Same rule as `lmd-writing-plans`; see
+  Then commit the design document to git. (see
   `CLAUDE.md` "No Brief-/Report-Files".)
 - Use `@edit` to write the spec file. Use `@remember` to record a compact
   pointer — the decision, a one-line gist, and the spec path — NOT a duplicate of

@@ -174,8 +174,7 @@ Persist plan state through the lean-ctx runtime only — **never** a `scratchpad
 `ctx_session` (`action=task|finding|decision|status`); durable decisions/facts/
 gotchas -> `ctx_knowledge` (`action=remember`); multi-agent coordination ->
 `ctx_agent`. Then commit the plan document(s). Writing plan/task state to a scratch
-file is a contract violation (see `CLAUDE.md` "No Brief-/Report-Files" and
-`subagent-multi-agent.md`).
+file is a contract violation (see `CLAUDE.md` "No Brief-/Report-Files").
 
 next: render phase "self-review".
 @phase-end
