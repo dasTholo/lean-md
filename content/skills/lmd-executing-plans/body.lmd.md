@@ -22,7 +22,8 @@ scratch-ledger files. Progress → `ctx_session`; durable facts → `ctx_knowled
 `ctx_agent`.
 
 **Read the plan critically:** get its structure via `lean-md render <plan> --list-phases` —
-NEVER `ctx_read` the plan (every read mode renders the source, so it looks empty). Bundle any
+NEVER `ctx_read` the plan for the brief (a raw read returns the whole document's source — all
+phases, unexpanded — not the isolated task brief). Bundle any
 concerns about the plan into ONE question BEFORE Task 1, never mid-run.
 
 **Isolation:** work on a dedicated feature branch, never `main`/`master` without explicit
