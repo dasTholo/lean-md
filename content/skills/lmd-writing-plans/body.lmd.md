@@ -127,12 +127,12 @@ to full text at render time, so the executor loses nothing. To discover which
 recipes exist, read the macro API index instead of the whole library:
 `lean-md render .lean-ctx/lean-md/plan-recipes.lmd.md --signatures`.
 
-**Reading the `.lmd.md` sources while authoring:
-** a plan,template, recipe library or seed is a rendered artifact — `@read mode=full`|`auto`
-render it (macros vanish, file looks empty). Access map:
-- recipe macro API (`plan-recipes.lmd.md`)              → `render … --signatures`
-- an existing plan / template phase brief               → `render … --phase <p>`
-- raw source of a seed/template you must EDIT (anchors) → `lean-md source <file>`
+**Reading the `.lmd.md` sources while authoring:** a plan, template, recipe
+library or seed is an lmd source. `ctx_read` returns it **raw** (verbatim
+directives) — read it directly for edit anchors. Rendering is explicit:
+- recipe macro API (`plan-recipes.lmd.md`)              -> `render … --signatures`
+- an existing plan / template phase brief               -> `render … --phase <p>`
+- gateway-independent raw dump of a seed you must EDIT   -> `lean-md source <file>`
 
 **Verification uses recipes, not copy-paste.** Inspect a change with
 `@call verify("path/to/file")` (unified diff). For a public-API or multi-file
