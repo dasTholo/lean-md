@@ -20,8 +20,17 @@ is active.
 test and lint commands once; override either in `.lean-ctx/lean-md/vars.toml` (vars.toml wins)
 with no plan edit. `@import
 .lean-ctx/lean-md/plan-recipes /` loads the macro library so `@call` resolves in every
-task phase. Below the meta-head, write Goal / Architecture / Global Constraints as prose
-copied from the spec.
+task phase. Below the meta-head, write Goal / Architecture / Global Constraints as prose.
+Global Constraints holds ONLY spec-derived invariants — the lens the controller hands the
+reviewer verbatim (a `--phase task-N` render never carries the meta-head, so it is a
+Controller/Reviewer artifact, not implementer context). Ambient project rules do NOT go
+here: test-runner/lint/fmt → `vars.toml`; subagent shell/language/commit form →
+`dispatch-contract.ext`. A correct invariant-only block:
+
+    ## Global Constraints
+    - Non-goal: seed-content edits only — no engine/renderer change.
+    - #498: fragment-consistency gate (built-in == on-disk seed) stays green — test gate.
+    - Prerequisite: Task 1 lands before Task 2 (later task mirrors the earlier definition).
 
 ## One @phase per task — the pattern
 
