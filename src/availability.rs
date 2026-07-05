@@ -171,6 +171,27 @@ pub const COVERAGE: &[(&str, &str, &str, &str)] = &[
         "dispatch",
         "fragment-compose",
     ),
+    (
+        "lmd-executing-plans",
+        "orient",
+        "include",
+        "fragment-compose",
+    ),
+    (
+        "lmd-executing-plans",
+        "execute",
+        "checkpoint",
+        "ctx_checkpoint",
+    ),
+    ("lmd-executing-plans", "execute", "read", "ctx_read"),
+    (
+        "lmd-executing-plans",
+        "checkpoint",
+        "compress",
+        "ctx_compress",
+    ),
+    ("lmd-executing-plans", "final-gate", "review", "ctx_review"),
+    ("lmd-executing-plans", "final-gate", "smells", "ctx_smells"),
 ];
 
 /// Tools deliberately outside the brainstorming directive surface. Note: TDD's
@@ -282,5 +303,30 @@ mod tests {
         assert!(has("plan-format", "review"), "plan-format → review");
         assert!(has("plan-format", "smells"), "plan-format → smells");
         assert!(has("plan-format", "reformat"), "plan-format → reformat");
+    }
+
+    #[test]
+    fn coverage_rows_executing_plans() {
+        let rows: Vec<&(&str, &str, &str, &str)> = COVERAGE
+            .iter()
+            .filter(|r| r.0 == "lmd-executing-plans")
+            .collect();
+        assert!(
+            !rows.is_empty(),
+            "lmd-executing-plans must have COVERAGE rows"
+        );
+        let has = |step: &str, dir: &str| rows.iter().any(|r| r.1 == step && r.2 == dir);
+        assert!(
+            has("orient", "include"),
+            "orient → include (hard-rules baseline)"
+        );
+        assert!(
+            has("execute", "checkpoint"),
+            "execute → checkpoint (snapshot)"
+        );
+        assert!(has("execute", "read"), "execute → read (diff verify)");
+        assert!(has("checkpoint", "compress"), "checkpoint → compress");
+        assert!(has("final-gate", "review"), "final-gate → review");
+        assert!(has("final-gate", "smells"), "final-gate → smells");
     }
 }
