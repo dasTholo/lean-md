@@ -71,6 +71,7 @@ struct RenderArgs {
     phase: Option<String>,
     companion: Option<String>,
     signatures: bool,
+    list_phases: bool,
 }
 
 fn parse_render_flags(rest: &[String]) -> RenderArgs {
@@ -106,6 +107,7 @@ fn parse_render_flags(rest: &[String]) -> RenderArgs {
                 a.companion = rest.get(i).cloned();
             }
             "--signatures" => a.signatures = true,
+            "--list-phases" => a.list_phases = true,
             _ if !arg.starts_with('-') && a.file.is_none() => a.file = Some(arg.to_string()),
             _ => {}
         }
@@ -128,7 +130,7 @@ fn main() {
         _ => {
             eprintln!(
                 "Usage: lean-md <render|check|mcp|skill|source> [args]\n\
-                 \n  render <file.lmd.md|--skill NAME [--phase P | --companion C]> [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md]\
+                 \n  render <file.lmd.md|--skill NAME [--phase P | --companion C]> [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md] [--list-phases]\
                  \n  check  <file.lmd.md>\
                  \n  source <file.lmd.md>  (raw file bytes, no rendering — for edit anchors)\
                  \n  mcp                   (stdio JSON-RPC 2.0 MCP server)\
@@ -144,6 +146,33 @@ fn main() {
 
 fn cmd_render(rest: &[String]) {
     let a = parse_render_flags(rest);
+    if a.list_phases {
+        if a.phase.is_some() {
+            eprintln!("lean-md render: --list-phases and --phase are mutually exclusive");
+            std::process::exit(1);
+        }
+        // Load the source the same way the render paths do: skill body or file.
+        let source = match a.skill.as_deref() {
+            Some(skill) => match lean_md::skills::skill_body(skill) {
+                Some(body) => body.to_string(),
+                None => {
+                    eprintln!("lean-md render: unknown skill '{skill}'");
+                    std::process::exit(1);
+                }
+            },
+            None => {
+                let Some(file) = a.file.as_deref() else {
+                    eprintln!("lean-md render: --list-phases needs <file.lmd.md> or --skill NAME");
+                    std::process::exit(1);
+                };
+                load_file(file)
+            }
+        };
+        for p in lean_md::outline_phases(&source) {
+            println!("{}\t{}", p.name, p.title);
+        }
+        return;
+    }
     if let Some(skill) = a.skill.as_deref() {
         if a.phase.is_some() && a.companion.is_some() {
             eprintln!("lean-md render: --phase and --companion are mutually exclusive");
