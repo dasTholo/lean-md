@@ -1115,4 +1115,44 @@ trailing prose
         let _ = render_with_phases(&ctx, doc);
         assert!(find_call(&calls.borrow(), "ctx_agent", "post").is_some());
     }
+
+    #[test]
+    fn recipe_task_return_fires_return_sink_with_intact_arg() {
+        // Task 5 (Option A): the `task_return` recipe is a LIVE on-complete sink, not
+        // literal instruction text — so it is verified in-process via a recording
+        // backend, not subprocess stdout. Import the real recipe, `@call` it inside a
+        // `@phase`, and assert the return sink fired over `ctx_agent` with the quoted
+        // arg's inner commas/semicolons intact (proves the Bug-1 quote-aware `@call`
+        // arg split end-to-end through the real recipe). Byte-stable (#498).
+        use crate::engine::render_body;
+        let root = std::env::temp_dir().join(format!("lmd_sddrec_return_{}", std::process::id()));
+        let recipes_dir = root.join(".lean-ctx/lean-md");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&recipes_dir).unwrap();
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/content/templates/plan-recipes.lmd.md"
+            ),
+            recipes_dir.join("plan-recipes.lmd.md"),
+        )
+        .unwrap();
+        std::fs::create_dir_all(recipes_dir.join("lang")).unwrap();
+        std::fs::copy(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/content/lang/rust.lmd.md"),
+            recipes_dir.join("lang/rust.lmd.md"),
+        )
+        .unwrap();
+
+        let (ctx, calls) = recording_ctx(root.clone());
+        let plan = "@import .lean-ctx/lean-md/plan-recipes /\n@phase \"P\"\n@call task_return(\"status: DONE; commits: a1b2c3, d4e5f6\") /\n@phase-end\n";
+        let _ = render_body(&ctx, plan);
+
+        let c = calls.borrow();
+        let call = find_call(&c, "ctx_agent", "return").unwrap_or_else(|| {
+            panic!("task_return recipe must fire ctx_agent action=return: {c:?}")
+        });
+        assert_eq!(call["message"], "status: DONE; commits: a1b2c3, d4e5f6");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
