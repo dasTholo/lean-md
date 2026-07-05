@@ -50,10 +50,11 @@ write verbatim. This is the `AGENTS.md` "never `ctx_shell raw=true` unless
 compression is provably wrong" exception — for code-to-write it *is* provably
 wrong.
 
-**Never `ctx_read` a plan `.lmd.md` — render it** (`ctx_read` any mode renders it,
-never shows source). Controller orientation = render each `--phase`; to read the
-**raw source** of a `.lmd.md` you must EDIT (exact edit anchors, Fall B) use
-`lean-md source <file>`.
+**The executor consumes the rendered phase brief, not the raw plan** — because a
+raw `.lmd.md` read is the whole document's source (all phases, unexpanded
+`@call`s), NOT the isolated task brief. Controller orientation = render each
+`--phase`. `ctx_read` on a `.lmd.md` returns raw source (fine for editing a seed);
+`lean-md source <file>` is the gateway-independent raw dump for exact edit anchors.
 
 > **Single source of truth for tool params/signatures:**
 > `docs/reference/appendix-mcp-tools.md` (liegt im lean-ctx-Repo; im lean-md-Repo

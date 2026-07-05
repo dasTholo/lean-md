@@ -193,8 +193,11 @@ next: render phase "write-spec".
 - Write the validated design (spec) to `docs/specs/YYYY-MM-DD-<topic>-design.md`.
   (User preferences for spec location override this default.)
 - Write the spec clearly and concisely — tight prose, no filler.
-- Persist the key design decisions as durable facts, then commit the design
-  document to git.
+- Persist design state through the lean-ctx runtime only — **never** a
+  `scratchpad/…`, `/tmp/…` or git-ignored ledger file: durable decisions/facts ->
+  `ctx_knowledge` (`action=remember`); progress/intermediate state -> `ctx_session`.
+  Then commit the design document to git. (see
+  `CLAUDE.md` "No Brief-/Report-Files".)
 - Use `@edit` to write the spec file. Use `@remember` to record a compact
   pointer — the decision, a one-line gist, and the spec path — NOT a duplicate of
   the spec; the committed spec file stays the source of truth, the pointer just

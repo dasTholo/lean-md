@@ -9,11 +9,13 @@ This applies to NEW skills AND EDITS. Wrote the skill before the baseline test?
 Delete it. Start over. Delete means delete — not "keep as reference", not
 "adapt it while writing the test", not "just this once".
 
-**Editing an existing skill `.lmd.md` (raw source for edit anchors):** 
-a SKILL.md body, `_includes` fragment or companion is a rendered artifact — `ctx_read` (any mode) 
-renders it, never shows the source (`@phase`/`@include`/`@define` vanish). 
-Read the raw bytes to edit with `lean-md source <file>`; rendera `--phase`/`--companion` 
-only to preview what an agent will see.
+**Editing an existing skill `.lmd.md` (raw source for edit anchors):**
+a SKILL.md body, `_includes` fragment or companion is an lmd source. `ctx_read`
+returns it **raw** (like any `.rs` file) — the directives (`@phase`/`@include`/
+`@define`) come back verbatim; that is exactly what you want for edit anchors.
+`lean-md source <file>` is the gateway-independent raw dump (same bytes, no
+lean-ctx needed). Rendering is **explicit and opt-in**: `render --phase`/
+`--companion` (or `ctx_md_render`) only to **preview** what an agent will see.
 
 Violating the letter of the rules is violating the spirit of the rules.
 

@@ -29,6 +29,9 @@
   `cargo run -q --bin lean-md -- render --skill <skill> --phase <phase> --consumer=ai`
   (companion instead of phase: `--companion <name>`). **No release build** —
   `cargo run` suffices (cached after the first compile).
+  Note: `ctx_read` einer `.lmd.md` liefert Roh-Source (Skill-/Plan-Quelle für
+  Edit-Anker lesen); Rendern/Preview ist explizit über die CLI (oben) bzw.
+  `ctx_md_render`.
 
 ## Subagent-Driven Execution
 
