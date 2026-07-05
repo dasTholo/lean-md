@@ -10,6 +10,8 @@ const TDD_SKILL_MD: &str = include_str!("../content/skills/lmd-test-driven-devel
 const BRAINSTORM_SKILL_MD: &str = include_str!("../content/skills/lmd-brainstorm/SKILL.md");
 const WRITING_SKILLS_SKILL_MD: &str = include_str!("../content/skills/lmd-writing-skills/SKILL.md");
 const WRITING_PLANS_SKILL_MD: &str = include_str!("../content/skills/lmd-writing-plans/SKILL.md");
+const SDD_SKILL_MD: &str =
+    include_str!("../content/skills/lmd-subagent-driven-development/SKILL.md");
 
 /// Installable lmd skills (name → embedded `SKILL.md` stub).
 pub const INSTALLABLE_SKILLS: &[(&str, &str)] = &[
@@ -17,6 +19,7 @@ pub const INSTALLABLE_SKILLS: &[(&str, &str)] = &[
     ("lmd-brainstorm", BRAINSTORM_SKILL_MD),
     ("lmd-writing-skills", WRITING_SKILLS_SKILL_MD),
     ("lmd-writing-plans", WRITING_PLANS_SKILL_MD),
+    ("lmd-subagent-driven-development", SDD_SKILL_MD),
 ];
 
 const WRITING_SKILLS_RENDER_GRAPHS: &str =
@@ -303,6 +306,27 @@ mod tests {
         install_skill("lmd-writing-plans", Scope::Local, &root, false).unwrap();
         assert!(skill_md.exists());
 
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sdd_install_writes_skill_md() {
+        let root = std::env::temp_dir().join(format!("lmd_sdd_install_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let skill_md = install_skill(
+            "lmd-subagent-driven-development",
+            Scope::Local,
+            &root,
+            false,
+        )
+        .unwrap();
+        assert!(skill_md.exists(), "SKILL.md must be written");
+        let written = std::fs::read_to_string(&skill_md).unwrap();
+        assert!(
+            written.contains("name: lmd-subagent-driven-development"),
+            "stub frontmatter missing"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

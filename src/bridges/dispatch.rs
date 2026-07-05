@@ -266,6 +266,17 @@ mod tests {
     }
 
     #[test]
+    fn dispatch_threads_crp_compact_into_contract() {
+        let doc = "@lean-md\ncrp: compact\n\n@phase \"P\"\nDo the work.\n@phase-end\n\n@dispatch phase=\"P\" role=dev to_agent=\"c\"\n";
+        let out = render(doc);
+        assert!(
+            out.contains("CRP mode `compact`"),
+            "crp compact threaded: {out}"
+        );
+        assert!(!out.contains("{{ crp }}"), "placeholder substituted: {out}");
+    }
+
+    #[test]
     fn dispatch_threads_crp_off_by_default() {
         let doc = "@phase \"P\"\nDo the work.\n@phase-end\n\n@dispatch phase=\"P\" role=dev to_agent=\"c\"\n";
         let out = render(doc);

@@ -111,6 +111,66 @@ pub const COVERAGE: &[(&str, &str, &str, &str)] = &[
         "reformat",
         "ctx_refactor",
     ),
+    (
+        "lmd-subagent-driven-development",
+        "dispatch",
+        "dispatch",
+        "fragment-compose",
+    ),
+    (
+        "lmd-subagent-driven-development",
+        "dispatch",
+        "checkpoint",
+        "ctx_checkpoint",
+    ),
+    (
+        "lmd-subagent-driven-development",
+        "review",
+        "dispatch",
+        "fragment-compose",
+    ),
+    (
+        "lmd-subagent-driven-development",
+        "final-review",
+        "dispatch",
+        "fragment-compose",
+    ),
+    (
+        "lmd-subagent-driven-development",
+        "final-review",
+        "review",
+        "ctx_review",
+    ),
+    (
+        "lmd-subagent-driven-development",
+        "final-review",
+        "smells",
+        "ctx_smells",
+    ),
+    (
+        "lmd-subagent-driven-development",
+        "handoff",
+        "compress",
+        "ctx_compress",
+    ),
+    (
+        "lmd-subagent-driven-development",
+        "implementer",
+        "dispatch",
+        "fragment-compose",
+    ),
+    (
+        "lmd-subagent-driven-development",
+        "task-reviewer",
+        "dispatch",
+        "fragment-compose",
+    ),
+    (
+        "lmd-subagent-driven-development",
+        "code-reviewer",
+        "dispatch",
+        "fragment-compose",
+    ),
 ];
 
 /// Tools deliberately outside the brainstorming directive surface. Note: TDD's

@@ -48,6 +48,16 @@ const LMD_WRITING_PLANS_PLAN_REVIEWER: &str =
     include_str!("../content/skills/lmd-writing-plans/companions/plan-reviewer.lmd.md");
 const LMD_BRAINSTORM_VISUAL_COMPANION: &str =
     include_str!("../content/skills/lmd-brainstorm/companions/visual-companion.lmd.md");
+const LMD_SDD_BODY: &str =
+    include_str!("../content/skills/lmd-subagent-driven-development/body.lmd.md");
+const LMD_SDD_IMPLEMENTER: &str =
+    include_str!("../content/skills/lmd-subagent-driven-development/companions/implementer.lmd.md");
+const LMD_SDD_TASK_REVIEWER: &str = include_str!(
+    "../content/skills/lmd-subagent-driven-development/companions/task-reviewer.lmd.md"
+);
+const LMD_SDD_CODE_REVIEWER: &str = include_str!(
+    "../content/skills/lmd-subagent-driven-development/companions/code-reviewer.lmd.md"
+);
 
 /// Registry of embedded lmd skill bodies (name → binary-embedded body source).
 /// Replaces the hardcoded `match` so new skills are a one-line table entry
@@ -60,6 +70,7 @@ const SKILLS: &[(&str, &str)] = &[
     ),
     ("lmd-writing-skills", LMD_WRITING_SKILLS_BODY),
     ("lmd-writing-plans", LMD_WRITING_PLANS_BODY),
+    ("lmd-subagent-driven-development", LMD_SDD_BODY),
 ];
 
 /// Embedded body source for a known lmd skill, or `None` if unknown.
@@ -143,6 +154,21 @@ const COMPANIONS: &[(&str, &str, &str)] = &[
         "lmd-writing-plans",
         "plan-reviewer",
         LMD_WRITING_PLANS_PLAN_REVIEWER,
+    ),
+    (
+        "lmd-subagent-driven-development",
+        "implementer",
+        LMD_SDD_IMPLEMENTER,
+    ),
+    (
+        "lmd-subagent-driven-development",
+        "task-reviewer",
+        LMD_SDD_TASK_REVIEWER,
+    ),
+    (
+        "lmd-subagent-driven-development",
+        "code-reviewer",
+        LMD_SDD_CODE_REVIEWER,
     ),
 ];
 
@@ -1058,6 +1084,41 @@ mod tests {
                 "phase {phase} missing next-pointer '{needle}': {out}"
             );
         }
+
+        // SDD chain: orient → preflight → dispatch → review → final-review → handoff.
+        // Every non-terminal phase carries a next: pointer; handoff is terminal.
+        for (phase, needle) in [
+            ("orient", "next: render phase \"preflight\""),
+            ("preflight", "next: render phase \"dispatch\""),
+            ("dispatch", "next: render phase \"review\""),
+            ("review", "next: render phase \"final-review\""),
+            ("final-review", "next: render phase \"handoff\""),
+        ] {
+            let out = render_skill(
+                "lmd-subagent-driven-development",
+                Some(phase),
+                None,
+                None,
+                PathBuf::from("."),
+            )
+            .unwrap();
+            assert!(
+                out.contains(needle),
+                "SDD phase {phase} missing next-pointer '{needle}': {out}"
+            );
+        }
+        let handoff = render_skill(
+            "lmd-subagent-driven-development",
+            Some("handoff"),
+            None,
+            None,
+            PathBuf::from("."),
+        )
+        .unwrap();
+        assert!(
+            !handoff.contains("next: render phase"),
+            "handoff must be terminal (no next pointer): {handoff}"
+        );
     }
 
     #[test]
@@ -1583,5 +1644,92 @@ Hello {{ who }}!
                 "{f} still references superpowers"
             );
         }
+    }
+
+    #[test]
+    fn sdd_all_phases_render_nonempty() {
+        for phase in [
+            "orient",
+            "preflight",
+            "dispatch",
+            "review",
+            "final-review",
+            "handoff",
+        ] {
+            let out = render_skill(
+                "lmd-subagent-driven-development",
+                Some(phase),
+                Some(Consumer::Ai),
+                None,
+                std::env::temp_dir(),
+            )
+            .unwrap_or_else(|e| panic!("phase {phase} failed: {e}"));
+            assert!(!out.trim().is_empty(), "phase {phase} rendered empty");
+        }
+    }
+
+    #[test]
+    fn sdd_phase_isolation_no_cross_phase_leak() {
+        let orient = render_skill(
+            "lmd-subagent-driven-development",
+            Some("orient"),
+            Some(Consumer::Ai),
+            None,
+            std::env::temp_dir(),
+        )
+        .unwrap();
+        // The final-review-only marker must not leak into orient.
+        assert!(
+            !orient.contains("code-reviewer"),
+            "cross-phase leak: {orient}"
+        );
+    }
+
+    #[test]
+    fn sdd_render_is_byte_stable() {
+        let a = render_skill(
+            "lmd-subagent-driven-development",
+            Some("dispatch"),
+            Some(Consumer::Ai),
+            None,
+            std::env::temp_dir(),
+        )
+        .unwrap();
+        let b = render_skill(
+            "lmd-subagent-driven-development",
+            Some("dispatch"),
+            Some(Consumer::Ai),
+            None,
+            std::env::temp_dir(),
+        )
+        .unwrap();
+        assert_eq!(a, b, "SDD render must be byte-stable (#498)");
+    }
+
+    #[test]
+    fn sdd_companions_resolve() {
+        for c in ["implementer", "task-reviewer", "code-reviewer"] {
+            let out = render_companion(
+                "lmd-subagent-driven-development",
+                c,
+                Some(Consumer::Ai),
+                None,
+                std::env::temp_dir(),
+            )
+            .unwrap_or_else(|e| panic!("companion {c} failed: {e}"));
+            assert!(!out.trim().is_empty(), "companion {c} rendered empty");
+        }
+    }
+
+    #[test]
+    fn sdd_dispatch_implementer_composes() {
+        // @dispatch to the implementer prepends the dispatch contract + bootstrap.
+        let doc = "@dispatch skill=\"lmd-subagent-driven-development\" companion=\"implementer\" role=dev to_agent=\"c\"\n";
+        let out = crate::engine::render(doc);
+        assert!(out.contains("Subagent Contract"), "contract missing: {out}");
+        assert!(
+            out.contains("ToolSearch(query=\"select:mcp__lean-ctx__ctx_read"),
+            "bootstrap missing: {out}"
+        );
     }
 }
