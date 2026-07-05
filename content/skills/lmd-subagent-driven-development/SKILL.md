@@ -1,6 +1,6 @@
 ---
 name: lmd-subagent-driven-development
-description: Native lmd port of the subagent-driven-development skill. Render-on-invoke via ctx_md_render(skill="lmd-subagent-driven-development", phase=<phase>) against the binary-embedded body — phase-isolated. Executes a .lmd.md plan one task at a time: a fresh implementer subagent per task, two-verdict review between tasks, a whole-branch final review — all handoffs over lean-ctx memory/coordination. Use when executing an implementation plan with independent tasks in the current session.
+description: Native lmd port of the subagent-driven-development skill. Render-on-invoke via ctx_md_render(skill="lmd-subagent-driven-development", phase=<phase>) against the binary-embedded body — phase-isolated. Executes a .lmd.md plan one task at a time — a fresh implementer subagent per task, two-verdict review between tasks, a whole-branch final review — all handoffs over lean-ctx memory/coordination. Use when executing an implementation plan with independent tasks in the current session.
 ---
 
 # lmd-subagent-driven-development (delegation stub)

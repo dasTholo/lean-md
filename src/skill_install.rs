@@ -327,6 +327,25 @@ mod tests {
             written.contains("name: lmd-subagent-driven-development"),
             "stub frontmatter missing"
         );
+        // Guard the YAML frontmatter `description`: it must be a single-line, non-empty
+        // scalar — the value on the SAME line as the key (not wrapped onto the next line)
+        // and, when unquoted, free of the `": "` mapping indicator that silently turns the
+        // scalar into a nested map / hard parse error (regression guard for the invalid
+        // frontmatter this fix repaired).
+        let desc_line = written
+            .lines()
+            .find(|l| l.starts_with("description:"))
+            .expect("description key missing");
+        let value = desc_line["description:".len()..].trim();
+        assert!(
+            !value.is_empty(),
+            "description must be a same-line non-empty scalar, not wrapped/empty: {desc_line:?}"
+        );
+        let quoted = value.starts_with('"') || value.starts_with('\'');
+        assert!(
+            quoted || !value.contains(": "),
+            "unquoted description scalar must not contain ': ' (YAML mapping indicator): {value}"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
