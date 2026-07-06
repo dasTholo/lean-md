@@ -192,6 +192,24 @@ pub const COVERAGE: &[(&str, &str, &str, &str)] = &[
     ),
     ("lmd-executing-plans", "final-gate", "review", "ctx_review"),
     ("lmd-executing-plans", "final-gate", "smells", "ctx_smells"),
+    (
+        "lmd-finishing-a-development-branch",
+        "pre-context",
+        "include",
+        "fragment-compose",
+    ),
+    (
+        "lmd-finishing-a-development-branch",
+        "detect-env",
+        "query",
+        "ctx_shell",
+    ),
+    (
+        "lmd-finishing-a-development-branch",
+        "merge-local",
+        "query",
+        "ctx_shell",
+    ),
 ];
 
 /// Tools deliberately outside the brainstorming directive surface. Note: TDD's
@@ -328,5 +346,27 @@ mod tests {
         assert!(has("checkpoint", "compress"), "checkpoint → compress");
         assert!(has("final-gate", "review"), "final-gate → review");
         assert!(has("final-gate", "smells"), "final-gate → smells");
+    }
+
+    #[test]
+    fn coverage_rows_finishing() {
+        let rows: Vec<&(&str, &str, &str, &str)> = COVERAGE
+            .iter()
+            .filter(|r| r.0 == "lmd-finishing-a-development-branch")
+            .collect();
+        assert!(
+            !rows.is_empty(),
+            "lmd-finishing-a-development-branch must have COVERAGE rows"
+        );
+        let has = |step: &str, dir: &str| rows.iter().any(|r| r.1 == step && r.2 == dir);
+        assert!(
+            has("pre-context", "include"),
+            "pre-context → include (hard-rules baseline)"
+        );
+        assert!(has("detect-env", "query"), "detect-env → query (git state)");
+        assert!(
+            has("merge-local", "query"),
+            "merge-local → query (git merge/cleanup)"
+        );
     }
 }
