@@ -44,7 +44,26 @@ brief is always the per-phase render (`render --phase task-N`), never a whole-do
 with the current tree; bundle ALL such concerns into ONE question to the human before Task 1 —
 never trickle them out mid-execution.
 
-next: render phase "dispatch".
+next: render phase "dispatch-mode".
+@phase-end
+
+@phase "dispatch-mode"
+
+## Dispatch Mode — sequential or parallel?
+
+From the preflight enumeration, detect independent task groups: disjoint file/subsystem
+sets, no sequential dependency between them.
+
+- **< 2 independent groups** → no question; `next: dispatch` (the sequential path,
+  unchanged).
+- **≥ 2 independent groups** → ask the human EXACTLY once (bundle it, never trickle):
+  > "I found N independent task groups (disjoint files, no shared state): [list].
+  > Dispatch them in parallel (one focused subagent per group, each reviewed on
+  > return), or run sequentially one task at a time?"
+  - Parallel → `next: parallel-dispatch`.
+  - Sequential (or any doubt / any coupling) → `next: dispatch`.
+
+next: render phase "dispatch" or "parallel-dispatch" per the answer.
 @phase-end
 
 @phase "dispatch"
@@ -101,6 +120,34 @@ next: render phase "review".
    `@call task_return("status: DONE; commits: …")` → distils into parent knowledge — and
    `ctx_session action=task "Task N [x%]"`. (A2A `ctx_task` is optional; if used, the in-progress
    state is `working`, never `in_progress`.)
+
+next: render phase "final-review".
+@phase-end
+
+@phase "parallel-dispatch"
+
+## Parallel Dispatch — fan out independent tasks, review each on return
+
+@include parallel-dispatch
+
+Fidelity: the two-verdict review is preserved PER task — only execution fans out.
+
+1. **Per agent, BEFORE fan-out:** record `BASE_i = @query "git rev-parse HEAD"` for each task
+   (Fidelity-critical; never `HEAD~1`). Warm the sources each task touches in ONE call:
+   `ctx_multi_read paths=[…]` (shared cache).
+2. **Fan-out:** emit one `@dispatch skill="lmd-subagent-driven-development"
+   companion="implementer" role=dev to_agent="{{ controller_id }}"` per independent task, ALL in
+   a single response (multiple in one answer = parallel). Each carries its own `--phase task-N`
+   brief; the dispatch contract is auto-prepended. Scopes stay disjoint — no two agents own the
+   same file.
+3. **Per returning agent:** BASE_i..HEAD review (Spec-Compliance + Code-Quality) — the reviewer
+   fetches the diff itself (`@read mode=diff`), never trusts the report. Record progress
+   (`ctx_session action=task "Task N [x%]"`) and distil the return
+   (`@call task_return("status: …; commits: …")`) per agent, not batched.
+4. **Conflict scan:** did more than one agent edit the same file?
+   `@query "git diff --name-only BASE..HEAD"` — any overlap → resolve jointly before integrating.
+5. Integrate → full suite: `@call gate(<paths>)` — Expected: PASS.
+6. Return to the normal flow.
 
 next: render phase "final-review".
 @phase-end

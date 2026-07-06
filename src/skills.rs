@@ -1313,13 +1313,16 @@ mod tests {
             );
         }
 
-        // SDD chain: orient → preflight → dispatch → review → final-review → handoff.
+        // SDD chain: orient → preflight → dispatch-mode → dispatch | parallel-dispatch
+        //            → review → final-review → handoff.
         // Every non-terminal phase carries a next: pointer; handoff is terminal.
         for (phase, needle) in [
             ("orient", "next: render phase \"preflight\""),
-            ("preflight", "next: render phase \"dispatch\""),
+            ("preflight", "next: render phase \"dispatch-mode\""),
+            ("dispatch-mode", "next: render phase \"dispatch\""),
             ("dispatch", "next: render phase \"review\""),
             ("review", "next: render phase \"final-review\""),
+            ("parallel-dispatch", "next: render phase \"final-review\""),
             ("final-review", "next: render phase \"handoff\""),
         ] {
             let out = render_skill(
@@ -1974,5 +1977,44 @@ Hello {{ who }}!
                 "{name} must drop the stale external-reference wording"
             );
         }
+    }
+
+    #[test]
+    fn sdd_dispatch_mode_and_parallel_dispatch_render_nonempty() {
+        let jail = std::path::PathBuf::from(".");
+        for p in ["dispatch-mode", "parallel-dispatch"] {
+            let out = render_skill(
+                "lmd-subagent-driven-development",
+                Some(p),
+                None,
+                None,
+                jail.clone(),
+            )
+            .unwrap_or_else(|_| panic!("SDD phase {p} failed to render"));
+            assert!(
+                !out.trim().is_empty(),
+                "SDD phase {p} must render non-empty"
+            );
+        }
+    }
+
+    #[test]
+    fn sdd_parallel_dispatch_carries_fragment_and_fidelity() {
+        let out = render_skill(
+            "lmd-subagent-driven-development",
+            Some("parallel-dispatch"),
+            None,
+            None,
+            std::path::PathBuf::from("."),
+        )
+        .unwrap();
+        assert!(
+            out.contains("one dispatch per independent problem domain"),
+            "parallel-dispatch must resolve @include parallel-dispatch (fragment marker): {out}"
+        );
+        assert!(
+            out.contains("BASE_i") && out.to_lowercase().contains("conflict"),
+            "parallel-dispatch must keep per-agent BASE + conflict scan (review fidelity): {out}"
+        );
     }
 }

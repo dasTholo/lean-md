@@ -17,7 +17,7 @@ brief, report, diff and baton moves through lean-ctx (`ctx_session`/`ctx_knowled
 
 ## Phases (render each as you reach it)
 
-orient → preflight → dispatch → review → final-review → handoff.
+orient → preflight → dispatch-mode → dispatch | parallel-dispatch → review → final-review → handoff.
 
 The `dispatch`/`review`/`final-review` phases compose `@dispatch` briefs to the three companions
 (the dispatch contract is auto-prepended).
