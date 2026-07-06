@@ -60,6 +60,8 @@ const LMD_SDD_CODE_REVIEWER: &str = include_str!(
 );
 const LMD_EXECUTING_PLANS_BODY: &str =
     include_str!("../content/skills/lmd-executing-plans/body.lmd.md");
+const LMD_FINISHING_BODY: &str =
+    include_str!("../content/skills/lmd-finishing-a-development-branch/body.lmd.md");
 
 /// Registry of embedded lmd skill bodies (name → binary-embedded body source).
 /// Replaces the hardcoded `match` so new skills are a one-line table entry
@@ -74,6 +76,7 @@ const SKILLS: &[(&str, &str)] = &[
     ("lmd-writing-plans", LMD_WRITING_PLANS_BODY),
     ("lmd-subagent-driven-development", LMD_SDD_BODY),
     ("lmd-executing-plans", LMD_EXECUTING_PLANS_BODY),
+    ("lmd-finishing-a-development-branch", LMD_FINISHING_BODY),
 ];
 
 /// Embedded body source for a known lmd skill, or `None` if unknown.
@@ -552,6 +555,74 @@ mod tests {
                 "cross-phase leak in {phase}: found foreign marker {foreign}"
             );
         }
+    }
+
+    #[test]
+    fn finishing_all_phases_render_nonempty() {
+        let jail = std::path::PathBuf::from(".");
+        for p in [
+            "pre-context",
+            "verify-tests",
+            "detect-env",
+            "present-options",
+            "merge-local",
+            "create-pr",
+            "keep-as-is",
+            "discard",
+        ] {
+            let out = render_skill(
+                "lmd-finishing-a-development-branch",
+                Some(p),
+                None,
+                None,
+                jail.clone(),
+            )
+            .unwrap_or_else(|_| panic!("phase {p} failed to render"));
+            assert!(!out.trim().is_empty(), "phase {p} must render non-empty");
+        }
+        assert!(
+            skill_body("lmd-finishing-a-development-branch").is_some(),
+            "lmd-finishing-a-development-branch must be in the SKILLS registry"
+        );
+        assert!(
+            !skill_body("lmd-finishing-a-development-branch")
+                .unwrap()
+                .to_lowercase()
+                .contains("superpowers"),
+            "body seed must be reference-closed (no superpowers token)"
+        );
+    }
+
+    #[test]
+    fn finishing_pre_context_carries_hard_rules_baseline() {
+        let out = render_skill(
+            "lmd-finishing-a-development-branch",
+            Some("pre-context"),
+            None,
+            None,
+            std::path::PathBuf::from("."),
+        )
+        .unwrap();
+        assert!(
+            out.contains("Hard Rules (lmd built-in)"),
+            "pre-context must inline the ambient baseline via @include hard-rules: {out}"
+        );
+    }
+
+    #[test]
+    fn finishing_merge_local_carries_provenance_cleanup() {
+        let out = render_skill(
+            "lmd-finishing-a-development-branch",
+            Some("merge-local"),
+            None,
+            None,
+            std::path::PathBuf::from("."),
+        )
+        .unwrap();
+        assert!(
+            out.contains("git worktree remove") && out.contains("git worktree prune"),
+            "merge-local must carry the provenance cleanup: {out}"
+        );
     }
 
     #[test]
