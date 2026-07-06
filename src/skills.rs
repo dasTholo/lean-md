@@ -1878,4 +1878,19 @@ Hello {{ who }}!
             "bootstrap missing: {out}"
         );
     }
+
+    #[test]
+    fn finish_phases_are_rewired_to_lmd_port() {
+        for name in ["lmd-executing-plans", "lmd-subagent-driven-development"] {
+            let body = skill_body(name).unwrap();
+            assert!(
+                body.contains("lmd-finishing-a-development-branch"),
+                "{name} finish phase must invoke the lmd port"
+            );
+            assert!(
+                !body.contains("until an lmd port exists"),
+                "{name} must drop the stale external-reference wording"
+            );
+        }
+    }
 }

@@ -118,8 +118,8 @@ next: render phase "finish".
 
 ## Finish — branch completion
 
-- Branch finishing via the external finishing-a-development-branch reference (merge / PR /
-  cleanup choice presented to the human) — until an lmd port exists.
+- Branch finishing: invoke the lmd-finishing-a-development-branch skill (merge / PR / keep /
+  cleanup choice presented to the human).
 - Record the closing state via `ctx_session action=status`. No "next" render.
 
 This is the terminal phase.

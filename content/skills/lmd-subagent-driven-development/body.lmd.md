@@ -128,8 +128,8 @@ next: render phase "handoff".
 ## Handoff — checkpoint & finish
 
 - Phase-boundary context checkpoint: `@call compress()` (controller conversation).
-- Branch finishing: until an lmd port exists, follow the external
-  finishing-a-development-branch reference (merge / PR / cleanup choice presented to the human).
+- Branch finishing: invoke the lmd-finishing-a-development-branch skill (merge / PR / keep /
+  cleanup choice presented to the human).
 
 This is the terminal phase — there is no "next" render.
 @phase-end
