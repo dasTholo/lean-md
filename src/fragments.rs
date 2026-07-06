@@ -35,6 +35,12 @@ const SKILL_AUTHORING_CORE: &str =
 const BRAINSTORM_GATE: &str =
     include_str!("../content/skills/lmd-brainstorm/_includes/brainstorm-gate.lmd.md");
 
+/// Built-in `parallel-dispatch` fragment — single-source fan-out guidance
+/// (when-to-use gate + fan-out rule + prompt structure + mandatory memory/
+/// coordination block). Shared by the standalone `lmd-dispatching-parallel-agents`
+/// skill and the SDD `parallel-dispatch` phase via `@include parallel-dispatch`.
+const PARALLEL_DISPATCH: &str = include_str!("../content/core/_fragments/parallel-dispatch.lmd.md");
+
 #[derive(Debug)]
 pub enum ResolveError {
     NotFound(String),
@@ -56,6 +62,7 @@ impl FragmentRegistry {
         builtins.insert("test-first-core", TEST_FIRST_CORE);
         builtins.insert("skill-authoring-core", SKILL_AUTHORING_CORE);
         builtins.insert("brainstorm-gate", BRAINSTORM_GATE);
+        builtins.insert("parallel-dispatch", PARALLEL_DISPATCH);
         Self { builtins }
     }
 
@@ -197,6 +204,26 @@ mod tests {
         assert!(
             builtin.contains("regardless of perceived simplicity"),
             "gate must carry the HARD-GATE marker"
+        );
+    }
+
+    #[test]
+    fn parallel_dispatch_matches_seed_file_on_disk() {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let reg = FragmentRegistry::with_builtins();
+        let disk = std::fs::read_to_string(
+            std::path::Path::new(manifest).join("content/core/_fragments/parallel-dispatch.lmd.md"),
+        )
+        .unwrap();
+        let builtin = reg.resolve("parallel-dispatch", Path::new(".")).unwrap();
+        assert_eq!(builtin, disk, "parallel-dispatch drifted from seed file");
+        assert!(
+            builtin.contains("one dispatch per independent problem domain"),
+            "fragment must carry the core-principle marker"
+        );
+        assert!(
+            builtin.contains("ctx_agent action=handoff"),
+            "fragment must carry the mandatory memory/coordination block"
         );
     }
 
