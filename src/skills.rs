@@ -62,6 +62,8 @@ const LMD_EXECUTING_PLANS_BODY: &str =
     include_str!("../content/skills/lmd-executing-plans/body.lmd.md");
 const LMD_FINISHING_BODY: &str =
     include_str!("../content/skills/lmd-finishing-a-development-branch/body.lmd.md");
+const LMD_DISPATCHING_PARALLEL_AGENTS_BODY: &str =
+    include_str!("../content/skills/lmd-dispatching-parallel-agents/body.lmd.md");
 
 /// Registry of embedded lmd skill bodies (name → binary-embedded body source).
 /// Replaces the hardcoded `match` so new skills are a one-line table entry
@@ -77,6 +79,10 @@ const SKILLS: &[(&str, &str)] = &[
     ("lmd-subagent-driven-development", LMD_SDD_BODY),
     ("lmd-executing-plans", LMD_EXECUTING_PLANS_BODY),
     ("lmd-finishing-a-development-branch", LMD_FINISHING_BODY),
+    (
+        "lmd-dispatching-parallel-agents",
+        LMD_DISPATCHING_PARALLEL_AGENTS_BODY,
+    ),
 ];
 
 /// Embedded body source for a known lmd skill, or `None` if unknown.
@@ -606,6 +612,82 @@ mod tests {
         assert!(
             out.contains("Hard Rules (lmd built-in)"),
             "pre-context must inline the ambient baseline via @include hard-rules: {out}"
+        );
+    }
+
+    #[test]
+    fn dispatching_parallel_agents_all_phases_render_nonempty() {
+        let jail = std::path::PathBuf::from(".");
+        for p in ["pre-context", "assess", "dispatch", "integrate"] {
+            let out = render_skill(
+                "lmd-dispatching-parallel-agents",
+                Some(p),
+                None,
+                None,
+                jail.clone(),
+            )
+            .unwrap_or_else(|_| panic!("phase {p} failed to render"));
+            assert!(!out.trim().is_empty(), "phase {p} must render non-empty");
+        }
+        assert!(
+            skill_body("lmd-dispatching-parallel-agents").is_some(),
+            "lmd-dispatching-parallel-agents must be in the SKILLS registry"
+        );
+        assert!(
+            !skill_body("lmd-dispatching-parallel-agents")
+                .unwrap()
+                .to_lowercase()
+                .contains("superpowers"),
+            "body seed must be reference-closed (no superpowers token)"
+        );
+    }
+
+    #[test]
+    fn dispatching_pre_context_carries_hard_rules_baseline() {
+        let out = render_skill(
+            "lmd-dispatching-parallel-agents",
+            Some("pre-context"),
+            None,
+            None,
+            std::path::PathBuf::from("."),
+        )
+        .unwrap();
+        assert!(
+            out.contains("Hard Rules (lmd built-in)"),
+            "pre-context must inline the ambient baseline via @include hard-rules: {out}"
+        );
+    }
+
+    #[test]
+    fn dispatching_assess_and_dispatch_carry_parallel_fragment() {
+        for p in ["assess", "dispatch"] {
+            let out = render_skill(
+                "lmd-dispatching-parallel-agents",
+                Some(p),
+                None,
+                None,
+                std::path::PathBuf::from("."),
+            )
+            .unwrap();
+            assert!(
+                out.contains("one dispatch per independent problem domain"),
+                "phase {p} must resolve @include parallel-dispatch (fragment marker): {out}"
+            );
+        }
+    }
+
+    #[test]
+    fn dispatching_body_matches_seed_file_on_disk() {
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let disk = std::fs::read_to_string(
+            std::path::Path::new(manifest)
+                .join("content/skills/lmd-dispatching-parallel-agents/body.lmd.md"),
+        )
+        .unwrap();
+        assert_eq!(
+            skill_body("lmd-dispatching-parallel-agents").unwrap(),
+            disk,
+            "embedded dispatching-parallel-agents body drifted from seed file"
         );
     }
 
