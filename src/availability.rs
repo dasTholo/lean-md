@@ -210,6 +210,50 @@ pub const COVERAGE: &[(&str, &str, &str, &str)] = &[
         "query",
         "ctx_shell",
     ),
+    // Consumer A — standalone lmd-dispatching-parallel-agents (4 phases).
+    (
+        "lmd-dispatching-parallel-agents",
+        "pre-context",
+        "include",
+        "fragment-compose",
+    ),
+    (
+        "lmd-dispatching-parallel-agents",
+        "assess",
+        "include",
+        "fragment-compose",
+    ),
+    (
+        "lmd-dispatching-parallel-agents",
+        "dispatch",
+        "include",
+        "fragment-compose",
+    ),
+    (
+        "lmd-dispatching-parallel-agents",
+        "integrate",
+        "query",
+        "ctx_shell",
+    ),
+    // Consumer B — SDD opt-in parallel mode (2 new phases).
+    (
+        "lmd-subagent-driven-development",
+        "dispatch-mode",
+        "query",
+        "ctx_shell",
+    ),
+    (
+        "lmd-subagent-driven-development",
+        "parallel-dispatch",
+        "dispatch",
+        "fragment-compose",
+    ),
+    (
+        "lmd-subagent-driven-development",
+        "parallel-dispatch",
+        "include",
+        "fragment-compose",
+    ),
 ];
 
 /// Tools deliberately outside the brainstorming directive surface. Note: TDD's
@@ -367,6 +411,56 @@ mod tests {
         assert!(
             has("merge-local", "query"),
             "merge-local → query (git merge/cleanup)"
+        );
+    }
+
+    #[test]
+    fn coverage_rows_dispatching_parallel_agents() {
+        let rows: Vec<&(&str, &str, &str, &str)> = COVERAGE
+            .iter()
+            .filter(|r| r.0 == "lmd-dispatching-parallel-agents")
+            .collect();
+        assert!(
+            !rows.is_empty(),
+            "lmd-dispatching-parallel-agents must have COVERAGE rows"
+        );
+        let has = |step: &str, dir: &str| rows.iter().any(|r| r.1 == step && r.2 == dir);
+        assert!(
+            has("pre-context", "include"),
+            "pre-context → include (hard-rules)"
+        );
+        assert!(
+            has("assess", "include"),
+            "assess → include (parallel-dispatch)"
+        );
+        assert!(
+            has("dispatch", "include"),
+            "dispatch → include (parallel-dispatch)"
+        );
+        assert!(
+            has("integrate", "query"),
+            "integrate → query (conflict scan / git)"
+        );
+    }
+
+    #[test]
+    fn coverage_rows_sdd_parallel_mode() {
+        let rows: Vec<&(&str, &str, &str, &str)> = COVERAGE
+            .iter()
+            .filter(|r| r.0 == "lmd-subagent-driven-development")
+            .collect();
+        let has = |step: &str, dir: &str| rows.iter().any(|r| r.1 == step && r.2 == dir);
+        assert!(
+            has("dispatch-mode", "query"),
+            "dispatch-mode → query (group detection)"
+        );
+        assert!(
+            has("parallel-dispatch", "dispatch"),
+            "parallel-dispatch → dispatch (implementer fan-out)"
+        );
+        assert!(
+            has("parallel-dispatch", "include"),
+            "parallel-dispatch → include (parallel-dispatch fragment)"
         );
     }
 }
