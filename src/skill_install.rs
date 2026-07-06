@@ -16,6 +16,8 @@ const EXECUTING_PLANS_SKILL_MD: &str =
     include_str!("../content/skills/lmd-executing-plans/SKILL.md");
 const FINISHING_SKILL_MD: &str =
     include_str!("../content/skills/lmd-finishing-a-development-branch/SKILL.md");
+const DISPATCHING_PARALLEL_AGENTS_SKILL_MD: &str =
+    include_str!("../content/skills/lmd-dispatching-parallel-agents/SKILL.md");
 
 /// Installable lmd skills (name → embedded `SKILL.md` stub).
 pub const INSTALLABLE_SKILLS: &[(&str, &str)] = &[
@@ -26,6 +28,10 @@ pub const INSTALLABLE_SKILLS: &[(&str, &str)] = &[
     ("lmd-subagent-driven-development", SDD_SKILL_MD),
     ("lmd-executing-plans", EXECUTING_PLANS_SKILL_MD),
     ("lmd-finishing-a-development-branch", FINISHING_SKILL_MD),
+    (
+        "lmd-dispatching-parallel-agents",
+        DISPATCHING_PARALLEL_AGENTS_SKILL_MD,
+    ),
 ];
 
 const WRITING_SKILLS_RENDER_GRAPHS: &str =
@@ -519,6 +525,54 @@ mod tests {
         // Idempotent: second install keeps the asset present.
         install_skill("lmd-writing-skills", Scope::Local, &root, false).unwrap();
         assert!(asset.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn dispatching_parallel_agents_install_writes_skill_md() {
+        let root =
+            std::env::temp_dir().join(format!("lmd_dispatch_install_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let skill_md = install_skill(
+            "lmd-dispatching-parallel-agents",
+            Scope::Local,
+            &root,
+            false,
+        )
+        .unwrap();
+        assert!(skill_md.exists(), "SKILL.md must be written");
+        let written = std::fs::read_to_string(&skill_md).unwrap();
+        assert!(
+            written.contains("name: lmd-dispatching-parallel-agents"),
+            "stub frontmatter missing"
+        );
+        assert!(
+            !written.contains("superpowers"),
+            "native port must not carry a 'superpowers' reference"
+        );
+        let desc_line = written
+            .lines()
+            .find(|l| l.starts_with("description:"))
+            .expect("description key missing");
+        let value = desc_line["description:".len()..].trim();
+        assert!(
+            !value.is_empty(),
+            "description must be a non-empty same-line scalar: {desc_line:?}"
+        );
+        let quoted = value.starts_with('"') || value.starts_with('\'');
+        assert!(
+            quoted || !value.contains(": "),
+            "unquoted description scalar must not contain ': ': {value}"
+        );
+        let again = install_skill(
+            "lmd-dispatching-parallel-agents",
+            Scope::Local,
+            &root,
+            false,
+        )
+        .unwrap();
+        assert_eq!(again, skill_md, "install must be idempotent");
         let _ = std::fs::remove_dir_all(&root);
     }
 }
