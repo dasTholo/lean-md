@@ -123,6 +123,41 @@ bin     = "lean-md"
 
 Plus `min_lean_ctx = "3.9.2"` und `network = "full"` im Entry spiegeln.
 
+## Install-UX (Endzustand nach P3) — ein Befehl, zwei Kanäle
+
+**Forward-looking, nicht P0-Arbeit** — aber es rahmt, wofür die `[install]`-Config
+gebaut wird. Der User tippt **einen** Befehl (Verb ist `addon add`, nicht
+`install`):
+
+```
+lean-ctx addon add lean-md
+   │  depth-1 Dependency-Resolution (#743, gemergt)
+   ├─ @dasTholo/lean-md        (kind=addon)   → Binary   (crates.io / [artifacts])
+   └─ @dasTholo/lean-md-skills (kind=skills)  → Skills-Pack   ← als Dependency deklariert
+        ein Consent-Prompt listet BEIDES · ctxpkg.lock hält das aufgelöste Paar
+```
+
+Der Skills-Pack ist **kein zweiter Install-Schritt**, sondern eine deklarierte
+Dependency im `lean-ctx-addon.toml` (kommt **erst in P3**):
+
+```toml
+[[dependencies]]
+name = "@dasTholo/lean-md-skills"
+version = "^1.0"
+```
+
+| Aktion | Befehl | Anmerkung |
+|---|---|---|
+| Addon **+** Skills | `lean-ctx addon add lean-md` | ein Prompt, beide landen; Lockfile hält das Paar |
+| Update (inkl. Skills) | `lean-ctx addon update lean-md` | refreshed die Skills-Dependency auch bei aktuellem Binary → Skill-Fix ohne Binary-Release |
+| (optional) nur der Pack | `lean-ctx pack install @dasTholo/lean-md-skills` | Sonderfall; Normalweg ist `addon add` |
+
+**Zwei getrennte Kanäle** (Binary via crates.io/`[artifacts]`, Skills via
+ctxpkg-Pack) mit **unabhängigen Kadenzen**, hinter **einem** Befehl vereint —
+genau die „ein Consent-Prompt, zwei Kadenzen"-Mechanik aus EPIC #727. **In P0
+existiert die `[[dependencies]]`-Zeile noch nicht** (Skills bleiben embedded); P0
+legt nur den `[install]`-Block (Binary-Kanal), auf dem P3 aufsetzt.
+
 ## Verifikation
 
 | Schritt | In dieser Session | Wer |
