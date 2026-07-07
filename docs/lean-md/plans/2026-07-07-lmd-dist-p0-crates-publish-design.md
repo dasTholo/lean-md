@@ -17,12 +17,29 @@ Side-Loading**. Der **Version-Pin `0.2.0` ist der Cross-Repo-Vertrag**: crates.i
 **Reverse-Cut bleibt intakt:** kein Engine-Symbol in `lean-ctx/rust/src`; lean-md
 bleibt standalone (`rushdown` + `evalexpr`), Code-Intel outbound über `ctx_*`.
 
+## Publish-Strategie — scharfer Publish aufgeschoben bis nach P3
+
+**Entscheidung (2026-07-07):** Der echte `cargo publish` wird **bis nach P3
+aufgeschoben**. Bis dahin ist `cargo publish --dry-run` das **stehende
+Verifikations-Gate** — es läuft in P0 (und bleibt in P1–P3 grün), aber **nichts
+geht nach crates.io**, bevor der Skills-Pack (P3) steht.
+
+Begründung: crates.io ist append-only (Publish irreversibel, nur `yank`). Ein
+einziger scharfer Publish am Ende vermeidet verbrauchte Zwischenversionen. P1/P2
+bumpen die Crate-Version ohnehin nicht; nur P3 zieht sie (evtl. auf `0.3.0`). Der
+finale Publish + die `cargo install`-Verifikation macht der Maintainer (@dasTholo)
+selbst.
+
+**Folgen für den Sync-Vertrag:** solange nicht publiziert ist, kann der lean-ctx-
+`feat-lmd-v2`-Registry-Entry auf **keine** echte Version zeigen → er bleibt
+ebenfalls „vorbereitet, nicht live". Die **finale Publish-Version wird nach P3
+abgeglichen** (`0.2.0` vs. `0.3.0`). Die Config dieser Session zielt auf `0.2.0`
+als Sync-Anker; die Versionsnummer ist beim finalen Publish nochmals zu bestätigen.
+
 ## Abgrenzung — was diese Session NICHT tut
 
-- **Kein echter `cargo publish`.** Der Plan endet bei sauberem
-  `cargo publish --dry-run` + fertig konfiguriertem Manifest. Den scharfen Publish
-  und die `cargo install`-Verifikation macht der Maintainer (@dasTholo) selbst —
-  crates.io ist append-only, Publish ist irreversibel (nur `yank`, kein Delete/Reuse).
+- **Kein echter `cargo publish`** (siehe Publish-Strategie oben — bis nach P3
+  aufgeschoben).
 - **Kein Edit am lean-ctx-Registry-Entry.** `addon_registry.json` ist seit PR #734
   **generiert** (`gen_registry` + Drift-Check-CI) → kein Handedit. Der Registry-
   Eintrag drüben ist ein **Handoff** (Snippet unten), Arbeit im lean-ctx-Repo.
