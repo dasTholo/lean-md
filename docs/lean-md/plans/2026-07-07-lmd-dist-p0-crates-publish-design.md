@@ -133,7 +133,7 @@ Plus `min_lean_ctx = "3.9.2"` und `network = "full"` im Entry spiegeln.
 | Fragment-Consistency-Gate + Determinismus-Suite (#498) grün | ✅ | Plan |
 | `cargo publish` (echt) | ⛔ out-of-scope | Maintainer |
 | `cargo install lean-md --version 0.2.0` → `lean-md mcp` antwortet | ⛔ out-of-scope | Maintainer |
-| `addon add lean-md` end-to-end | ⚠️ erst mit lean-ctx **3.9.2** (lokal 3.9.1) | Follow-up |
+| `addon add lean-md` end-to-end | ⚠️ P1+-Thema; braucht **3.9.2**-Binary (Source ist 3.9.2, PATH-Binary meldet noch 3.9.1 → reinstall) | Follow-up |
 
 **Determinismus (#498):** reine Metadaten-/Manifest-Edits, kein Render-Output
 betroffen — die Determinismus- und Fragment-Consistency-Gates müssen unverändert
@@ -146,9 +146,11 @@ grün bleiben.
   API-inkompatibel zur lokalen `path`-Version ist. Mitigation: `mcp`-Feature gegen
   die **crates.io**-`lean-ctx-client 0.1.0` bauen (path temporär entfernen und
   `cargo build --features mcp` prüfen), bevor der Maintainer publisht.
-- **`min_lean_ctx=3.9.2` vs. lokal 3.9.1:** end-to-end-`addon add` lokal nicht
-  verifizierbar. Bewusst akzeptiert — P0 liefert das publish-ready Artefakt, nicht
-  den grünen Live-Roundtrip (der hängt am Core-Release drüben).
+- **Installierter Binary meldet 3.9.1, Source/CHANGELOG ist 3.9.2:** die
+  Distribution-Rails (#725/#726) sind in 3.9.2, aber der auf PATH laufende
+  `lean-ctx` ist noch 3.9.1 → für P1+-Live-Tests (`addon publish`, `[artifacts]`)
+  muss die 3.9.2-Build neu installiert werden. **P0 braucht kein `addon add`** —
+  nur cargo — und ist davon unberührt.
 
 ## Definition of Done (diese Session)
 
