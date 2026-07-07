@@ -25,16 +25,16 @@ Verifikations-Gate** — es läuft in P0 (und bleibt in P1–P3 grün), aber **n
 geht nach crates.io**, bevor der Skills-Pack (P3) steht.
 
 Begründung: crates.io ist append-only (Publish irreversibel, nur `yank`). Ein
-einziger scharfer Publish am Ende vermeidet verbrauchte Zwischenversionen. P1/P2
-bumpen die Crate-Version ohnehin nicht; nur P3 zieht sie (evtl. auf `0.3.0`). Der
-finale Publish + die `cargo install`-Verifikation macht der Maintainer (@dasTholo)
-selbst.
+einziger scharfer Publish am Ende vermeidet verbrauchte Zwischenversionen. **Die
+Version bleibt durchgehend `0.2.0`** — da der erste und einzige Publish nach P3
+erfolgt, enthält `0.2.0` bereits P0–P3 (inkl. Skills-Pack); es gibt keinen
+`0.3.0`-Zwischenschritt. Der finale Publish + die `cargo install`-Verifikation
+macht der Maintainer (@dasTholo) selbst.
 
 **Folgen für den Sync-Vertrag:** solange nicht publiziert ist, kann der lean-ctx-
 `feat-lmd-v2`-Registry-Entry auf **keine** echte Version zeigen → er bleibt
-ebenfalls „vorbereitet, nicht live". Die **finale Publish-Version wird nach P3
-abgeglichen** (`0.2.0` vs. `0.3.0`). Die Config dieser Session zielt auf `0.2.0`
-als Sync-Anker; die Versionsnummer ist beim finalen Publish nochmals zu bestätigen.
+ebenfalls „vorbereitet, nicht live". `0.2.0` ist und bleibt der Sync-Anker
+(crates.io == `[install].version`).
 
 ## Abgrenzung — was diese Session NICHT tut
 
