@@ -19,8 +19,16 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
+          toolchain: stable
           targets: x86_64-unknown-linux-gnu
-      - name: Build (CLI-only, default features)
+      # .cargo/config.toml + rust-toolchain.toml are dev-only accelerators (mold
+      # linker via clang, Cranelift codegen, nightly, jobs=24). They break a
+      # portable release build on a clean runner (no mold) and force nightly.
+      # Remove them so the release binary builds hermetically on stable with the
+      # default linker. The checkout is ephemeral — the committed files are untouched.
+      - name: Neutralize dev-only cargo config for a portable release
+        run: rm -f .cargo/config.toml rust-toolchain.toml
+      - name: Build (CLI-only, default features — stable, default linker)
         run: cargo build --release --locked --target x86_64-unknown-linux-gnu
       - name: Package
         run: |
