@@ -1,11 +1,42 @@
 # Design: lean-md P0 — crates.io-Publish-ready + `[install] manager=cargo`
 
+> # ⛔ ÜBERHOLT (2026-07-08) — crates.io verworfen
+>
+> Dieses Design (crates.io-Publish + `[install] manager=cargo`) ist **nicht mehr** der
+> Umsetzungsweg. lean-md wird nur über `addon add` konsumiert → der Binary-Kanal ist der
+> **`[artifacts]`-Block** (prebuilt Binaries von GitHub-Release, lean-ctx lädt + verifiziert
+> SHA-256). Maßgeblich sind:
+> - **Plan:** `docs/lean-md/plans/2026-07-08-lmd-dist-p0-artifacts-release-plan.lmd.md`
+> - **Kontext/Roadmap:** `lean-md-next-session.prompt.md` (2026-07-08-Pivot)
+>
+> Dieses Doc bleibt als **Entscheidungshistorie** erhalten. Übertrag der Review-Befunde:
+> - **B3** (Registry-Entry drüben live + pinnt 0.2.0 → `addon add` rot bis Release) **gilt weiter**.
+> - **B1** (`[install]`-Schema) → **ersetzt** durch das `[artifacts]`-Schema (filename/url/sha256).
+> - **B2** (`[[example]]`-Publish-Verify) → **gegenstandslos** (kein `cargo publish` mehr).
+> - lean-ctx-Gegenstück-Branch ist **`pr-rebuild`** (nicht `feat-lmd-v2`, wie unten noch steht).
+
 - **Datum:** 2026-07-07
 - **Branch:** `feat-lmd-v2` (Gegenstück in lean-ctx: gleichnamig)
 - **Scope:** **nur P0** (Binary-Kanal). P1–P3 sind separate Sessions — als Follow-ups
   in der lean-ctx-Knowledge festgehalten (`lean-md-dist-follow-up-p1/p2/p3`), nicht hier.
 - **Quellen (verifiziert):** PR #721 (3 Maintainer-Kommentare), EPIC #724,
   Issues #725/#726/#727, `docs/specs/unified-distribution-v1.md` (lean-ctx-Repo).
+
+> **Review 2026-07-08 (Design-Überprüfung, lean-ctx-Seite erfüllt):** Vier
+> Korrekturen gegen den Ist-Zustand eingefolded:
+> - **B1** Pre-Flight ergänzt — `docs/CONTRACT.md` ist auf `2946c165a` (prä-Rails)
+>   gepinnt und dokumentiert **keinen** `[install]`-Block → re-vendorn + Feldnamen
+>   verifizieren, bevor das Manifest editiert wird (siehe „0. Pre-Flight").
+> - **B2** `[[example]]` aus dem Publish genommen (blockierte sonst den
+>   dry-run-Verify-Build) — siehe Änderung 4.
+> - **B3** „Sync-Vertrag"-Absatz korrigiert: der Registry-Entry drüben ist bereits
+>   **live und pinnt 0.2.0** → bewusstes Dangling-Fenster bis Post-P3-Publish
+>   (nicht „vorbereitet, nicht live").
+> - **B3-Staleness** Risiko #2 (3.9.1) obsolet — installierter `lean-ctx` ist
+>   jetzt **3.9.2**.
+> Bestätigt: `lean-ctx-client 0.1.0` liegt real auf crates.io; `README.md`
+> existiert (readme-Pin safe); Capability-Enum ist `none|full` → `network="full"`
+> korrekt.
 
 ## Ziel
 
@@ -31,10 +62,17 @@ erfolgt, enthält `0.2.0` bereits P0–P3 (inkl. Skills-Pack); es gibt keinen
 `0.3.0`-Zwischenschritt. Der finale Publish + die `cargo install`-Verifikation
 macht der Maintainer (@dasTholo) selbst.
 
-**Folgen für den Sync-Vertrag:** solange nicht publiziert ist, kann der lean-ctx-
-`feat-lmd-v2`-Registry-Entry auf **keine** echte Version zeigen → er bleibt
-ebenfalls „vorbereitet, nicht live". `0.2.0` ist und bleibt der Sync-Anker
-(crates.io == `[install].version`).
+**Folgen für den Sync-Vertrag (korrigiert 2026-07-08 — B3):** der lean-ctx-
+`feat-lmd-v2`-Registry-Entry ist bereits **live** und pinnt `0.2.0`. Da `lean-md`
+noch **nicht** auf crates.io liegt (verifiziert: NoSuchKey), ist das ein **bewusst
+in Kauf genommenes Dangling-Fenster**: `lean-ctx addon add lean-md` liefert bis
+zum Post-P3-`cargo publish` einen Fetch-Fehler (crates.io kennt `lean-md` noch
+nicht). Das ist ein **bekannter, dokumentierter Zustand** — nicht „vorbereitet,
+nicht live". `0.2.0` bleibt der Sync-Anker (crates.io == `[install].version`); der
+Maintainer (@dasTholo) schließt das Fenster mit dem einmaligen Post-P3-Publish.
+∴ P0 macht den Binary-Kanal **publish-ready**, aber der end-to-end-`addon add`
+bleibt bis dahin erwartungsgemäß rot — das ist keine Regression, sondern der
+vereinbarte Zwischenzustand.
 
 ## Abgrenzung — was diese Session NICHT tut
 
@@ -46,6 +84,44 @@ ebenfalls „vorbereitet, nicht live". `0.2.0` ist und bleibt der Sync-Anker
 - **Kein Skills-Ausbau (P3).** Skills bleiben `include_str!`-embedded.
 
 ## Änderungen
+
+### 0. Pre-Flight (B1) — `docs/CONTRACT.md` re-vendorn, `[install]`-Schema verifizieren
+
+**Blocker vor jedem Manifest-Edit.** Das vendored `docs/CONTRACT.md` ist auf
+lean-ctx `2946c165a` gepinnt (prä-Distribution-Rails) und dokumentiert **nur**
+`[addon]`/`[mcp]`/`[capabilities]` — **keinen `[install]`-Block**. Die Feldnamen
+`manager/package/version/bin` stammen aus der lean-ctx-Repo-Spec (PR #721), **nicht**
+aus dem vendored Kontrakt. Projekt-Regel (`AGENTS.md`): „Never reconstruct schemas
+from memory; CONTRACT.md ist die Quelle."
+
+**Verifiziert 2026-07-08:** Die `[install]`-Schema-Quelle ist **nicht** die
+Manifest-Contract-Doc (die kennt den Block nicht), sondern
+`docs/dev/addon-bootstrap-engine.md` im lean-ctx-Repo. Die Feldnamen des Designs
+**stimmen exakt** (bestätigt gegen die Quelle):
+
+```toml
+[install]
+manager = "cargo"   # Enum: pip|uv|cargo|npm|brew|dotnet
+package = "lean-md"
+version = "0.2.0"   # MANDATORY exakter Pin (keine Ranges/latest), sonst validate()-Reject
+bin     = "lean-md"
+# verify = [...]     # optional; ohne verify prüft die Engine `bin` auf PATH
+```
+
+Enforced by `AddonInstall::validate()`; `cargo`-argv = `cargo install {base}
+--version {version}` → `cargo install lean-md --version 0.2.0` (deckt sich mit der
+out-of-scope-Verifikationszeile). `package/version/bin` dürfen keine
+Shell-Metazeichen enthalten — `lean-md` ist sauber.
+
+Schritte (Task 1 im Plan):
+1. Den `[install]`-Schema-Block als **lokales vendored Addendum** in `docs/CONTRACT.md`
+   festhalten (Quelle + lean-ctx-Commit zitieren) — die Manifest-Contract-Doc allein
+   deckt ihn nicht ab, künftige Arbeit soll ihn lokal nachschlagen können.
+2. Feldnamen bestätigt (s.o.) → Änderung 2 (`lean-ctx-addon.toml`) mit exakt diesen
+   Feldern schreiben.
+
+∴ B1 ist damit von „unbekannt/Blocker" auf „bestätigt, nur lokal vendoren"
+zurückgestuft — kein Feldnamen-Drift.
 
 ### 1. `Cargo.toml` — publish-ready
 
@@ -123,6 +199,34 @@ bin     = "lean-md"
 
 Plus `min_lean_ctx = "3.9.2"` und `network = "full"` im Entry spiegeln.
 
+> **Status 2026-07-08:** drüben **erledigt** — der Entry ist live und pinnt `0.2.0`
+> (B3). Dieser Abschnitt ist damit retrospektiv der erfüllte Handoff, nicht mehr
+> offene Arbeit. Die Konsequenz (Dangling bis Publish) steht in der Publish-Strategie.
+
+### 4. `Cargo.toml` — `[[example]]` aus dem Publish nehmen (B2)
+
+```diff
+-[[example]]
+-name = "skill-token-comparison"
+-path = "benchmarks/skill-token-comparison/main.rs"
+```
+
+**Begründung:** `cargo publish --dry-run` fährt standardmäßig einen Verify-Build,
+der **alle deklarierten Targets** (inkl. Examples) kompiliert. `benchmarks/**` ist
+**nicht** in `include` → die Example-Quelle fehlt im gepackten Crate → der
+Verify-Build scheitert. Der Token-Vergleich ist ein **Bench-Harness**, gehört nicht
+ins veröffentlichte Binary-Crate.
+
+- Der Stanza-Entfall macht `benchmarks/skill-token-comparison/main.rs` zu einem
+  **nicht-deklarierten** Cargo-Target — die Datei bleibt on-disk (git-tracked),
+  wird aber beim Publish-Verify nicht mehr gebaut.
+- `tiktoken-rs` bleibt `dev-dependency` (nur der Harness braucht es; keine Wirkung
+  aufs Publish-Paket).
+- Alternative (verworfen): `benchmarks/**` in `include` — würde den Harness ins
+  veröffentlichte Crate ziehen; unnötiger Ballast für ein CLI-Binary.
+- Falls der Harness weiter per `cargo run --example` laufbar sein soll, später als
+  **nicht-publizierter Workspace-Member** wieder einhängen (out-of-scope P0).
+
 ## Install-UX (Endzustand nach P3) — ein Befehl, zwei Kanäle
 
 **Forward-looking, nicht P0-Arbeit** — aber es rahmt, wofür die `[install]`-Config
@@ -164,11 +268,13 @@ legt nur den `[install]`-Block (Binary-Kanal), auf dem P3 aufsetzt.
 |---|---|---|
 | `cargo build` (default) + `cargo build --features mcp` grün | ✅ | Plan |
 | `cargo fmt` + `cargo nextest run` grün (keine Regression) | ✅ | Plan |
-| `cargo publish --dry-run` sauber (keine path-only deps, Metadaten valide) | ✅ | Plan |
+| `docs/CONTRACT.md` re-vendort (3.9.2) + `[install]`-Feldnamen verifiziert (B1) | ✅ | Plan |
+| `[[example]]` aus `Cargo.toml` entfernt → Publish-Verify baut keinen Bench (B2) | ✅ | Plan |
+| `cargo publish --dry-run` sauber (keine path-only deps, Metadaten valide, kein Example-Verify-Fail) | ✅ | Plan |
 | Fragment-Consistency-Gate + Determinismus-Suite (#498) grün | ✅ | Plan |
 | `cargo publish` (echt) | ⛔ out-of-scope | Maintainer |
 | `cargo install lean-md --version 0.2.0` → `lean-md mcp` antwortet | ⛔ out-of-scope | Maintainer |
-| `addon add lean-md` end-to-end | ⚠️ P1+-Thema; braucht **3.9.2**-Binary (Source ist 3.9.2, PATH-Binary meldet noch 3.9.1 → reinstall) | Follow-up |
+| `addon add lean-md` end-to-end | ⚠️ P1+-Thema; PATH-`lean-ctx` ist **3.9.2** (kein Reinstall mehr nötig). Bleibt bis Post-P3-Publish erwartungsgemäß rot (Dangling-Fenster, B3) | Follow-up |
 
 **Determinismus (#498):** reine Metadaten-/Manifest-Edits, kein Render-Output
 betroffen — die Determinismus- und Fragment-Consistency-Gates müssen unverändert
@@ -181,15 +287,22 @@ grün bleiben.
   API-inkompatibel zur lokalen `path`-Version ist. Mitigation: `mcp`-Feature gegen
   die **crates.io**-`lean-ctx-client 0.1.0` bauen (path temporär entfernen und
   `cargo build --features mcp` prüfen), bevor der Maintainer publisht.
-- **Installierter Binary meldet 3.9.1, Source/CHANGELOG ist 3.9.2:** die
-  Distribution-Rails (#725/#726) sind in 3.9.2, aber der auf PATH laufende
-  `lean-ctx` ist noch 3.9.1 → für P1+-Live-Tests (`addon publish`, `[artifacts]`)
-  muss die 3.9.2-Build neu installiert werden. **P0 braucht kein `addon add`** —
-  nur cargo — und ist davon unberührt.
+- **~~Installierter Binary meldet 3.9.1~~ — aufgelöst (2026-07-08):** der auf PATH
+  laufende `lean-ctx` ist **jetzt 3.9.2** (`lean-ctx --version` verifiziert), also
+  identisch zu Source/CHANGELOG. Die Distribution-Rails (#725/#726) sind live; der
+  frühere Reinstall-Vorbehalt für P1+-Live-Tests entfällt. **P0 braucht ohnehin
+  kein `addon add`** (nur cargo) — der Punkt ist damit gegenstandslos.
+- **`[install]`-Schema-Drift (neu, B1):** der lokale vendored Kontrakt kennt den
+  Block nicht (siehe „0. Pre-Flight") → Feldnamen erst nach Re-Vendorn fixieren.
 
 ## Definition of Done (diese Session)
 
-- `Cargo.toml` + `lean-ctx-addon.toml` wie oben; `cargo publish --dry-run` sauber;
+- **Pre-Flight (B1):** `docs/CONTRACT.md` aus 3.9.2 re-vendort, `[install]`-Feldnamen
+  gegen die frische Quelle verifiziert **bevor** das Manifest editiert wird.
+- `Cargo.toml` (inkl. `[[example]]`-Entfall, B2) + `lean-ctx-addon.toml` wie oben;
+  `cargo publish --dry-run` sauber (kein Example-Verify-Fail);
   `cargo build --features mcp` gegen crates.io-`lean-ctx-client` grün; Tests + fmt
   + Determinismus-Gates grün; Registry-Handoff-Snippet im Spec dokumentiert.
+- **Sync-Realität (B3) dokumentiert:** Registry-Entry drüben live + pinnt 0.2.0 →
+  `addon add` bis Post-P3-Publish erwartungsgemäß rot (kein Bug).
 - **Nicht** enthalten: scharfer Publish, Live-`addon add`, P1–P3.
