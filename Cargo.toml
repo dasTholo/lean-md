@@ -1,11 +1,12 @@
 [package]
 name = "lean-md"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.96"
 license = "Apache-2.0"
 description = "Macro/directive markdown renderer for lean-ctx context engineering."
 homepage = "https://github.com/dasTholo/lean-md"
+repository = "https://github.com/dasTholo/lean-md"
 include = ["src/**/*.rs", "content/**/*.lmd.md", "content/**/*.md", "Cargo.toml", "README.md", "INSTALL.md", "LICENSE", "docs/CONTRACT.md"]
 
 [lib]
