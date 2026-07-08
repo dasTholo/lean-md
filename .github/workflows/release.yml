@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build x86_64-unknown-linux-gnu
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4 # v4
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - name: Build (CLI-only, default features)
+        run: cargo build --release --locked --target x86_64-unknown-linux-gnu
+      - name: Package
+        run: |
+          cd target/x86_64-unknown-linux-gnu/release
+          tar czf ../../../lean-md-x86_64-unknown-linux-gnu.tar.gz lean-md
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: lean-md-x86_64-unknown-linux-gnu
+          path: lean-md-x86_64-unknown-linux-gnu.tar.gz
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          merge-multiple: true
+      - name: Generate checksums
+        run: sha256sum lean-md-*.tar.gz > SHA256SUMS
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: |
+            lean-md-*.tar.gz
+            SHA256SUMS
+
+  sync-manifest:
+    name: Sync [artifacts] sha256 into lean-ctx-addon.toml
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4 # v4
+        with:
+          ref: feat-lmd-v2
+      - name: Download checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "${GITHUB_REF_NAME}" --pattern SHA256SUMS --dir .
+      - name: Patch [artifacts] sha256
+        run: |
+          SHA="$(grep 'lean-md-x86_64-unknown-linux-gnu.tar.gz' SHA256SUMS | awk '{print $1}')"
+          python3 - "$SHA" <<'PY'
+          import re, sys
+          sha = sys.argv[1]
+          path = "lean-ctx-addon.toml"
+          src = open(path).read()
+          # Replace the 64-hex sha256 inside [artifacts.x86_64-unknown-linux-gnu] only.
+          patched = re.sub(
+              r'(\[artifacts\.x86_64-unknown-linux-gnu\][^\[]*?sha256\s*=\s*")[0-9a-f]{64}(")',
+              lambda m: m.group(1) + sha + m.group(2),
+              src, flags=re.S)
+          if patched == src:
+              raise SystemExit("sha256 slot not found or unchanged")
+          open(path, "w").write(patched)
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add lean-ctx-addon.toml
+          git diff --cached --quiet || git commit -m "chore(release): sync [artifacts] sha256 for ${GITHUB_REF_NAME}"
+          git push
