@@ -13,8 +13,28 @@ min_lean_ctx = "3.9.2"
 #           hand-written manifest. Trust is conferred by the registry, not the entry.
 
 [artifacts.x86_64-unknown-linux-gnu]
-filename = "lean-md-x86_64-unknown-linux-gnu.tar.gz"
-url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.0/lean-md-x86_64-unknown-linux-gnu.tar.gz"
+filename = "lean-md-x86_64-unknown-linux-gnu"
+url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.0/lean-md-x86_64-unknown-linux-gnu"
+sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
+
+[artifacts.aarch64-unknown-linux-gnu]
+filename = "lean-md-aarch64-unknown-linux-gnu"
+url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.0/lean-md-aarch64-unknown-linux-gnu"
+sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
+
+[artifacts.x86_64-apple-darwin]
+filename = "lean-md-x86_64-apple-darwin"
+url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.0/lean-md-x86_64-apple-darwin"
+sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
+
+[artifacts.aarch64-apple-darwin]
+filename = "lean-md-aarch64-apple-darwin"
+url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.0/lean-md-aarch64-apple-darwin"
+sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
+
+[artifacts.x86_64-pc-windows-msvc]
+filename = "lean-md-x86_64-pc-windows-msvc.exe"
+url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.0/lean-md-x86_64-pc-windows-msvc.exe"
 sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
 
 [mcp]
