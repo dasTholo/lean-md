@@ -373,6 +373,8 @@ checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 [[package]]
 name = "lean-ctx-client"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aac3df26d6bd5afc8c5f1f1dee9802a98b433f8a2795274584f4fb2c5e48ea70"
 dependencies = [
  "serde",
  "serde_json",
@@ -382,7 +384,7 @@ dependencies = [
 
 [[package]]
 name = "lean-md"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "evalexpr",
