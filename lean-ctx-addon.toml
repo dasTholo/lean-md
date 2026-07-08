@@ -15,7 +15,7 @@ min_lean_ctx = "3.9.2"
 [artifacts.x86_64-unknown-linux-gnu]
 filename = "lean-md-x86_64-unknown-linux-gnu.tar.gz"
 url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.0/lean-md-x86_64-unknown-linux-gnu.tar.gz"
-sha256   = "99c623e7281144219f70ce4099bb7f8dea1f004953a3061e9b497fc109f4ee8e"
+sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
 
 [mcp]
 transport = "stdio"
