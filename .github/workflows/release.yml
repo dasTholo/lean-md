@@ -103,21 +103,36 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release download "${GITHUB_REF_NAME}" --pattern SHA256SUMS --dir .
-      - name: Patch [artifacts] sha256
+      - name: Patch [artifacts] sha256 (all triples)
         run: |
-          SHA="$(grep 'lean-md-x86_64-unknown-linux-gnu.tar.gz' SHA256SUMS | awk '{print $1}')"
-          python3 - "$SHA" <<'PY'
-          import re, sys
-          sha = sys.argv[1]
+          python3 - <<'PY'
+          import re
           path = "lean-ctx-addon.toml"
           src = open(path).read()
-          # Replace the 64-hex sha256 inside [artifacts.x86_64-unknown-linux-gnu] only.
-          patched = re.sub(
-              r'(\[artifacts\.x86_64-unknown-linux-gnu\][^\[]*?sha256\s*=\s*")[0-9a-f]{64}(")',
-              lambda m: m.group(1) + sha + m.group(2),
-              src, flags=re.S)
+          expected = set(re.findall(r'\[artifacts\.([^\]]+)\]', src))
+          patched = src
+          seen = set()
+          for line in open("SHA256SUMS"):
+              line = line.strip()
+              if not line:
+                  continue
+              parts = line.split()
+              sha, asset = parts[0], parts[-1].lstrip("*")
+              triple = asset[len("lean-md-"):]
+              if triple.endswith(".exe"):
+                  triple = triple[: -len(".exe")]
+              patched, n = re.subn(
+                  r'(\[artifacts\.' + re.escape(triple) + r'\][^\[]*?sha256\s*=\s*")[0-9a-f]{64}(")',
+                  lambda m: m.group(1) + sha + m.group(2),
+                  patched, flags=re.S)
+              if n != 1:
+                  raise SystemExit(f"block [artifacts.{triple}] not patched (matched {n})")
+              seen.add(triple)
+          missing = expected - seen
+          if missing:
+              raise SystemExit(f"no SHA256SUMS entry for: {sorted(missing)}")
           if patched == src:
-              raise SystemExit("sha256 slot not found or unchanged")
+              raise SystemExit("no sha256 slot changed")
           open(path, "w").write(patched)
           PY
       - name: Commit
