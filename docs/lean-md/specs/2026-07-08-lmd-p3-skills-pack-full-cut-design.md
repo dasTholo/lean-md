@@ -32,7 +32,7 @@ Heute fließt `content/skills/` über **drei** unabhängige `include_str!`-Kanä
 | Kanal | Datei | Inhalt | Zweck | Full-Cut? |
 |---|---|---|---|---|
 | **1. Render-Quelle** | `src/skills.rs` | 8 Skill-Bodies + ~17 Companions | Render-Zeit (`render_skill`, `companion_body`) | **→ Pack** |
-| **2. Install-Materializer** | `src/skill_install.rs` | 8 SKILL.md-Stubs + 6 `ASSETS` (`scripts/server.cjs`, `helper.js`, `frame-template.html`, `start-server.sh`, `stop-server.sh`, `render-graphs.js`) | schreibt sie beim Install nach `.claude/skills/<name>/…` | **→ Pack** |
+| **2. Install-Materializer** | `src/skill_install.rs` | 8 SKILL.md-Stubs + 6 `ASSETS`: 5 unter `lmd-brainstorm/scripts/` (`server.cjs`, `helper.js`, `frame-template.html`, `start-server.sh`, `stop-server.sh`) **+ `lmd-writing-skills/render-graphs.js`** (anderes Skill, **kein** `scripts/`-Prefix) | schreibt sie beim Install nach `.claude/skills/<name>/…` | **→ Pack** |
 | **3. Core-Fragmente** | `src/fragments.rs` | 3 `_includes/`-Seeds (`test-first-core`, `skill-authoring-core`, `brainstorm-gate`) + `hard-rules`, `dispatch-contract`, `parallel-dispatch` | Skill-Bodies `@include`en sie zur Render-Zeit | **bleibt embedded (Infra)** |
 
 **Warum Kanal 3 embedded bleibt:** Ein pack-gelieferter Body macht `@include hard-rules`
@@ -56,7 +56,10 @@ Ersetzt die heutige embedded-`skill_body()`-Quelle durch eine Kaskade:
    — gated auf `cfg(debug_assertions)` + Pfad-Existenz; im Release-Binary inert (kein
    `content/` daneben).
 
-`companion_body` bekommt dieselbe Kaskade.
+`companion_body` bekommt dieselbe Kaskade. **Registry-Umbau (Task 3):** die
+`SKILLS`/`COMPANIONS`-Tabellen mappen heute Name→`&'static str`-Body; nach dem Cut mappen
+sie Name→**Relativpfad** (`skills/<name>/body.lmd.md`), damit die gültigen Namen erhalten
+bleiben und die Kaskade Pack-relativ auflösen kann.
 
 ### 2.2 Runtime-Pack-Pfad — Arbeitshypothese (Task-1-gated)
 
