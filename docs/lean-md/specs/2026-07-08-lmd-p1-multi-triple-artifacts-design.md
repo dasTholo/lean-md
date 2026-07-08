@@ -29,10 +29,10 @@ funktionierende `addon add` nötig ist — siehe „Kern-Invariante" unten.
 ## Kern-Invariante (verifiziert am lean-ctx-Quellcode)
 
 Der `[artifacts]`-Downloader **entpackt nichts**. `fetch_verified`
-(`rust/src/core/addons/artifact_install.rs:93–162`) lädt die URL-Bytes, schreibt sie **verbatim**
+(`rust/src/core/addons/artifact_install.rs`, fn ~L101) lädt die URL-Bytes, schreibt sie **verbatim**
 nach `<managed_bin_dir>/<filename>`, verifiziert den SHA-256 **dieser Bytes**, `chmod 0o555`,
-`rename`. `ensure_addon_binary:177`: `dest = managed_bin_dir.join(filename)`. Es existiert **kein**
-tar/gzip/zip-Pfad. Der Doc-Kommentar (`artifact_install.rs:33`) nennt als Beispiel wörtlich
+`rename`. `ensure_addon_binary` (L169): `dest = managed_bin_dir.join(filename)`. Es existiert **kein**
+tar/gzip/zip-Pfad. Der Doc-Kommentar (`artifact_install.rs` L33) nennt als Beispiel wörtlich
 `lean-md-aarch64-apple-darwin` — nackt, ohne Extension; `docs/guides/addons.md` §„Install on add"
 zeigt dieselbe Konvention. **Das geladene Asset _ist_ die Binary, Byte für Byte.**
 
@@ -102,6 +102,9 @@ invasiv, Reorder-Risiko.
 - **Bestehenden x86_64-Block auf bare-binary korrigieren** (P0-Fix: `.tar.gz` raus).
 - `[addon].version = "0.2.0"`, `min_lean_ctx = "3.9.2"`, `[capabilities].network = "none"` bleiben.
   **Kein `[install]`-Block.**
+- **Kein Bug:** `[mcp].command = "lean-md"` bleibt ≠ `filename = "lean-md-<triple>"`. Die Gateway
+  überschreibt `command` beim `add` mit dem absoluten managed-bin-Pfad aus `ensure_addon_binary`
+  (`cli/addon_cmd.rs:474`). Nicht „angleichen".
 
 ### ⑤ Registry drüben (lean-ctx `pr-rebuild`)
 
