@@ -5,7 +5,7 @@
 > Inhalt als Start-Prompt verwenden. Nicht committen.
 >
 > Erstellt: 2026-07-07 · **Umgebaut 2026-07-08: crates.io verworfen → GitHub-CI/`[artifacts]`** ·
-> Gegenstück-Branch in lean-ctx: `feat-lmd-v2`
+> Gegenstück-Branch in lean-ctx: `pr-rebuild`
 
 ---
 
@@ -78,7 +78,7 @@ sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
 - [ ] `default = []` bleibt (Release-Binary ist CLI-only). `lean-ctx-client` bleibt `path`-Dep
       hinter `mcp` — wird im Release-Build nicht gezogen.
 
-**3. Registry-Entry drüben (`feat-lmd-v2`)** — via `gen_registry`-Snapshot-Quelle (kein Handedit;
+**3. Registry-Entry drüben (`pr-rebuild`)** — via `gen_registry`-Snapshot-Quelle (kein Handedit;
 `gen_registry --check` ist CI-Gate). Aktuell pinnt der Entry noch `[install] manager=cargo` → auf
 `[artifacts.x86_64-unknown-linux-gnu]` (filename/url/sha256 == Manifest) umstellen, `min_lean_ctx = "3.9.2"`.
 
@@ -178,7 +178,7 @@ einen separaten, signierten, versionierten Pack.
 
 ### ⚠️ Achtung — bereits live stehender Registry-Entry (B3)
 
-Der lean-ctx-`feat-lmd-v2`-Registry-Entry ist bereits **live** und pinnt noch
+Der lean-ctx-`pr-rebuild`-Registry-Entry ist bereits **live** und pinnt noch
 `[install] manager=cargo, version=0.2.0`. Bis Phase A+B stehen (Release `v0.2.0` + echter SHA-256
 im `[artifacts]`-Block **und** Registry-Umstellung drüben), schlägt `addon add lean-md` fehl.
 **Reihenfolge zwingend: erst Release + SHA, dann Registry-Entry drüben umstellen** — sonst bleibt
@@ -186,7 +186,7 @@ im `[artifacts]`-Block **und** Registry-Umstellung drüben), schlägt `addon add
 
 ---
 
-## Koordination mit lean-ctx `feat-lmd-v2`
+## Koordination mit lean-ctx `pr-rebuild`
 
 - **Version-Pin ist der Vertrag:** GitHub-Release-Tag `v0.2.0` == `[artifacts]`/`[addon].version`
   hier == Version im Registry-Entry drüben. **Erst Release + SHA, dann drüben umstellen.**
