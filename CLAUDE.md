@@ -22,16 +22,21 @@
   crate; `Cargo.toml` + `src/` live at the repo root).
 - **No worktrees** — work directly on the current branch
 - **No Brief-/Report-Files**: ctx_session
-- **Rendering lmd-skills (this dev-repo)**: the `SKILL.md` stubs point at the MCP
-  tool `ctx_md_render`, which is **not registered** in this repo's lean-ctx
-  instance — that call fails. Render phases **directly via the CLI**; do NOT probe
-  MCP / `ctx_call` first:
+- **Rendering lmd-skills (this dev-repo)**: die `SKILL.md`-Stubs zeigen auf das MCP-Tool
+  `ctx_md_render`. Es liegt im Gateway-Katalog (dorthin delegiert `ctx_read`), steht dem
+  Agenten aber **nicht** als direktes Tool zur Verfügung. Rendere Phasen deshalb **direkt
+  über die CLI**; probiere nicht vorher MCP / `ctx_call`:
   `cargo run -q --bin lean-md -- render --skill <skill> --phase <phase> --consumer=ai`
-  (companion instead of phase: `--companion <name>`). **No release build** —
-  `cargo run` suffices (cached after the first compile).
-  Note: `ctx_read` einer `.lmd.md` liefert Roh-Source (Skill-/Plan-Quelle für
-  Edit-Anker lesen); Rendern/Preview ist explizit über die CLI (oben) bzw.
-  `ctx_md_render`.
+  (Companion statt Phase: `--companion <name>`). **Kein Release-Build** —
+  `cargo run` genügt (nach dem ersten Compile gecached).
+- **`.lmd.md` lesen**: `ctx_read` liefert **Roh-Source** wie bei jeder anderen Datei;
+  Rendern ist explizit und opt-in (CLI oben bzw. `ctx_md_render`).
+
+  > **Übergang (bis PR #721 gemergt ist):** das lokal gebaute lean-ctx (`pr-rebuild`) trägt
+  > noch die Auto-Render-Delegation — `try_lmd_addon_render` in
+  > `rust/src/tools/registered/ctx_read.rs` bekommt den `mode` gar nicht und rendert jede
+  > `.lmd.md`, **auch `mode=raw`**. Solange das so ist: Roh-Bytes ausschließlich über
+  > `lean-md source <file>`. Nach dem Merge entfällt dieser Absatz.
 
 ## Subagent-Driven Execution
 
