@@ -32,11 +32,13 @@
 - **`.lmd.md` lesen**: `ctx_read` liefert **Roh-Source** wie bei jeder anderen Datei;
   Rendern ist explizit und opt-in (CLI oben bzw. `ctx_md_render`).
 
-  > **Übergang (bis PR #721 gemergt ist):** das lokal gebaute lean-ctx (`pr-rebuild`) trägt
-  > noch die Auto-Render-Delegation — `try_lmd_addon_render` in
-  > `rust/src/tools/registered/ctx_read.rs` bekommt den `mode` gar nicht und rendert jede
-  > `.lmd.md`, **auch `mode=raw`**. Solange das so ist: Roh-Bytes ausschließlich über
-  > `lean-md source <file>`. Nach dem Merge entfällt dieser Absatz.
+  > **Nur diese Dev-Umgebung:** ein lokal aus dem lean-ctx-Branch `pr-rebuild` gebautes Binary
+  > trägt eine Auto-Render-Delegation — `try_lmd_addon_render`
+  > (`rust/src/tools/registered/ctx_read.rs`) bekommt den `mode` gar nicht und rendert jede
+  > `.lmd.md`, **auch `mode=raw`**. Sie ist **nie in `upstream/main`** gelangt, also hat kein
+  > veröffentlichtes lean-ctx dieses Verhalten. Solange du gegen ein `pr-rebuild`-Binary
+  > arbeitest: Roh-Bytes über `lean-md source <file>`. Der Absatz entfällt, sobald PR #721
+  > die Delegation entfernt.
 
 ## Subagent-Driven Execution
 

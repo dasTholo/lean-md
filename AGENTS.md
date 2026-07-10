@@ -97,11 +97,12 @@ Native Edit/Write/Glob stay as-is; use `ctx_edit` only when Edit needs an unavai
 `.lmd.md` reads via `ctx_read` return **raw lmd source** (like any file) — rendering
 is explicit and opt-in (`ctx_md_render` / CLI `lean-md render … --phase`).
 
-> **Transitional (until PR #721 lands):** the locally built lean-ctx (`pr-rebuild`) still
-> carries the auto-render delegation. `try_lmd_addon_render`
-> (`rust/src/tools/registered/ctx_read.rs`) never receives `mode`, so it renders **every**
-> `.lmd.md` read — `mode=raw` included. Until the merge, get raw bytes with
-> `lean-md source <file>`. This note goes away with the delegation.
+> **This dev environment only:** a lean-ctx built locally from the `pr-rebuild` branch carries
+> an auto-render delegation. `try_lmd_addon_render` (`rust/src/tools/registered/ctx_read.rs`)
+> never receives `mode`, so it renders **every** `.lmd.md` read — `mode=raw` included. It never
+> reached `upstream/main`, so no released lean-ctx behaves this way. While you work against a
+> `pr-rebuild` binary, get raw bytes with `lean-md source <file>`. This note goes away once
+> PR #721 removes the delegation.
 
 OUTPUT STYLE: dense
 
