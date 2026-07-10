@@ -24,6 +24,7 @@ pub mod render;
 pub mod seeds;
 pub mod signatures;
 pub mod skill_install;
+pub mod skill_source;
 pub mod skill_vars;
 pub mod skills;
 #[cfg(test)]
