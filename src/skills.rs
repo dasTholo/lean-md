@@ -1,5 +1,6 @@
-//! Embedded lmd skill bodies + phase-isolated render-on-invoke (Spec §5.4).
-//! Bodies ship as `include_str!`-embedded seeds (binary-only, byte-stable #498);
+//! lmd skill registry + phase-isolated render-on-invoke (Spec §5.4).
+//! Bodies and companions resolve through the `skill_source` cascade
+//! (overlay → pack store → debug fallback, #727), byte-stable per #498;
 //! `ctx_md_render(skill, phase)` renders one isolated phase against them.
 
 use std::path::PathBuf;
