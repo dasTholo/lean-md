@@ -136,6 +136,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn skill_md_resolves_every_installable_skill() {
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for name in INSTALLABLE_SKILLS {
+            let body = skill_md(name, &jail).unwrap_or_else(|e| {
+                panic!("installable skill {name} SKILL.md must resolve through the cascade: {e}")
+            });
+            assert!(
+                !body.is_empty(),
+                "installable skill {name} SKILL.md must be non-empty"
+            );
+        }
+    }
+
+    #[test]
     fn claude_state_dir_honors_config_dir() {
         // SAFETY: single-threaded nextest process-per-test isolates env mutation.
         unsafe { std::env::set_var("CLAUDE_CONFIG_DIR", "/tmp/pinned-claude") };
