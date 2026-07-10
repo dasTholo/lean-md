@@ -1,0 +1,66 @@
+name: Pack Drift
+
+on:
+  push:
+    paths:
+      - 'content/skills/**'
+      - 'content/skills.sha256'
+      - 'content/skills.ctxpkg-hash'
+      - 'tests/pack_drift.rs'
+  pull_request:
+    paths:
+      - 'content/skills/**'
+      - 'content/skills.sha256'
+      - 'content/skills.ctxpkg-hash'
+      - 'tests/pack_drift.rs'
+
+permissions:
+  contents: read
+
+jobs:
+  manifest:
+    name: Content manifest is in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+      - name: Neutralize dev-only cargo config
+        run: rm -f .cargo/config.toml rust-toolchain.toml
+      - name: Drift gate
+        run: cargo test --test pack_drift
+
+  ctxpkg-hash:
+    name: lean-ctx content_hash cross-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 # v4
+        with:
+          persist-credentials: false
+      - name: Fetch the lean-ctx binary (min_lean_ctx from the addon manifest)
+        run: |
+          VER=$(python3 -c "import tomllib;print(tomllib.load(open('lean-ctx-addon.toml','rb'))['addon']['min_lean_ctx'])")
+          curl -fsSL "https://github.com/yvgude/lean-ctx/releases/download/v${VER}/lean-ctx-x86_64-unknown-linux-gnu.tar.gz" | tar xz
+          chmod +x lean-ctx
+      - name: Build the pack and compare its content_hash
+        run: |
+          ./lean-ctx pack create --kind skills \
+            --name @dasTholo/lean-md-skills \
+            --version "0.0.0-cihash" \
+            --from content/skills \
+            --description "lean-md skills (CI drift check)" | tee create.log
+          export PKG_DIR=$(sed -n 's/^ *Location: *//p' create.log)
+          test -n "$PKG_DIR" || { echo "pack create printed no Location"; exit 1; }
+          python3 - <<'PY'
+          import json, os, sys
+          pkg = os.environ["PKG_DIR"]
+          got = json.load(open(f"{pkg}/manifest.json"))["integrity"]["content_hash"]
+          want = open("content/skills.ctxpkg-hash").read().strip()
+          if got != want:
+              sys.exit(f"lean-ctx content_hash drift: pack={got} checked-in={want}\n"
+                       f"Update content/skills.ctxpkg-hash, bump the pack version, republish.")
+          print("OK content_hash matches", got)
+          PY
