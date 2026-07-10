@@ -6,78 +6,27 @@
 
 use std::path::{Path, PathBuf};
 
-const TDD_SKILL_MD: &str = include_str!("../content/skills/lmd-test-driven-development/SKILL.md");
-const BRAINSTORM_SKILL_MD: &str = include_str!("../content/skills/lmd-brainstorm/SKILL.md");
-const WRITING_SKILLS_SKILL_MD: &str = include_str!("../content/skills/lmd-writing-skills/SKILL.md");
-const WRITING_PLANS_SKILL_MD: &str = include_str!("../content/skills/lmd-writing-plans/SKILL.md");
-const SDD_SKILL_MD: &str =
-    include_str!("../content/skills/lmd-subagent-driven-development/SKILL.md");
-const EXECUTING_PLANS_SKILL_MD: &str =
-    include_str!("../content/skills/lmd-executing-plans/SKILL.md");
-const FINISHING_SKILL_MD: &str =
-    include_str!("../content/skills/lmd-finishing-a-development-branch/SKILL.md");
-const DISPATCHING_PARALLEL_AGENTS_SKILL_MD: &str =
-    include_str!("../content/skills/lmd-dispatching-parallel-agents/SKILL.md");
-
-/// Installable lmd skills (name → embedded `SKILL.md` stub).
-pub const INSTALLABLE_SKILLS: &[(&str, &str)] = &[
-    ("lmd-test-driven-development", TDD_SKILL_MD),
-    ("lmd-brainstorm", BRAINSTORM_SKILL_MD),
-    ("lmd-writing-skills", WRITING_SKILLS_SKILL_MD),
-    ("lmd-writing-plans", WRITING_PLANS_SKILL_MD),
-    ("lmd-subagent-driven-development", SDD_SKILL_MD),
-    ("lmd-executing-plans", EXECUTING_PLANS_SKILL_MD),
-    ("lmd-finishing-a-development-branch", FINISHING_SKILL_MD),
-    (
-        "lmd-dispatching-parallel-agents",
-        DISPATCHING_PARALLEL_AGENTS_SKILL_MD,
-    ),
+/// Installable lmd skills. The stub path is derived: `<name>/SKILL.md`.
+pub const INSTALLABLE_SKILLS: &[&str] = &[
+    "lmd-test-driven-development",
+    "lmd-brainstorm",
+    "lmd-writing-skills",
+    "lmd-writing-plans",
+    "lmd-subagent-driven-development",
+    "lmd-executing-plans",
+    "lmd-finishing-a-development-branch",
+    "lmd-dispatching-parallel-agents",
 ];
 
-const WRITING_SKILLS_RENDER_GRAPHS: &str =
-    include_str!("../content/skills/lmd-writing-skills/render-graphs.js");
-
-const BRAINSTORM_SERVER_CJS: &str =
-    include_str!("../content/skills/lmd-brainstorm/scripts/server.cjs");
-const BRAINSTORM_HELPER_JS: &str =
-    include_str!("../content/skills/lmd-brainstorm/scripts/helper.js");
-const BRAINSTORM_FRAME_HTML: &str =
-    include_str!("../content/skills/lmd-brainstorm/scripts/frame-template.html");
-const BRAINSTORM_START_SH: &str =
-    include_str!("../content/skills/lmd-brainstorm/scripts/start-server.sh");
-const BRAINSTORM_STOP_SH: &str =
-    include_str!("../content/skills/lmd-brainstorm/scripts/stop-server.sh");
-
 /// Non-rendered helper files materialized verbatim into the installed skill dir
-/// (skill, filename, embedded content). Absent-only/idempotent like the SKILL.md
-/// stub (#498 byte-stable).
-const ASSETS: &[(&str, &str, &str)] = &[
-    (
-        "lmd-writing-skills",
-        "render-graphs.js",
-        WRITING_SKILLS_RENDER_GRAPHS,
-    ),
-    (
-        "lmd-brainstorm",
-        "scripts/server.cjs",
-        BRAINSTORM_SERVER_CJS,
-    ),
-    ("lmd-brainstorm", "scripts/helper.js", BRAINSTORM_HELPER_JS),
-    (
-        "lmd-brainstorm",
-        "scripts/frame-template.html",
-        BRAINSTORM_FRAME_HTML,
-    ),
-    (
-        "lmd-brainstorm",
-        "scripts/start-server.sh",
-        BRAINSTORM_START_SH,
-    ),
-    (
-        "lmd-brainstorm",
-        "scripts/stop-server.sh",
-        BRAINSTORM_STOP_SH,
-    ),
+/// (skill, pack-relative filename). Read from the content cascade at install time.
+const ASSETS: &[(&str, &str)] = &[
+    ("lmd-writing-skills", "render-graphs.js"),
+    ("lmd-brainstorm", "scripts/server.cjs"),
+    ("lmd-brainstorm", "scripts/helper.js"),
+    ("lmd-brainstorm", "scripts/frame-template.html"),
+    ("lmd-brainstorm", "scripts/start-server.sh"),
+    ("lmd-brainstorm", "scripts/stop-server.sh"),
 ];
 
 /// Install target selector (Spec E11). `Local` is the default — env-independent,
@@ -100,11 +49,17 @@ pub fn claude_state_dir() -> PathBuf {
     PathBuf::from(home).join(".claude")
 }
 
-fn skill_md(name: &str) -> Option<&'static str> {
-    INSTALLABLE_SKILLS
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, c)| *c)
+/// The `SKILL.md` stub of an installable skill, read through the content cascade.
+/// `project_root` doubles as the jail root, so a project overlay wins here too.
+fn skill_md(name: &str, project_root: &Path) -> std::io::Result<String> {
+    if !INSTALLABLE_SKILLS.contains(&name) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("unknown installable skill: {name}"),
+        ));
+    }
+    crate::skill_source::read_skill_file(&format!("{name}/SKILL.md"), project_root)
+        .map_err(|e| std::io::Error::other(e.to_string()))
 }
 
 /// Target dir for a skill under the chosen scope. `--local` is project-relative
@@ -127,34 +82,36 @@ pub fn install_skill(
     project_root: &Path,
     force: bool,
 ) -> std::io::Result<PathBuf> {
-    let body = skill_md(name).ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("unknown installable skill: {name}"),
-        )
-    })?;
+    let body = skill_md(name, project_root)?;
+    let assets: Vec<(&str, String)> = ASSETS
+        .iter()
+        .filter(|(skill, _)| *skill == name)
+        .map(|(_, fname)| {
+            crate::skill_source::read_skill_file(&format!("{name}/{fname}"), project_root)
+                .map(|content| (*fname, content))
+                .map_err(|e| std::io::Error::other(e.to_string()))
+        })
+        .collect::<std::io::Result<_>>()?;
     let dir = target_dir(name, scope, project_root);
     std::fs::create_dir_all(&dir)?;
     let target = dir.join("SKILL.md");
     std::fs::write(&target, body)?;
     let mut created_parents: std::collections::HashSet<std::path::PathBuf> =
         std::collections::HashSet::new();
-    for (skill, fname, content) in ASSETS {
-        if *skill == name {
-            let asset_path = dir.join(fname);
-            if let Some(parent) = asset_path.parent()
-                && created_parents.insert(parent.to_path_buf())
-            {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&asset_path, content)?;
-            #[cfg(unix)]
-            if fname.ends_with(".sh") {
-                use std::os::unix::fs::PermissionsExt;
-                let mut perm = std::fs::metadata(&asset_path)?.permissions();
-                perm.set_mode(0o755);
-                std::fs::set_permissions(&asset_path, perm)?;
-            }
+    for (fname, content) in &assets {
+        let asset_path = dir.join(fname);
+        if let Some(parent) = asset_path.parent()
+            && created_parents.insert(parent.to_path_buf())
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&asset_path, content)?;
+        #[cfg(unix)]
+        if fname.ends_with(".sh") {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::metadata(&asset_path)?.permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&asset_path, perm)?;
         }
     }
     // Materialize the project-level seeds (plan-recipes/plan-template, lang/*,
@@ -241,6 +198,96 @@ mod tests {
     }
 
     #[test]
+    fn unknown_skill_install_errors_before_touching_filesystem() {
+        let root = std::env::temp_dir().join(format!("lmd_unknown_notouch_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let err = install_skill("nope", Scope::Local, &root, false).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
+        assert!(
+            !root.join(".claude/skills/nope").exists(),
+            "an unknown skill must not create a target dir"
+        );
+        assert!(
+            !root.join(".claude").exists(),
+            "an unknown skill must fail before touching the filesystem at all"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn install_skill_reads_skill_md_from_content_cascade() {
+        // The project overlay is stage 1 of the cascade (skill_source.rs) — proving it
+        // wins here proves `install_skill` actually goes through `read_skill_file`
+        // rather than any statically embedded content.
+        let root = std::env::temp_dir().join(format!("lmd_cascade_stub_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let overlay_dir = root.join(".lean-ctx/lean-md/skills/lmd-test-driven-development");
+        std::fs::create_dir_all(&overlay_dir).unwrap();
+        std::fs::write(
+            overlay_dir.join("SKILL.md"),
+            "---\nname: lmd-test-driven-development\n---\nOVERLAY MARKER 8f3c\n",
+        )
+        .unwrap();
+
+        let target =
+            install_skill("lmd-test-driven-development", Scope::Local, &root, false).unwrap();
+        let written = std::fs::read_to_string(&target).unwrap();
+        assert!(
+            written.contains("OVERLAY MARKER 8f3c"),
+            "install_skill must read SKILL.md through the content cascade (overlay wins): {written}"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn install_skill_surfaces_cascade_read_failure_as_io_error_without_empty_stub() {
+        // `SourceError::PackMissing` itself is only reachable from a release binary
+        // without a wired pack — skill_source.rs's own tests document that the debug
+        // fallback (`content/skills` in this checkout) always succeeds under
+        // `cargo nextest run`, masking that arm. Pointing LEAN_MD_SKILLS_DIR at a
+        // valid-but-empty directory exercises the identical conversion path
+        // (`skill_md`'s `.map_err(|e| io::Error::other(...))`) through the variant
+        // that IS reachable in-process (`SourceError::NotFound`), proving errors
+        // surface as an `io::Error` instead of a silently-written empty stub.
+        let root = std::env::temp_dir().join(format!("lmd_cascade_fail_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let empty_pack =
+            std::env::temp_dir().join(format!("lmd_empty_pack_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&empty_pack);
+        std::fs::create_dir_all(&empty_pack).unwrap();
+
+        unsafe { std::env::set_var("LEAN_MD_SKILLS_DIR", &empty_pack) };
+        let err =
+            install_skill("lmd-test-driven-development", Scope::Local, &root, false).unwrap_err();
+        unsafe { std::env::remove_var("LEAN_MD_SKILLS_DIR") };
+
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::Other,
+            "a cascade read failure must surface via io::Error::other (distinct from the \
+             unknown-skill NotFound gate), got: {err:?}"
+        );
+        assert!(
+            !err.to_string().is_empty(),
+            "error message must not be empty"
+        );
+        assert!(
+            !root
+                .join(".claude/skills/lmd-test-driven-development")
+                .exists(),
+            "a cascade read failure must not leave a half-written/empty stub on disk"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&empty_pack);
+    }
+
+    #[test]
     fn brainstorm_install_materializes_scripts() {
         let root = std::env::temp_dir().join(format!("lmd_bs_assets_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -285,9 +332,13 @@ mod tests {
 
     #[test]
     fn brainstorm_assets_reference_closure() {
-        // No (case-insensitive) `superpowers` token survives in any embedded asset.
-        for (skill, fname, content) in ASSETS {
+        // No (case-insensitive) `superpowers` token survives in any cascade-resolved asset.
+        let jail = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for (skill, fname) in ASSETS {
             if *skill == "lmd-brainstorm" {
+                let content =
+                    crate::skill_source::read_skill_file(&format!("{skill}/{fname}"), &jail)
+                        .expect("brainstorm asset resolves");
                 assert!(
                     !content.to_lowercase().contains("superpowers"),
                     "asset {fname} still references superpowers"
