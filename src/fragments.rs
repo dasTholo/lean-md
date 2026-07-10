@@ -16,25 +16,6 @@ const HARD_RULES: &str = include_str!("../content/core/hard-rules.lmd.md");
 /// (Phase 7C) substitutes them.
 const DISPATCH_CONTRACT: &str = include_str!("../content/core/dispatch-contract.lmd.md");
 
-/// Built-in `test-first-core` fragment — the TDD discipline trip-wires
-/// (Iron Law + letter==spirit + red flags). Skill-owned seed, flat global name;
-/// `@include test-first-core` pulls it into every isolated TDD phase (Spec E5).
-const TEST_FIRST_CORE: &str =
-    include_str!("../content/skills/lmd-test-driven-development/_includes/test-first-core.lmd.md");
-
-/// Built-in `skill-authoring-core` fragment — the writing-skills discipline
-/// trip-wires (Iron Law + letter==spirit + TDD mapping + WARUM pointer).
-/// Skill-owned seed, flat global name; `@include skill-authoring-core` pulls it
-/// into every isolated writing-skills phase.
-const SKILL_AUTHORING_CORE: &str =
-    include_str!("../content/skills/lmd-writing-skills/_includes/skill-authoring-core.lmd.md");
-
-/// Built-in `brainstorm-gate` fragment — the HARD-GATE trip-wire that enforces
-/// brainstorming discipline. Skill-owned seed, flat global name; `@include
-/// brainstorm-gate` pulls it into every discipline phase of `lmd-brainstorm`.
-const BRAINSTORM_GATE: &str =
-    include_str!("../content/skills/lmd-brainstorm/_includes/brainstorm-gate.lmd.md");
-
 /// Built-in `parallel-dispatch` fragment — single-source fan-out guidance
 /// (when-to-use gate + fan-out rule + prompt structure + mandatory memory/
 /// coordination block). Shared by the standalone `lmd-dispatching-parallel-agents`
@@ -54,21 +35,34 @@ pub struct FragmentRegistry {
     builtins: HashMap<&'static str, &'static str>,
 }
 
+/// Fragment names that live inside a skill's `_includes/`, mapped to their owning
+/// skill. They travel with that skill in the `kind=skills` pack (#727) — flat
+/// global name, skill-scoped storage.
+const SKILL_INCLUDES: &[(&str, &str)] = &[
+    ("test-first-core", "lmd-test-driven-development"),
+    ("skill-authoring-core", "lmd-writing-skills"),
+    ("brainstorm-gate", "lmd-brainstorm"),
+];
+
 impl FragmentRegistry {
     pub fn with_builtins() -> Self {
         let mut builtins = HashMap::new();
         builtins.insert("hard-rules", HARD_RULES);
         builtins.insert("dispatch-contract", DISPATCH_CONTRACT);
-        builtins.insert("test-first-core", TEST_FIRST_CORE);
-        builtins.insert("skill-authoring-core", SKILL_AUTHORING_CORE);
-        builtins.insert("brainstorm-gate", BRAINSTORM_GATE);
         builtins.insert("parallel-dispatch", PARALLEL_DISPATCH);
         Self { builtins }
     }
 
+    /// Three stages: cross-skill builtin → skill-local `_includes/` in the pack →
+    /// jailed `<name>.lmd.md` file. The file stage stays user-extensible.
     pub fn resolve(&self, name: &str, jail_root: &Path) -> Result<String, ResolveError> {
         if let Some(content) = self.builtins.get(name) {
             return Ok((*content).to_string());
+        }
+        if let Some((_, skill)) = SKILL_INCLUDES.iter().find(|(n, _)| *n == name) {
+            let rel = format!("{skill}/_includes/{name}.lmd.md");
+            return crate::skill_source::read_skill_file(&rel, jail_root)
+                .map_err(|e| ResolveError::Io(e.to_string()));
         }
         let candidate = jail_root.join(format!("{name}.lmd.md"));
         let resolved = crate::pathx::jail_path(&candidate, jail_root)
@@ -191,18 +185,107 @@ mod tests {
     }
 
     #[test]
-    fn brainstorm_gate_matches_seed_file_on_disk() {
-        let manifest = env!("CARGO_MANIFEST_DIR");
-        let reg = FragmentRegistry::with_builtins();
-        let disk = std::fs::read_to_string(
-            std::path::Path::new(manifest)
-                .join("content/skills/lmd-brainstorm/_includes/brainstorm-gate.lmd.md"),
+    fn test_first_core_resolves_through_pack_stage_not_builtins() {
+        // #727 cut: test-first-core must come from the pack store at resolve
+        // time, not from a compiled-in constant. Proof: point LEAN_MD_SKILLS_DIR
+        // at a fabricated pack whose content differs from the real seed — if
+        // resolve() were still reading a builtin HashMap entry, the env var
+        // would be ignored and this content would never surface.
+        let jail_root =
+            std::env::temp_dir().join(format!("lmd_frag_pack_jail_{}", std::process::id()));
+        let pack_root =
+            std::env::temp_dir().join(format!("lmd_frag_pack_store_{}", std::process::id()));
+        std::fs::create_dir_all(&jail_root).unwrap();
+        let includes_dir = pack_root.join("lmd-test-driven-development/_includes");
+        std::fs::create_dir_all(&includes_dir).unwrap();
+        std::fs::write(
+            includes_dir.join("test-first-core.lmd.md"),
+            "fabricated pack-store test-first-core content\n",
         )
         .unwrap();
-        let builtin = reg.resolve("brainstorm-gate", Path::new(".")).unwrap();
-        assert_eq!(builtin, disk, "brainstorm-gate drifted from seed file");
+
+        crate::test_env::set_var(
+            crate::skill_source::SKILLS_DIR_ENV,
+            pack_root.to_str().unwrap(),
+        );
+        let reg = FragmentRegistry::with_builtins();
+        let out = reg.resolve("test-first-core", &jail_root).unwrap();
+        crate::test_env::remove_var(crate::skill_source::SKILLS_DIR_ENV);
+
+        assert_eq!(
+            out, "fabricated pack-store test-first-core content\n",
+            "test-first-core must resolve from the pack store, not a builtin constant"
+        );
+    }
+
+    #[test]
+    fn hard_rules_dispatch_contract_and_parallel_dispatch_stay_builtin_resolved() {
+        // These three are cross-skill lmd primitives — must resolve straight
+        // from the built-in HashMap, with zero file I/O. A nonexistent
+        // jail_root proves it: the file/pack stages would error on it, but
+        // the builtin lookup short-circuits before ever touching jail_root.
+        let jail_root = Path::new("/nonexistent/lmd_frag_builtin_probe/jail/root");
+        let reg = FragmentRegistry::with_builtins();
+        for name in ["hard-rules", "dispatch-contract", "parallel-dispatch"] {
+            let out = reg.resolve(name, jail_root);
+            assert!(
+                out.is_ok(),
+                "{name} must resolve without touching jail_root (builtin, no I/O)"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_fragment_falls_back_to_jailed_file() {
+        // Stage 3 (jailed `<name>.lmd.md` file) must survive the pack cut
+        // untouched — it is the user-extensible layer, orthogonal to the #727
+        // skill-local `_includes/` move.
+        let dir =
+            std::env::temp_dir().join(format!("lmd_frag_file_fallback_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("custom-fragment.lmd.md"), "from a jailed file\n").unwrap();
+        let reg = FragmentRegistry::with_builtins();
+        let out = reg.resolve("custom-fragment", &dir).unwrap();
+        assert_eq!(out, "from a jailed file\n");
+    }
+
+    #[test]
+    fn brainstorm_gate_resolves_through_pack_stage() {
+        // #727 cut: brainstorm-gate is skill-owned content — it must resolve
+        // through the SKILL_INCLUDES pack stage (lmd-brainstorm/_includes/…),
+        // not a builtin. Same proof shape as test-first-core: a fabricated
+        // pack-store content only surfaces if resolve() does live pack I/O.
+        let jail_root =
+            std::env::temp_dir().join(format!("lmd_frag_bg_jail_{}", std::process::id()));
+        let pack_root =
+            std::env::temp_dir().join(format!("lmd_frag_bg_pack_{}", std::process::id()));
+        std::fs::create_dir_all(&jail_root).unwrap();
+        let includes_dir = pack_root.join("lmd-brainstorm/_includes");
+        std::fs::create_dir_all(&includes_dir).unwrap();
+        std::fs::write(
+            includes_dir.join("brainstorm-gate.lmd.md"),
+            "fabricated pack-store brainstorm-gate content\n",
+        )
+        .unwrap();
+
+        crate::test_env::set_var(
+            crate::skill_source::SKILLS_DIR_ENV,
+            pack_root.to_str().unwrap(),
+        );
+        let reg = FragmentRegistry::with_builtins();
+        let out = reg.resolve("brainstorm-gate", &jail_root).unwrap();
+        crate::test_env::remove_var(crate::skill_source::SKILLS_DIR_ENV);
+
+        assert_eq!(
+            out, "fabricated pack-store brainstorm-gate content\n",
+            "brainstorm-gate must resolve from the pack store, not a builtin constant"
+        );
+
+        // Sanity check on the real seed content (debug fallback, no pack env
+        // set): the HARD-GATE marker must still be present at its canonical path.
+        let seed = reg.resolve("brainstorm-gate", Path::new(".")).unwrap();
         assert!(
-            builtin.contains("regardless of perceived simplicity"),
+            seed.contains("regardless of perceived simplicity"),
             "gate must carry the HARD-GATE marker"
         );
     }
@@ -229,9 +312,12 @@ mod tests {
 
     #[test]
     fn builtin_fragments_match_seed_files_on_disk() {
-        // §8 #9: the built-in fragments MUST be byte-identical to the canonical
-        // lean-md/core seed files. Reading the seed at test time (via the crate
-        // manifest dir) catches any drift between the embedded const and the file.
+        // §8 #9 / #727 cut: only the two remaining cross-skill builtins
+        // (hard-rules, dispatch-contract — parallel-dispatch has its own
+        // drift test below) MUST be byte-identical to the canonical
+        // lean-md/core seed files. test-first-core/skill-authoring-core/
+        // brainstorm-gate moved to the SKILL_INCLUDES pack stage — they no
+        // longer have a compiled-in constant to drift from.
         let manifest = env!("CARGO_MANIFEST_DIR"); // crate root
         let core = std::path::Path::new(manifest).join("content/core");
         let reg = FragmentRegistry::with_builtins();
@@ -245,28 +331,6 @@ mod tests {
         assert_eq!(
             disp_builtin, disp_disk,
             "dispatch-contract drifted from seed file"
-        );
-
-        let tfc_disk =
-            std::fs::read_to_string(std::path::Path::new(manifest).join(
-                "content/skills/lmd-test-driven-development/_includes/test-first-core.lmd.md",
-            ))
-            .unwrap();
-        let tfc_builtin = reg.resolve("test-first-core", Path::new(".")).unwrap();
-        assert_eq!(
-            tfc_builtin, tfc_disk,
-            "test-first-core drifted from seed file"
-        );
-
-        let sac_disk = std::fs::read_to_string(
-            std::path::Path::new(manifest)
-                .join("content/skills/lmd-writing-skills/_includes/skill-authoring-core.lmd.md"),
-        )
-        .unwrap();
-        let sac_builtin = reg.resolve("skill-authoring-core", Path::new(".")).unwrap();
-        assert_eq!(
-            sac_builtin, sac_disk,
-            "skill-authoring-core drifted from seed file"
         );
     }
 
