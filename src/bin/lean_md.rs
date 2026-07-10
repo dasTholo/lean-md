@@ -13,7 +13,7 @@ use lean_md::crp_proto::CrpMode;
 use lean_md::header::{Consumer, parse_header};
 use lean_md::skill_install::{Scope, install_skill, remove_skill};
 use lean_md::skill_vars::{InitOutcome, render_vars_template, scan_var_decls, write_vars_template};
-use lean_md::skills::{all_skill_bodies, render_companion, render_skill, skill_body};
+use lean_md::skills::{all_skill_sources, render_companion, render_skill, skill_source};
 use serde_json::{Value, json};
 
 // ─── Shared helpers ────────────────────────────────────────────────────────
@@ -153,13 +153,17 @@ fn cmd_render(rest: &[String]) {
         }
         // Load the source the same way the render paths do: skill body or file.
         let source = match a.skill.as_deref() {
-            Some(skill) => match lean_md::skills::skill_body(skill) {
-                Some(body) => body.to_string(),
-                None => {
-                    eprintln!("lean-md render: unknown skill '{skill}'");
-                    std::process::exit(1);
+            Some(skill) => {
+                let root =
+                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                match lean_md::skills::skill_source(skill, &root) {
+                    Ok(body) => body,
+                    Err(e) => {
+                        eprintln!("lean-md render: {e}");
+                        std::process::exit(1);
+                    }
                 }
-            },
+            }
             None => {
                 let Some(file) = a.file.as_deref() else {
                     eprintln!("lean-md render: --list-phases needs <file.lmd.md> or --skill NAME");
@@ -393,20 +397,24 @@ fn cmd_skill_vars(rest: &[String]) {
         .iter()
         .find(|a| !a.starts_with('-'))
         .map(String::as_str);
-    let decls: Vec<_> = match name {
-        Some(n) => match skill_body(n) {
-            Some(body) => scan_var_decls(body),
-            None => {
-                eprintln!("lean-md skill vars --init: unknown skill '{n}'");
+    let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let sources: Vec<String> = match name {
+        Some(n) => match skill_source(n, &project_root) {
+            Ok(body) => vec![body],
+            Err(e) => {
+                eprintln!("lean-md skill vars --init: {e}");
                 std::process::exit(1);
             }
         },
-        None => all_skill_bodies()
-            .iter()
-            .flat_map(|b| scan_var_decls(b))
-            .collect(),
+        None => match all_skill_sources(&project_root) {
+            Ok(bodies) => bodies,
+            Err(e) => {
+                eprintln!("lean-md skill vars --init: {e}");
+                std::process::exit(1);
+            }
+        },
     };
-    let project_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let decls: Vec<_> = sources.iter().flat_map(|b| scan_var_decls(b)).collect();
     match write_vars_template(&decls, &project_root) {
         Ok(InitOutcome::Written(p)) => println!("wrote {}", p.display()),
         Ok(InitOutcome::Exists(p)) => {

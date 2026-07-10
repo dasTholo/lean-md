@@ -9,187 +9,74 @@ use crate::crp_proto::CrpMode;
 use crate::engine::{EngineContext, render_body};
 use crate::header::{Consumer, parse_header};
 
-const LMD_BRAINSTORM_BODY: &str = include_str!("../content/skills/lmd-brainstorm/body.lmd.md");
-const LMD_WRITING_PLANS_BODY: &str =
-    include_str!("../content/skills/lmd-writing-plans/body.lmd.md");
-const LMD_TEST_DRIVEN_DEVELOPMENT_BODY: &str =
-    include_str!("../content/skills/lmd-test-driven-development/body.lmd.md");
-const LMD_WRITING_SKILLS_BODY: &str =
-    include_str!("../content/skills/lmd-writing-skills/body.lmd.md");
-const LMD_TESTING_ANTI_PATTERNS_COMPANION: &str = include_str!(
-    "../content/skills/lmd-test-driven-development/companions/testing-anti-patterns.lmd.md"
-);
-const LMD_WS_SKILL_ANATOMY: &str =
-    include_str!("../content/skills/lmd-writing-skills/companions/skill-anatomy.lmd.md");
-const LMD_WS_SDO: &str = include_str!(
-    "../content/skills/lmd-writing-skills/companions/skill-discovery-optimization.lmd.md"
-);
-const LMD_WS_BULLETPROOFING: &str =
-    include_str!("../content/skills/lmd-writing-skills/companions/bulletproofing.lmd.md");
-const LMD_WS_TESTING_METHODOLOGY: &str =
-    include_str!("../content/skills/lmd-writing-skills/companions/testing/methodology.lmd.md");
-const LMD_WS_TESTING_SKILL_TYPES: &str =
-    include_str!("../content/skills/lmd-writing-skills/companions/testing/skill-types.lmd.md");
-const LMD_WS_TESTING_CREATION_CHECKLIST: &str = include_str!(
-    "../content/skills/lmd-writing-skills/companions/testing/creation-checklist.lmd.md"
-);
-const LMD_WS_CLAUDE_MD_TESTING: &str = include_str!(
-    "../content/skills/lmd-writing-skills/companions/claude-md-testing-example.lmd.md"
-);
-const LMD_WS_FLOWCHART: &str =
-    include_str!("../content/skills/lmd-writing-skills/companions/flowchart-conventions.lmd.md");
-const LMD_WS_ANTHROPIC_BP: &str =
-    include_str!("../content/skills/lmd-writing-skills/companions/anthropic-best-practices.lmd.md");
-const LMD_WS_PERSUASION: &str =
-    include_str!("../content/skills/lmd-writing-skills/companions/persuasion-principles.lmd.md");
-const LMD_BRAINSTORM_SPEC_REVIEWER: &str =
-    include_str!("../content/skills/lmd-brainstorm/companions/spec-reviewer.lmd.md");
-const LMD_WRITING_PLANS_PLAN_REVIEWER: &str =
-    include_str!("../content/skills/lmd-writing-plans/companions/plan-reviewer.lmd.md");
-const LMD_BRAINSTORM_VISUAL_COMPANION: &str =
-    include_str!("../content/skills/lmd-brainstorm/companions/visual-companion.lmd.md");
-const LMD_SDD_BODY: &str =
-    include_str!("../content/skills/lmd-subagent-driven-development/body.lmd.md");
-const LMD_SDD_IMPLEMENTER: &str =
-    include_str!("../content/skills/lmd-subagent-driven-development/companions/implementer.lmd.md");
-const LMD_SDD_TASK_REVIEWER: &str = include_str!(
-    "../content/skills/lmd-subagent-driven-development/companions/task-reviewer.lmd.md"
-);
-const LMD_SDD_CODE_REVIEWER: &str = include_str!(
-    "../content/skills/lmd-subagent-driven-development/companions/code-reviewer.lmd.md"
-);
-const LMD_EXECUTING_PLANS_BODY: &str =
-    include_str!("../content/skills/lmd-executing-plans/body.lmd.md");
-const LMD_FINISHING_BODY: &str =
-    include_str!("../content/skills/lmd-finishing-a-development-branch/body.lmd.md");
-const LMD_DISPATCHING_PARALLEL_AGENTS_BODY: &str =
-    include_str!("../content/skills/lmd-dispatching-parallel-agents/body.lmd.md");
+use std::path::Path;
 
-/// Registry of embedded lmd skill bodies (name → binary-embedded body source).
-/// Replaces the hardcoded `match` so new skills are a one-line table entry
-/// (Spec E4 — companion column deferred to Spec #2).
-const SKILLS: &[(&str, &str)] = &[
-    ("lmd-brainstorm", LMD_BRAINSTORM_BODY),
-    (
-        "lmd-test-driven-development",
-        LMD_TEST_DRIVEN_DEVELOPMENT_BODY,
-    ),
-    ("lmd-writing-skills", LMD_WRITING_SKILLS_BODY),
-    ("lmd-writing-plans", LMD_WRITING_PLANS_BODY),
-    ("lmd-subagent-driven-development", LMD_SDD_BODY),
-    ("lmd-executing-plans", LMD_EXECUTING_PLANS_BODY),
-    ("lmd-finishing-a-development-branch", LMD_FINISHING_BODY),
-    (
-        "lmd-dispatching-parallel-agents",
-        LMD_DISPATCHING_PARALLEL_AGENTS_BODY,
-    ),
+/// Registry of lmd skill names. The body path is derived, not tabled:
+/// `<name>/body.lmd.md`, relative to the skill-content root.
+pub const SKILLS: &[&str] = &[
+    "lmd-brainstorm",
+    "lmd-test-driven-development",
+    "lmd-writing-skills",
+    "lmd-writing-plans",
+    "lmd-subagent-driven-development",
+    "lmd-executing-plans",
+    "lmd-finishing-a-development-branch",
+    "lmd-dispatching-parallel-agents",
 ];
 
-/// Embedded body source for a known lmd skill, or `None` if unknown.
-pub fn skill_body(name: &str) -> Option<&'static str> {
-    SKILLS
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, body)| *body)
-}
-
-/// All embedded skill bodies (for cross-skill `@var` aggregation in `vars --init`).
-pub fn all_skill_bodies() -> Vec<&'static str> {
-    SKILLS.iter().map(|(_, b)| *b).collect()
-}
-
-/// Registry of embedded companions (skill, companion name → embedded body).
-/// Out-of-band on-demand references attached to a skill (Spec #2, E1/A).
-const COMPANIONS: &[(&str, &str, &str)] = &[
-    (
-        "lmd-test-driven-development",
-        "testing-anti-patterns",
-        LMD_TESTING_ANTI_PATTERNS_COMPANION,
-    ),
-    ("lmd-writing-skills", "skill-anatomy", LMD_WS_SKILL_ANATOMY),
-    (
-        "lmd-writing-skills",
-        "skill-discovery-optimization",
-        LMD_WS_SDO,
-    ),
-    (
-        "lmd-writing-skills",
-        "bulletproofing",
-        LMD_WS_BULLETPROOFING,
-    ),
-    (
-        "lmd-writing-skills",
-        "testing/methodology",
-        LMD_WS_TESTING_METHODOLOGY,
-    ),
-    (
-        "lmd-writing-skills",
-        "testing/skill-types",
-        LMD_WS_TESTING_SKILL_TYPES,
-    ),
-    (
-        "lmd-writing-skills",
-        "testing/creation-checklist",
-        LMD_WS_TESTING_CREATION_CHECKLIST,
-    ),
-    (
-        "lmd-writing-skills",
-        "claude-md-testing-example",
-        LMD_WS_CLAUDE_MD_TESTING,
-    ),
-    (
-        "lmd-writing-skills",
-        "flowchart-conventions",
-        LMD_WS_FLOWCHART,
-    ),
-    (
-        "lmd-writing-skills",
-        "anthropic-best-practices",
-        LMD_WS_ANTHROPIC_BP,
-    ),
-    (
-        "lmd-writing-skills",
-        "persuasion-principles",
-        LMD_WS_PERSUASION,
-    ),
-    (
-        "lmd-brainstorm",
-        "spec-reviewer",
-        LMD_BRAINSTORM_SPEC_REVIEWER,
-    ),
-    (
-        "lmd-brainstorm",
-        "visual-companion",
-        LMD_BRAINSTORM_VISUAL_COMPANION,
-    ),
-    (
-        "lmd-writing-plans",
-        "plan-reviewer",
-        LMD_WRITING_PLANS_PLAN_REVIEWER,
-    ),
-    (
-        "lmd-subagent-driven-development",
-        "implementer",
-        LMD_SDD_IMPLEMENTER,
-    ),
-    (
-        "lmd-subagent-driven-development",
-        "task-reviewer",
-        LMD_SDD_TASK_REVIEWER,
-    ),
-    (
-        "lmd-subagent-driven-development",
-        "code-reviewer",
-        LMD_SDD_CODE_REVIEWER,
-    ),
+/// Registry of `(skill, companion)` pairs. The path is derived:
+/// `<skill>/companions/<companion>.lmd.md` — a companion name may carry a
+/// subdirectory (`testing/methodology`), which keeps the rule uniform.
+pub const COMPANIONS: &[(&str, &str)] = &[
+    ("lmd-test-driven-development", "testing-anti-patterns"),
+    ("lmd-writing-skills", "skill-anatomy"),
+    ("lmd-writing-skills", "skill-discovery-optimization"),
+    ("lmd-writing-skills", "bulletproofing"),
+    ("lmd-writing-skills", "testing/methodology"),
+    ("lmd-writing-skills", "testing/skill-types"),
+    ("lmd-writing-skills", "testing/creation-checklist"),
+    ("lmd-writing-skills", "claude-md-testing-example"),
+    ("lmd-writing-skills", "flowchart-conventions"),
+    ("lmd-writing-skills", "anthropic-best-practices"),
+    ("lmd-writing-skills", "persuasion-principles"),
+    ("lmd-brainstorm", "spec-reviewer"),
+    ("lmd-brainstorm", "visual-companion"),
+    ("lmd-writing-plans", "plan-reviewer"),
+    ("lmd-subagent-driven-development", "implementer"),
+    ("lmd-subagent-driven-development", "task-reviewer"),
+    ("lmd-subagent-driven-development", "code-reviewer"),
 ];
 
-/// Embedded body for a known `(skill, companion)` pair, or `None` if unknown.
-pub fn companion_body(skill: &str, companion: &str) -> Option<&'static str> {
-    COMPANIONS
+/// Body source of a known lmd skill, resolved through the content cascade.
+pub fn skill_source(name: &str, jail_root: &Path) -> Result<String, SkillRenderError> {
+    if !SKILLS.contains(&name) {
+        return Err(SkillRenderError::UnknownSkill(name.to_string()));
+    }
+    crate::skill_source::read_skill_file(&format!("{name}/body.lmd.md"), jail_root)
+        .map_err(SkillRenderError::Source)
+}
+
+/// All skill bodies (for cross-skill `@var` aggregation in `vars --init`).
+pub fn all_skill_sources(jail_root: &Path) -> Result<Vec<String>, SkillRenderError> {
+    SKILLS.iter().map(|n| skill_source(n, jail_root)).collect()
+}
+
+/// Source of a known `(skill, companion)` pair, resolved through the cascade.
+pub fn companion_source(
+    skill: &str,
+    companion: &str,
+    jail_root: &Path,
+) -> Result<String, SkillRenderError> {
+    if !COMPANIONS
         .iter()
-        .find(|(s, c, _)| *s == skill && *c == companion)
-        .map(|(_, _, body)| *body)
+        .any(|(s, c)| *s == skill && *c == companion)
+    {
+        return Err(SkillRenderError::CompanionNotFound(format!(
+            "{skill}/{companion}"
+        )));
+    }
+    let rel = format!("{skill}/companions/{companion}.lmd.md");
+    crate::skill_source::read_skill_file(&rel, jail_root).map_err(SkillRenderError::Source)
 }
 
 #[derive(Debug)]
@@ -197,6 +84,7 @@ pub enum SkillRenderError {
     UnknownSkill(String),
     PhaseNotFound(String),
     CompanionNotFound(String),
+    Source(crate::skill_source::SourceError),
 }
 
 impl std::fmt::Display for SkillRenderError {
@@ -205,24 +93,9 @@ impl std::fmt::Display for SkillRenderError {
             SkillRenderError::UnknownSkill(s) => write!(f, "UNKNOWN_SKILL '{s}'"),
             SkillRenderError::PhaseNotFound(p) => write!(f, "PHASE_NOT_FOUND '{p}'"),
             SkillRenderError::CompanionNotFound(c) => write!(f, "COMPANION_NOT_FOUND '{c}'"),
+            SkillRenderError::Source(e) => write!(f, "{e}"),
         }
     }
-}
-
-/// D7 body-override: a jailed project overlay at
-/// `<jail_root>/.lean-ctx/lean-md/skills/<name>/body.lmd.md` wins over the
-/// embedded const, enabling local phase iteration without a recompile.
-/// PathJail-bound (no escape outside `jail_root`).
-fn overlay_body(name: &str, jail_root: &std::path::Path) -> Option<String> {
-    let candidate = jail_root
-        .join(".lean-ctx/lean-md/skills")
-        .join(name)
-        .join("body.lmd.md");
-    let resolved = crate::pathx::jail_path(&candidate, jail_root).ok()?;
-    if !resolved.exists() {
-        return None;
-    }
-    std::fs::read_to_string(&resolved).ok()
 }
 
 /// Render an embedded skill body, optionally isolated to a single named phase.
@@ -235,12 +108,8 @@ pub fn render_skill(
     crp: Option<CrpMode>,
     jail_root: PathBuf,
 ) -> Result<String, SkillRenderError> {
-    let owned_overlay = overlay_body(name, &jail_root);
-    let src: &str = match owned_overlay.as_deref() {
-        Some(s) => s,
-        None => skill_body(name).ok_or_else(|| SkillRenderError::UnknownSkill(name.to_string()))?,
-    };
-    let (mut header, body) = parse_header(src);
+    let owned = skill_source(name, &jail_root)?;
+    let (mut header, body) = parse_header(&owned);
     if let Some(c) = consumer {
         header.consumer = c;
     }
@@ -348,9 +217,8 @@ pub fn render_companion(
     crp: Option<CrpMode>,
     jail_root: PathBuf,
 ) -> Result<String, SkillRenderError> {
-    let src = companion_body(skill, companion)
-        .ok_or_else(|| SkillRenderError::CompanionNotFound(format!("{skill}/{companion}")))?;
-    Ok(render_full_source(src, consumer, crp, jail_root))
+    let src = companion_source(skill, companion, &jail_root)?;
+    Ok(render_full_source(&src, consumer, crp, jail_root))
 }
 
 #[cfg(test)]
@@ -382,7 +250,7 @@ mod tests {
             assert!(!out.trim().is_empty(), "phase {p} must render non-empty");
         }
         assert!(
-            skill_body("lmd-brainstorm").is_some(),
+            skill_source("lmd-brainstorm", &jail).is_ok(),
             "lmd-brainstorm must be in the SKILLS registry"
         );
     }
@@ -459,9 +327,42 @@ mod tests {
 
     #[test]
     fn registry_resolves_both_skills() {
-        assert!(skill_body("lmd-brainstorm").is_some());
-        assert!(skill_body("lmd-test-driven-development").is_some());
-        assert!(skill_body("nope").is_none());
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        assert!(skill_source("lmd-brainstorm", &jail).is_ok());
+        assert!(skill_source("lmd-test-driven-development", &jail).is_ok());
+        assert!(skill_source("nope", &jail).is_err());
+    }
+
+    #[test]
+    fn skill_source_resolves_every_registered_skill() {
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for name in SKILLS {
+            assert!(
+                skill_source(name, &jail).is_ok(),
+                "registered skill {name} must resolve through the cascade"
+            );
+        }
+    }
+
+    #[test]
+    fn companion_source_resolves_every_registered_companion() {
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for (skill, companion) in COMPANIONS {
+            assert!(
+                companion_source(skill, companion, &jail).is_ok(),
+                "registered companion {skill}/{companion} must resolve"
+            );
+        }
+    }
+
+    #[test]
+    fn unregistered_skill_is_unknown_never_a_disk_read() {
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let err = skill_source("lmd-not-a-skill", &jail).unwrap_err();
+        assert!(
+            matches!(err, SkillRenderError::UnknownSkill(_)),
+            "unregistered name must short-circuit to UnknownSkill, not touch disk"
+        );
     }
 
     #[test]
@@ -507,14 +408,14 @@ mod tests {
             assert!(!out.trim().is_empty(), "phase {p} must render non-empty");
         }
         assert!(
-            skill_body("lmd-executing-plans").is_some(),
+            skill_source("lmd-executing-plans", &jail).is_ok(),
             "lmd-executing-plans must be in the SKILLS registry"
         );
         // Reference-closure (Global Constraint): the body is a native port — it must not
         // carry the upstream `superpowers` token. This is the body's half of the test gate
         // (SKILL.md's half is asserted in Task 2's install test).
         assert!(
-            !skill_body("lmd-executing-plans")
+            !skill_source("lmd-executing-plans", &jail)
                 .unwrap()
                 .to_lowercase()
                 .contains("superpowers"),
@@ -587,11 +488,11 @@ mod tests {
             assert!(!out.trim().is_empty(), "phase {p} must render non-empty");
         }
         assert!(
-            skill_body("lmd-finishing-a-development-branch").is_some(),
+            skill_source("lmd-finishing-a-development-branch", &jail).is_ok(),
             "lmd-finishing-a-development-branch must be in the SKILLS registry"
         );
         assert!(
-            !skill_body("lmd-finishing-a-development-branch")
+            !skill_source("lmd-finishing-a-development-branch", &jail)
                 .unwrap()
                 .to_lowercase()
                 .contains("superpowers"),
@@ -630,11 +531,11 @@ mod tests {
             assert!(!out.trim().is_empty(), "phase {p} must render non-empty");
         }
         assert!(
-            skill_body("lmd-dispatching-parallel-agents").is_some(),
+            skill_source("lmd-dispatching-parallel-agents", &jail).is_ok(),
             "lmd-dispatching-parallel-agents must be in the SKILLS registry"
         );
         assert!(
-            !skill_body("lmd-dispatching-parallel-agents")
+            !skill_source("lmd-dispatching-parallel-agents", &jail)
                 .unwrap()
                 .to_lowercase()
                 .contains("superpowers"),
@@ -677,17 +578,17 @@ mod tests {
     }
 
     #[test]
-    fn dispatching_body_matches_seed_file_on_disk() {
-        let manifest = env!("CARGO_MANIFEST_DIR");
-        let disk = std::fs::read_to_string(
-            std::path::Path::new(manifest)
-                .join("content/skills/lmd-dispatching-parallel-agents/body.lmd.md"),
-        )
-        .unwrap();
+    fn dispatching_source_overlay_wins_over_debug_fallback() {
+        let root = std::env::temp_dir().join(format!("lmd_casc_disp_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join(".lean-ctx/lean-md/skills/lmd-dispatching-parallel-agents");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("body.lmd.md"), "OVERLAY_DISPATCH_BODY").unwrap();
+        let src = skill_source("lmd-dispatching-parallel-agents", &root).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
         assert_eq!(
-            skill_body("lmd-dispatching-parallel-agents").unwrap(),
-            disk,
-            "embedded dispatching-parallel-agents body drifted from seed file"
+            src, "OVERLAY_DISPATCH_BODY",
+            "overlay must win over the debug fallback"
         );
     }
 
@@ -726,17 +627,17 @@ mod tests {
     }
 
     #[test]
-    fn tdd_body_matches_seed_file_on_disk() {
-        let manifest = env!("CARGO_MANIFEST_DIR");
-        let disk = std::fs::read_to_string(
-            std::path::Path::new(manifest)
-                .join("content/skills/lmd-test-driven-development/body.lmd.md"),
-        )
-        .unwrap();
+    fn tdd_source_overlay_wins_over_debug_fallback() {
+        let root = std::env::temp_dir().join(format!("lmd_casc_tdd_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join(".lean-ctx/lean-md/skills/lmd-test-driven-development");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("body.lmd.md"), "OVERLAY_TDD_BODY").unwrap();
+        let src = skill_source("lmd-test-driven-development", &root).unwrap();
+        let _ = std::fs::remove_dir_all(&root);
         assert_eq!(
-            skill_body("lmd-test-driven-development").unwrap(),
-            disk,
-            "embedded TDD body drifted from seed file"
+            src, "OVERLAY_TDD_BODY",
+            "overlay must win over the debug fallback"
         );
     }
 
@@ -791,10 +692,11 @@ mod tests {
 
     #[test]
     fn all_skill_bodies_aggregate_contains_test_cmd_decl() {
-        let bodies = all_skill_bodies();
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let bodies = all_skill_sources(&jail).unwrap();
         let decls: Vec<_> = bodies
             .iter()
-            .flat_map(|b| crate::skill_vars::scan_var_decls(b))
+            .flat_map(|b| crate::skill_vars::scan_var_decls(b.as_str()))
             .collect();
         assert!(
             decls.iter().any(|d| d.name == "test_cmd"),
@@ -920,9 +822,17 @@ mod tests {
 
     #[test]
     fn companion_registry_resolves_testing_anti_patterns() {
-        assert!(companion_body("lmd-test-driven-development", "testing-anti-patterns").is_some());
-        assert!(companion_body("lmd-test-driven-development", "nope").is_none());
-        assert!(companion_body("nope", "testing-anti-patterns").is_none());
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        assert!(
+            companion_source(
+                "lmd-test-driven-development",
+                "testing-anti-patterns",
+                &jail
+            )
+            .is_ok()
+        );
+        assert!(companion_source("lmd-test-driven-development", "nope", &jail).is_err());
+        assert!(companion_source("nope", "testing-anti-patterns", &jail).is_err());
     }
 
     #[test]
@@ -1000,16 +910,26 @@ mod tests {
     }
 
     #[test]
-    fn companion_body_matches_seed_file_on_disk() {
-        let manifest = env!("CARGO_MANIFEST_DIR");
-        let disk = std::fs::read_to_string(std::path::Path::new(manifest).join(
-            "content/skills/lmd-test-driven-development/companions/testing-anti-patterns.lmd.md",
-        ))
+    fn companion_source_overlay_wins_over_debug_fallback() {
+        let root = std::env::temp_dir().join(format!("lmd_casc_comp_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join(".lean-ctx/lean-md/skills/lmd-test-driven-development/companions");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("testing-anti-patterns.lmd.md"),
+            "OVERLAY_COMPANION",
+        )
         .unwrap();
+        let src = companion_source(
+            "lmd-test-driven-development",
+            "testing-anti-patterns",
+            &root,
+        )
+        .unwrap();
+        let _ = std::fs::remove_dir_all(&root);
         assert_eq!(
-            companion_body("lmd-test-driven-development", "testing-anti-patterns").unwrap(),
-            disk,
-            "embedded companion drifted from seed file"
+            src, "OVERLAY_COMPANION",
+            "overlay must win over the debug fallback"
         );
     }
 
@@ -1027,16 +947,19 @@ mod tests {
         let mention_re = Regex::new(r#"companion\s+"([^"]+)""#).unwrap();
 
         // Corpus: every embedded skill body PLUS every embedded companion body.
-        let mut corpus: Vec<&'static str> = all_skill_bodies();
-        corpus.extend(COMPANIONS.iter().map(|(_, _, body)| *body));
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let mut corpus: Vec<String> = all_skill_sources(&jail).unwrap();
+        for (skill, companion) in COMPANIONS {
+            corpus.push(companion_source(skill, companion, &jail).unwrap());
+        }
 
-        for body in corpus {
+        for body in &corpus {
             // Skill-scoped render calls: companion must resolve under that skill.
             for cap in call_re.captures_iter(body) {
                 let skill = &cap[1];
                 let companion = &cap[2];
                 assert!(
-                    companion_body(skill, companion).is_some(),
+                    companion_source(skill, companion, &jail).is_ok(),
                     "dangling companion ref: skill=\"{skill}\" companion=\"{companion}\""
                 );
             }
@@ -1044,7 +967,7 @@ mod tests {
             for cap in mention_re.captures_iter(body) {
                 let name = &cap[1];
                 assert!(
-                    COMPANIONS.iter().any(|(_, c, _)| *c == name),
+                    COMPANIONS.iter().any(|(_, c)| *c == name),
                     "dangling companion ref: companion \"{name}\" not in COMPANIONS"
                 );
             }
@@ -1053,7 +976,8 @@ mod tests {
 
     #[test]
     fn brainstorm_spec_reviewer_resolves() {
-        let body = companion_body("lmd-brainstorm", "spec-reviewer")
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let body = companion_source("lmd-brainstorm", "spec-reviewer", &jail)
             .expect("spec-reviewer companion must be registered");
         assert!(
             body.contains("What to Check"),
@@ -1094,7 +1018,8 @@ mod tests {
 
     #[test]
     fn brainstorm_visual_companion_resolves() {
-        let body = companion_body("lmd-brainstorm", "visual-companion")
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let body = companion_source("lmd-brainstorm", "visual-companion", &jail)
             .expect("visual-companion companion must be registered");
         assert!(
             !body.trim().is_empty(),
@@ -1354,8 +1279,9 @@ mod tests {
 
     #[test]
     fn writing_skills_is_registered() {
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         assert!(
-            skill_body("lmd-writing-skills").is_some(),
+            skill_source("lmd-writing-skills", &jail).is_ok(),
             "lmd-writing-skills must be in the SKILLS registry"
         );
         let red = render_skill(
@@ -1386,9 +1312,10 @@ mod tests {
             "anthropic-best-practices",
             "persuasion-principles",
         ];
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         for n in names {
-            let body = companion_body("lmd-writing-skills", n)
-                .unwrap_or_else(|| panic!("companion {n} not registered"));
+            let body = companion_source("lmd-writing-skills", n, &jail)
+                .unwrap_or_else(|_| panic!("companion {n} not registered"));
             assert!(!body.trim().is_empty(), "companion {n} must be non-empty");
         }
     }
@@ -1707,7 +1634,8 @@ Run: {{ var test_cmd }} demo
     #[test]
     fn plan_reviewer_companion_render() {
         // Registry lookup: companion is registered.
-        let body = companion_body("lmd-writing-plans", "plan-reviewer")
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let body = companion_source("lmd-writing-plans", "plan-reviewer", &jail)
             .expect("plan-reviewer companion must be registered");
         assert!(body.contains("You are a plan document reviewer"));
         assert!(
@@ -1738,7 +1666,7 @@ Run: {{ var test_cmd }} demo
             assert!(!out.trim().is_empty(), "phase {p} must render non-empty");
         }
         assert!(
-            skill_body("lmd-writing-plans").is_some(),
+            skill_source("lmd-writing-plans", &jail).is_ok(),
             "lmd-writing-plans must be in the SKILLS registry"
         );
     }
@@ -1780,16 +1708,17 @@ Run: {{ var test_cmd }} demo
     fn writing_plans_body_weaves_code_intel() {
         // §5: file-structure teaches @graph/@impact/@find/@recall for decomposition;
         // plan-format routes verification through @call verify / review_change.
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let body = skill_source("lmd-writing-plans", &jail).unwrap();
         assert!(
-            LMD_WRITING_PLANS_BODY.contains("@graph")
-                && LMD_WRITING_PLANS_BODY.contains("@impact")
-                && LMD_WRITING_PLANS_BODY.contains("@find")
-                && LMD_WRITING_PLANS_BODY.contains("@recall"),
+            body.contains("@graph")
+                && body.contains("@impact")
+                && body.contains("@find")
+                && body.contains("@recall"),
             "file-structure must weave the code-intel authoring directives"
         );
         assert!(
-            LMD_WRITING_PLANS_BODY.contains("@call verify")
-                && LMD_WRITING_PLANS_BODY.contains("@call review_change"),
+            body.contains("@call verify") && body.contains("@call review_change"),
             "plan-format must route verification through recipes"
         );
     }
@@ -1799,17 +1728,18 @@ Run: {{ var test_cmd }} demo
         // Terseness rework: plan-format teaches the crp: compact convention and the
         // "avoid repeating ambient context" output rule; bite-sized routes the standard
         // cycle through recipes.
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let body = skill_source("lmd-writing-plans", &jail).unwrap();
         assert!(
-            LMD_WRITING_PLANS_BODY.contains("crp: compact"),
+            body.contains("crp: compact"),
             "plan-format must name the crp: compact convention"
         );
         assert!(
-            LMD_WRITING_PLANS_BODY.contains("avoid repeating ambient context"),
+            body.contains("avoid repeating ambient context"),
             "plan-format must teach output_rule #2 (no ambient repetition)"
         );
         assert!(
-            LMD_WRITING_PLANS_BODY.contains("@call gate")
-                && LMD_WRITING_PLANS_BODY.contains("@call tdd"),
+            body.contains("@call gate") && body.contains("@call tdd"),
             "bite-sized must express the standard cycle as recipe @calls"
         );
     }
@@ -1966,8 +1896,9 @@ Hello {{ who }}!
 
     #[test]
     fn finish_phases_are_rewired_to_lmd_port() {
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         for name in ["lmd-executing-plans", "lmd-subagent-driven-development"] {
-            let body = skill_body(name).unwrap();
+            let body = skill_source(name, &jail).unwrap();
             assert!(
                 body.contains("lmd-finishing-a-development-branch"),
                 "{name} finish phase must invoke the lmd port"

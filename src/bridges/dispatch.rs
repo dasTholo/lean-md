@@ -54,10 +54,10 @@ impl DirectiveBridge for DispatchBridge {
             (None, Some(c)) => {
                 let skill = args.get("skill").ok_or(BridgeError::MissingArg("skill"))?;
                 // (a') companion brief — embedded source, rendered work-lazy below.
-                let Some(body) = crate::skills::companion_body(skill, c) else {
+                let Ok(body) = crate::skills::companion_source(skill, c, &ctx.jail_root) else {
                     return Ok(format!("<!-- lmd: COMPANION_NOT_FOUND '{skill}/{c}' -->\n"));
                 };
-                std::borrow::Cow::Borrowed(body)
+                std::borrow::Cow::Owned(body)
             }
             (None, None) => return Err(BridgeError::MissingArg("phase")),
         };
