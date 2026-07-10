@@ -8,7 +8,7 @@ homepage = "https://github.com/dasTholo/lean-md"
 license = "Apache-2.0"
 categories = ["workflow"]
 keywords = ["markdown", "macros", "dispatch", "skills"]
-min_lean_ctx = "3.9.3"
+min_lean_ctx = "3.9.4"
 # verified: do NOT set — it is registry-controlled and meaningless in a
 #           hand-written manifest. Trust is conferred by the registry, not the entry.
 
