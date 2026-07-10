@@ -8,7 +8,7 @@ homepage = "https://github.com/dasTholo/lean-md"
 license = "Apache-2.0"
 categories = ["workflow"]
 keywords = ["markdown", "macros", "dispatch", "skills"]
-min_lean_ctx = "3.9.2"
+min_lean_ctx = "3.9.3"
 # verified: do NOT set — it is registry-controlled and meaningless in a
 #           hand-written manifest. Trust is conferred by the registry, not the entry.
 
@@ -37,10 +37,24 @@ filename = "lean-md-x86_64-pc-windows-msvc.exe"
 url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.0/lean-md-x86_64-pc-windows-msvc.exe"
 sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
 
+# Skill-Content lebt seit P3 (#727) im Pack, nicht im Binary. Der Resolver löst
+# `version_req` depth-1 gegen den Registry-Index auf; ein Pack, das nur als
+# GitHub-Asset existiert, ist für ihn unsichtbar → hosted publish ist Pflicht.
+[[dependencies]]
+name        = "@dasTholo/lean-md-skills"
+version_req = "^0.2"
+optional    = false
+
 [mcp]
 transport = "stdio"
 command = "lean-md"
 args = ["mcp"]
+
+# lean-ctx expandiert den Platzhalter beim Wiring zum absoluten `skills_dir` des
+# materialisierten Packs (core/addons/pack_env.rs). Ein `{` ohne `}` oder ein
+# unbekanntes Schema ist ein harter Parse-Fehler — kein Literal-Escape existiert.
+[mcp.env]
+LEAN_MD_SKILLS_DIR = "{pack_dir:@dasTholo/lean-md-skills}"
 # sha256: leave empty for community; for the verified/paid tier set the binary pin
 #         (`shasum -a 256 lean-md` → hex). The gateway refuses to spawn on mismatch.
 
