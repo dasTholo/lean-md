@@ -13,7 +13,9 @@ When working on lean-md itself, prefer lean-ctx tooling for token savings:
 
 - **Reads/Search** → MCP tools (`ctx_read`, `ctx_search`) for caching + compression
 - **Shell commands** → `lean-ctx -c "…"` via CLI (preferred) or `ctx_shell` via MCP
-- **File editing** → `ctx_edit`; symbol nav / refactor / reformat via `ctx_refactor`; symbol body by name via `ctx_search action=symbol`
+- **File editing** → anchored loop `ctx_read(mode=anchored)` → `ctx_patch` (default,
+  patch by LINE:HASH anchor); `ctx_edit` only tiny-span/replace-all; symbol
+  nav/refactor/reformat via `ctx_refactor`; symbol body by name via `ctx_search action=symbol`
 
 ## MCP tools
 
@@ -22,7 +24,8 @@ When working on lean-md itself, prefer lean-ctx tooling for token savings:
 | `ctx_read(path, mode)`      | Cached, compressed file reads (10 modes)                           |
 | `ctx_search(pattern, path)` | Token-efficient code search                                        |
 | `ctx_shell(command)`        | Compressed shell output (alternative to CLI)                       |
-| `ctx_edit(path, old, new)`  | Edit when native Edit needs an unavailable Read                    |
+| `ctx_patch(path, anchor)`   | Anchored edit (default): patch by LINE:HASH from `ctx_read(mode=anchored)` |
+| `ctx_edit(path, old, new)`  | str_replace fallback — tiny-span / replace-all                    |
 | `ctx_refactor`              | LSP/PSI symbol nav, refactor engine, `action=reformat` (pre-commit) |
 
 ## CLI commands (optimized shell, lower overhead)
@@ -92,7 +95,8 @@ any timestamp, counter or random element in tool output bodies defeats it.
 
 Prefer lean-ctx MCP tools over native equivalents for token savings:
 `ctx_read` > Read/cat, `ctx_search` > Grep/rg, `ctx_shell` > bash, `ctx_tree` > ls/find.
-Native Edit/Write/Glob stay as-is; use `ctx_edit` only when Edit needs an unavailable Read.
+Native Write/Glob stay as-is. Edits: `ctx_read(mode=anchored)` → `ctx_patch` (default);
+`ctx_edit` only for tiny-span / replace-all.
 
 `.lmd.md` reads via `ctx_read` return **raw lmd source** (like any file) — rendering
 is explicit and opt-in (`ctx_md_render` / CLI `lean-md render … --phase`).

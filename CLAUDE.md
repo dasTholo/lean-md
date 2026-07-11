@@ -13,6 +13,9 @@
 
 
 - **Tests**: always `cargo nextest run`, never `cargo test`
+- **Edits**: Non-symbol → `ctx_read(mode=anchored)` → `ctx_patch` (anchored, patch
+  by LINE:HASH, never re-emit old text). `ctx_edit` only tiny-span/replace-all;
+  symbol rename/move → `ctx_refactor`. Anchored is the default even over native Edit.
 - **Shell — no `&&`/`||`/`;` chaining**: every command is its own invocation.
   Replace `cd <dir> && cargo …` with `cargo … --manifest-path <dir>/Cargo.toml`;
   resolve conditional gates into separate steps with an explicit "Expected:" check.
