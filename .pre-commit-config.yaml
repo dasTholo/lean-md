@@ -1,0 +1,18 @@
+# pre-commit framework config — https://pre-commit.com
+#
+# Setup (once per clone):
+#     uv tool install pre-commit      # or: pipx install pre-commit
+#     pre-commit install
+#
+# The skills-pack drift gate runs only when a commit stages skill content or its
+# hash sidecars; it mirrors CI (pack-drift.yml) so drift never reaches origin.
+repos:
+  - repo: local
+    hooks:
+      - id: skills-pack-drift
+        name: skills-pack drift gate
+        entry: .githooks/skills-pack-drift.sh
+        language: script
+        pass_filenames: false
+        files: '^content/skills(/|\.sha256$|\.ctxpkg-hash$)'
+        description: content/skills.sha256 + skills.ctxpkg-hash must match the skill bytes
