@@ -33,6 +33,13 @@ Run:
 Run: `@read {{ paths }} mode=diff` — review exactly what changed on these paths.
 @define-end
 
+@define patch(path, target)
+<!-- Anchored non-symbol edit: read anchored for LINE:HASH, then ctx_patch by anchor (no old-text recall) -->
+1. Run: `@read {{ path }} mode=anchored` — LINE:HASH anchors for {{ target }}.
+2. Apply the change with `ctx_patch` (op by line+hash anchor) — never re-emit the old text.
+   Exception → `@edit` (ctx_edit): tiny-span (1-2 tok, anchor ≥ old_string) or replace-all.
+@define-end
+
 @define review_change()
 <!-- Post-change review gate: fused impact + caller-tracking + smells + test-discovery -->
 Run: `@query git diff | @review diff-review` — fused review verdict on the working diff.

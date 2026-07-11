@@ -66,6 +66,9 @@ New code (shown verbatim because it does not exist yet):
   symmetric recall path: between isolation-rendered task phases (`render --phase
   task-N`) no file carries context — `remember_decision` at the end of task N →
   `recall_context` at the start of task N+1 is the only vehicle.
+- On a non-symbol edit (text / config / doc lines) → the task uses
+  `@call patch("<path>", "<what>")` (anchored `@read mode=anchored` → `ctx_patch`).
+  Tiny-span (1-2 tok) or replace-all → `@edit` (ctx_edit) instead.
 - On a symbol change (rename/move/extract) → the task uses `@refactor` and anchors
   the affected sites via `@call callers("<symbol>")`.
 - On a public-API change / more than one touched file → `@call review_change()` as a
