@@ -36,7 +36,7 @@ next: render phase "dispatch".
 @include parallel-dispatch
 
 Before dispatch: warm-read every touched file in ONE call — ctx_multi_read paths=[…]
-(latency, not tokens: subagents read full text, lean-ctx #1040). Then emit **one dispatch
+(latency, not tokens: subagents read full text). Then emit **one dispatch
 per independent domain, all in a single
 response** (multiple in one answer = parallel). Prepend the Dispatch Contract to every
 agent prompt; give each agent its scope / goal / constraints / output-spec. Keep scopes

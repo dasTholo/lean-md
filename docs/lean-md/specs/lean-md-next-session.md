@@ -1,5 +1,12 @@
 # Session-Prompt: lean-md — P3 `kind=skills`-Pack Full-Cut (#727)
 
+> **⚠ ÜBERHOLT (2026-07-10) — maßgeblich ist `2026-07-10-lmd-release-path-rev2-design.md`.**
+> Drei Aussagen sind widerlegt: (1) der `v3.9.4`-Retag-Plan unter „Blocker B1" ist tot, `3.9.5`
+> ist released; (2) „`listed` = kein `mcp`-Block" ist falsch — `pub mcp: AddonMcp` ist kein
+> `Option`, die `letta`-Form leert `command`/`args` und behält den Block; (3) die #727-Commit-SHAs
+> existieren auf keinem Remote-Branch mehr (rebased → PR #780). Der Abschnitt „Wo wir stehen"
+> und die Kennzahlen bleiben gültig.
+>
 > Hand-off-Datei. Stand **2026-07-10**. Die Vorgänger-Fassung (P0 `[artifacts]`-Release,
 > P1 Target-Matrix, P2 hosted publish) ist abgearbeitet bzw. in P3 aufgegangen — Historie via
 > `git log -- docs/lean-md/specs/lean-md-next-session.prompt.md`.

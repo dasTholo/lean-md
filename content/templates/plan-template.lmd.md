@@ -29,7 +29,7 @@ here: test-runner/lint/fmt → `vars.toml`; subagent shell/language/commit form 
 
     ## Global Constraints
     - Non-goal: seed-content edits only — no engine/renderer change.
-    - #498: fragment-consistency gate (built-in == on-disk seed) stays green — test gate.
+    - fragment-consistency gate (built-in == on-disk seed) stays green — test gate.
     - Prerequisite: Task 1 lands before Task 2 (later task mirrors the earlier definition).
 
 ## One @phase per task — the pattern

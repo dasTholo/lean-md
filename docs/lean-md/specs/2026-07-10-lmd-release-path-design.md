@@ -1,5 +1,13 @@
 # Design-Spec: lean-md Release-Pfad — lean-ctx lokal, Delegation raus
 
+> **⚠ ÜBERHOLT (2026-07-10) — ersetzt durch `2026-07-10-lmd-release-path-rev2-design.md`.**
+> Die Fundstellenarbeit in §2 war für ihren Stand korrekt, die Grundannahme ist es nicht mehr:
+> Diese Spec setzt ein lokal aus `pr-rebuild` gebautes lean-ctx voraus (V1a erfüllt). Inzwischen
+> ist `3.9.5` upstream released — **ohne** den #727-Vertrag — und die installierte Binary trägt
+> ihn nicht mehr. Die zitierten #727-SHAs existieren auf keinem Remote-Branch; die Fixes liegen
+> unter neuen SHAs in PR #780 (offen). D3 (`3.9.4` behalten, Tag neu setzen) ist tot; N1 schreibt
+> dem `min_lean_ctx`-Gate eine Wirkung zu, die es nicht haben kann.
+>
 > Erstellt: 2026-07-10 · Branch: `feat-lmd-v2` (HEAD `3df0758`)
 > Vorgänger-Specs: `2026-07-08-lmd-p3-skills-pack-full-cut-design.md` (P3-Design),
 > `lean-md-next-session.prompt.md` (P3-Handoff)
@@ -11,7 +19,7 @@
 >   die lean-ctx-Seite (Paket A = #727-Folge-Fixes, Paket B = PR #721).
 >   **Autorität für alles im lean-ctx-Repo.**
 >
-> Der frühere Entwurf `lean-ctx/pr721-next-session.prompt.md` ist durch die Split-Design-Spec
+> Der frühere Entwurf `lean-ctx/pr721-next-session.md` ist durch die Split-Design-Spec
 > **überholt** — er behauptet u. a. fälschlich, ein listed-Entry dürfe keinen `mcp`-Block haben.
 >
 > **Anlass:** P3 ist code-complete, aber die Vorbedingungen V1–V4 des P3-Designs sind gegen

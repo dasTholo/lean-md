@@ -101,12 +101,19 @@ Spezifiziert in `lean-ctx/docs/lean-md/specs/2026-07-09-addon-pack-dependencies-
    Deps als Parameter (zwingt `cmd_update` zur Symmetrie — heute ein Live-Bug:
    `addon_cmd.rs:728` ruft `:819` ohne `resolve_dependencies`).
 
-**Versions-Kopplung: Lockstep.** Der Pack ships als **`0.2.0`**, dieselbe Version wie
-lean-md-Crate und Addon; deklariert als `version_req = "^0.2"` (auf einer `0.x`-Linie:
-`>=0.2.0, <0.3.0`). Der Mechanismus bleibt eine SemVer-Range; Lockstep ist eine
-lean-md-Release-**Policy**: Binary und Pack werden aus demselben Tag geschnitten. Preis:
-ein reiner Content-Fix erzwingt einen Bump, und weil das Binary die Linie teilt, wird es
-mitgebumpt.
+**Versions-Kopplung: Independent SemVer, initial aligned.** Pack und Binary tragen
+**getrennte** Versionslinien. Sie starten beide bei **`0.2.0`** — das ist ein bequemer
+Startpunkt, **kein Vertrag**, und darf (soll) auseinanderlaufen. Deklariert als
+`version_req = "^0.2"`; auf einer `0.x`-Linie deckt das `>=0.2.0, <0.3.0` ab.
+
+Genau darin liegt der #727-Nutzen: ein reiner Content-Fix hebt den Pack auf `0.2.1`, während
+das Binary auf `0.2.0` stehen bleibt. Der Resolver zieht die höchste non-yanked Version im
+Range — `lean-ctx-addon.toml` wird **nicht** angefasst, der `kind=addon`-Pack **nicht** neu
+publiziert. Erst ein Pack-Sprung auf `0.3.x` verlangt einen `version_req`-Bump (und damit
+einen Addon-Republish).
+
+Publizierte Versionen sind **immutable** (Lockfile pinnt `artifact_sha256`) → jede
+Content-Änderung erzwingt einen **Pack**-Bump, nie einen Binary-Bump.
 
 ---
 
@@ -242,25 +249,47 @@ zur Laufzeit hart fehlschlägt.
 
 | #     | Task                                                             | Kern                                                                                                                                                                                                                                                                                                                                                                     | Gate / Output                                                                             |
 |-------|------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|
-| **1** | **Manifest + Pack-Build**                                        | `[[dependencies]]` (`name = "@dasTholo/lean-md-skills"`, **`version_req = "^0.2"`**, `optional = false`); `[mcp.env] LEAN_MD_SKILLS_DIR = "{pack_dir:@dasTholo/lean-md-skills}"`; `min_lean_ctx` auf die V1-Release-Version; deterministischer `pack create --kind skills --from content/skills` in CI + Drift-Gate; curated-Entry-Entscheidung (§3) als Decision-Record | Pack content-addressed, #498 byte-stabil; `cargo build` grün (kein `src/`-Code berührt)   |
+| **1** | **Manifest + Pack-Build**                                        | `[[dependencies]]` (`name = "@dasTholo/lean-md-skills"`, **`version_req = "^0.2"`**, `optional = false`); `[mcp.env] LEAN_MD_SKILLS_DIR = "{pack_dir:@dasTholo/lean-md-skills}"`; `min_lean_ctx` auf die V1-Release-Version; **neuer Drift-Gate-Job in `.github/workflows/release.yml`** (heute gibt es keinen Pack-Job — siehe Kasten unten); curated-Entry-Entscheidung (§3) als Decision-Record | Pack content-addressed, #498 byte-stabil; `cargo build` grün (kein `src/`-Code berührt)   |
 | **2** | **Render-Resolution-Cut** (`src/skills.rs` + `src/fragments.rs`) | 3-Stufen-Resolution in `render_skill`/`companion_body`; `pack_store_root()` = `LEAN_MD_SKILLS_DIR`; skill-lokale `_includes/` aus `fragments.rs` cutten + Pack-Store-Stufe; `include_str!`-Bodies+Companions+`_includes` raus; cross-skill Core bleibt builtin; Caller-Ripple `src/bin/lean_md.rs` + `bridges/dispatch.rs`                                               | Alle Skill-Render-Tests grün gegen die neue Quelle; `PackMissing` hart in Release         |
 | **3** | **Install-Materializer-Cut** (`src/skill_install.rs`)            | `INSTALLABLE_SKILLS` + `ASSETS` auf read-from-pack umbauen (**nicht** löschen — der Bridge-Schritt schreibt weiterhin `.claude/skills/`-Stubs); visual-companion Script-Pfad-Auflösung                                                                                                                                                                                   | `brainstorm_*_materializes` / `assets_reference_closure` / `*_writes_skill_md` umgestellt |
 | **4** | **Gates + Dev-Workflow**                                         | neuer Gate „Pack-Inhalt == `content/skills` on disk"; #498-Fragment-Gate bleibt für die 3 cross-skill Builtins; debug-fallback-Render verifizieren; `AGENTS.md`/`CLAUDE.md` Dev-Notiz                                                                                                                                                                                    | `cargo run -- render --skill X --phase Y` ohne Pack grün                                  |
 | **5** | **End-to-End (Live-Smoke)**                                      | `addon add @dasTholo/lean-md` installiert Binary + Pack; Consent listet den Pack; Lockfile pinnt das Paar; zweiter Install offline-reproduzierbar; Bodies via Render erreichbar; Scripts materialisieren + laufen                                                                                                                                                        | DoD P3                                                                                    |
 
+> **Task-1-Fallstrick — der Pack-Job darf NICHT am `v*`-Tag hängen.**
+> `.github/workflows/release.yml` (P0/P1) hat heute **keinen** Pack-Job: er triggert
+> ausschließlich `on: push: tags: ['v[0-9]*']`, baut die 5-leg-Matrix, erzeugt `SHA256SUMS`
+> und lässt `sync-manifest` die `[artifacts]`-Hashes zurückcommitten. Hängt man den
+> Pack-Build naiv an denselben Tag, schneidet **ein** Tag Binary **und** Pack gemeinsam →
+> der verworfene Lockstep kehrt durch die Hintertür zurück (§2.3).
+>
+> Task 1 fügt deshalb **nur einen Drift-Gate-Job** hinzu — er baut den Pack, asserted den
+> `content_hash` (Determinismus, #498) und vergleicht ihn gegen den zuletzt publizierten
+> Stand. Er **publiziert nicht** und **released nicht**; kein Publish-Token in der
+> Workflow-Umgebung. Der Pack wird von Hand geschnitten und publiziert
+> (`docs/dev-readme.md`). Ein automatisierter Pack-Release mit eigener Tag-Linie
+> (`skills-v*`) bleibt eine mögliche spätere Ausbaustufe — **nicht** P3.
+
 **Der alte Task 1 (Wiring-Discovery, STOP-Gate) entfällt** — durchgeführt am 2026-07-09,
 Ergebnis in §2. Seine drei Unbekannten sind beantwortet: Deklarations-Key = `version_req`
 (nach Upstream-PR), Pfad-Delivery = `LEAN_MD_SKILLS_DIR` via `{pack_dir:}`-Platzhalter,
-Versions-Kopplung = Lockstep `0.2.0`. Sein HALT-Verdikt (`halt-dual-source`) ist in die
-Vorbedingung V1 überführt: **kein Dual-Source-Umbau**, sondern warten auf den Vertrag.
+Versions-Kopplung = **independent SemVer**, initial beide `0.2.0` (§2.3). Sein HALT-Verdikt
+(`halt-dual-source`) ist in die Vorbedingung V1 überführt: **kein Dual-Source-Umbau**, sondern
+warten auf den Vertrag.
 
 **Hash vs. Version:** `content_hash`/SHA256 aktualisiert sich automatisch deterministisch bei
 jeder `content/skills`-Änderung (#498). Die **SemVer-Version** ist der Dependency-Vertrag:
 publizierte Versionen sind **immutable** (Lockfile pinnt `artifact_sha256`; Republish gleicher
-Version mit anderen Bytes → abgelehnt). ∴ **Content-Änderung erzwingt Versions-Bump** — unter
-Lockstep auch für das Binary. CI braucht einen **Drift-Gate** (Pack neu bauen, Hash asserten —
-fängt „Content geändert, Bump/Publish vergessen"), analog zum `sync-manifest`-SHA-Rückfluss
-beim Binary.
+Version mit anderen Bytes → abgelehnt). ∴ **Content-Änderung erzwingt einen Pack-Bump** —
+`0.2.0` → `0.2.1`, das Binary bleibt unberührt. CI braucht einen **Drift-Gate** (Pack neu
+bauen, Hash asserten — fängt „Content geändert, Bump/Publish vergessen"). **CI verifiziert
+nur; publiziert wird von Hand** (kein Publish-Token in der Workflow-Umgebung) — der
+Dev-Prozess steht in `docs/dev-readme.md`.
+
+**Zwei Release-Regime** (nach dem Cut): `content/skills/**` → **nur Pack** (`pack create` +
+`pack publish`, kein Tag, kein Binary-Build, kein `sync-manifest`); `content/core/**` +
+`content/gloss/**` + `src/**` → **Binary** (Tag `v*`, 5-leg-Build, SHA-Rückfluss). Weil
+`content/skills` nach dem Cut nicht mehr `include_str!`-gebacken ist, sind die fünf
+`[artifacts]`-SHA-Pins von einer reinen Skill-Änderung **unberührt**.
 
 ---
 
@@ -333,7 +362,8 @@ Multi-Pack lohnt nur bei echten Achsen (Release-Kadenz, Trust/Pricing, Fremd-Add
 | **R5** | Reverse-Cut-Verletzung                                                                                      | Unberührt — Pack ist Content, kein Engine-Symbol                                                                                                                                                          |
 | **R6** | debug-fallback feuert im Release-Binary                                                                     | `cfg(debug_assertions)` + `CARGO_MANIFEST_DIR`-Existenz; Release-Binary hat keins von beidem                                                                                                              |
 | **R7** | Standalone-Render (`cargo run`/Dev) ohne Pack bricht                                                        | Primitive (`core`+`gloss`) bleiben embedded → General-Render immer lauffähig; Skill-Render via debug-fallback                                                                                             |
-| **R8** | Lockstep zwingt Binary-Bump für reinen Content-Fix                                                          | Bewusst akzeptiert (§2.3) — **eine** Versionsnummer statt zweier driftender.                                                                                                                              |
+| **R8** | Content geändert, Pack-Republish vergessen → gerenderte Skills veralten still | Drift-Gate (Task 4) meldet „Pack-Inhalt ≠ `content/skills` on disk". CI **verifiziert nur**; Publish ist Maintainer-Hand (kein Token in CI). |
+| **R9** | Pack läuft auf `0.3.x`, `version_req = "^0.2"` deckt ihn nicht mehr | Bewusst: Range-Bump im Manifest + Addon-Republish. Innerhalb `0.2.x` ist der Pack frei — das ist der Regelfall. |
 
 ---
 
@@ -352,7 +382,8 @@ Multi-Pack lohnt nur bei echten Achsen (Release-Kadenz, Trust/Pricing, Fremd-Add
   `gloss/directives` bleiben embedded; #498-Fragment-Consistency-Gate (built-in == on-disk)
   bleibt grün.
 - `seeds.rs`/`PROJECT_SEEDS` unverändert (§6).
-- CI: Pack-Build + Drift-Gate; Lockstep-Bump-Regel dokumentiert.
+- CI: Pack-Build + Drift-Gate (verifiziert, publiziert **nicht**); Bump-Regel + zwei
+  Release-Regime dokumentiert in `docs/dev-readme.md`.
 - Dev-Workflow: `cargo run -- render --skill X --phase Y` ohne Pack grün (debug-fallback).
 - **DoD-live:** `addon add @dasTholo/lean-md` installiert Binary + Pack, Consent listet den
   Pack, Lockfile pinnt das Paar, zweiter Install offline-reproduzierbar; Skill-Bodies via

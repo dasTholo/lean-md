@@ -17,8 +17,11 @@
 > **Stand 2026-07-11 (erledigt):** `3.9.6` ist upstream released und lokal installiert — **mit**
 > dem #727-Vertrag (PR #780 gemergt) und dem gemergten PR #721. Damit sind **V1a, V1b und V3
 > geschlossen**; §1.1–1.3 dokumentieren nur noch den historischen 3.9.5-Zwischenstand. **Paket C
-> (§5.1) ist neu geschnitten** — `skill-fix` wird abandonniert statt gemergt; maßgeblich ist
-> `2026-07-11-lmd-paket-c-rev3-abandon-skill-fix-design.md`.
+> (§5.1, = Gate V0) ist ausgeführt und abgenommen** — `skill-fix` abandonniert statt gemergt;
+> 6/6 Tasks per Zwei-Verdikt-Review + Whole-Branch-Final-Review durch (keine Findings), Suite
+> 562/562 grün, Smoke Teil 1 (§4.1) grün. Commits `2a93810..0d0fd72`, Branch `feat-lmd-v2` lokal
+> gehalten (kein Push). Maßgeblich: `2026-07-11-lmd-paket-c-rev3-abandon-skill-fix-design.md`.
+> **Verbleibend: V2, V4a, V4b** (§5.4–5.7 — Netz/Token/Maintainer).
 
 ---
 
@@ -86,7 +89,7 @@ bestimmt die Reihenfolge der Verifikation (§4).
 
 | Gate | Stand | Beleg |
 |---|---|---|
-| **V0** Paket C (Konsolidierung) | ❌ offen | `skill-fix` → **abandon**, Rev3-Spec |
+| **V0** Paket C (Konsolidierung) | ✅ **geschlossen** (2026-07-11) | 6/6 Tasks abgenommen, `2a93810..0d0fd72`, Suite 562/562, Smoke Teil 1 grün |
 | **V1a** lokales lean-ctx trägt den Vertrag | ✅ **geschlossen** | installierte `3.9.6` trägt den Vertrag |
 | **V1b** Vertrag released | ✅ **geschlossen** | PR #780 gemergt, als `3.9.6` released |
 | **V2** `v0.2.0` mit echten SHA-256 | ❌ offen | keine Tags; fünf `0000…`-Pins |
@@ -94,9 +97,9 @@ bestimmt die Reihenfolge der Verifikation (§4).
 | **V4a** Skills-Pack publiziert | ❌ offen — **entkoppelt** | `pack create --kind skills` läuft lokal |
 | **V4b** `addon publish` | ❌ offen | Netz/Token/Maintainer (§3, D7) |
 
-**Der Kern:** V1a/V1b/V3 sind durch das `3.9.6`-Release geschlossen. Alles Verbleibende (V0, V2,
-V4a, V4b) liegt in unserer Hand; `pack publish`/`addon publish` sind client-seitig und laufen unter
-dem installierten 3.9.6-Binary.
+**Der Kern:** V0 (2026-07-11) und V1a/V1b/V3 sind geschlossen. Verbleibend (V2, V4a, V4b) liegt in
+unserer Hand; `pack publish`/`addon publish` sind client-seitig und laufen unter dem installierten
+3.9.6-Binary.
 
 ---
 
@@ -170,10 +173,26 @@ Alternative ohne Publish: `--registry` / `CTXPKG_REGISTRY` auf einen Mock-Server
 
 ## 5. Arbeitspakete
 
-### 5.1 Paket C — Konsolidierung (lean-md, netzfrei, sofort)
+### 5.1 Paket C — Konsolidierung (lean-md, netzfrei) — ✅ **erledigt 2026-07-11**
 
-**Neu geschnitten — maßgeblich ist `2026-07-11-lmd-paket-c-rev3-abandon-skill-fix-design.md`.**
-`skill-fix` wird **nicht** gemergt, sondern abandonniert: drei seiner fünf Commits tragen die von
+**Ausgeführt & abgenommen** via `lmd-subagent-driven-development` (ein Implementer-Subagent pro
+Task, Zwei-Verdikt-Review dazwischen, Whole-Branch-Final-Review clean — keine Findings). Branch
+`feat-lmd-v2`, lokal gehalten (29 Commits vor `origin/feat-lmd-v2`, bewusst kein Push).
+
+| SHA | Task | Inhalt |
+|---|---|---|
+| `3b82bfc` | AP1 | #1040-Warm-Cache-Korrektur über 4 Seeds + Test `no_body_or_fragment_claims_a_warm_subagent_cache` |
+| `3c26b1c` | AP2 | SDD-Orientation-Block (`ctx_overview` + `ctx_repomap`), nur Orient-Hunk |
+| `ff17fe5` | AP3 | `.claude/rules/subagent-multi-agent.md` gelöscht, SDD-Contract inline in `CLAUDE.md` |
+| `0875341` | AP4 | `min_lean_ctx` 3.9.4 → **3.9.6** (+ E4-Kommentar) |
+| `0d0fd72` | AP5 | Pack-Drift neu geblesst; `skills.ctxpkg-hash` = `8114591a52ebe4b3ff0dac54d067958d41c4396c66faa0651f536e448ba06b95` |
+
+AP7 (Smoke Teil 1) = reine Verifikation, kein Commit. Suite **562/562** grün (+1 ggü. 561 =
+AP1-Test), clippy clean, #498-Fragment-Consistency grün, `pack_drift` grün **ohne** `LEAN_MD_BLESS`
+(content_hash vom Reviewer via frischem `pack create` unabhängig reproduziert — #498-deterministisch).
+
+**Ursprünglicher Schnitt — maßgeblich ist `2026-07-11-lmd-paket-c-rev3-abandon-skill-fix-design.md`.**
+`skill-fix` wurde **nicht** gemergt, sondern abandonniert: drei seiner fünf Commits tragen die von
 PR #721 entfernte Auto-Render-Prämisse, einer invertiert die schon korrekte
 `feat-lmd-v2`-Read-Semantik. Re-authored werden nur die validen Teile — die #1040-Warm-Cache-
 Korrektur (+ Test), die SDD-Orientation, die superpowers-File-Aufräumung; `min_lean_ctx` →
@@ -188,7 +207,12 @@ Korrektur (+ Test), die SDD-Orientation, die superpowers-File-Aufräumung; `min_
 Entfällt: das installierte `lean-ctx 3.9.6` trägt bereits Vertrag (PR #780) und Registry-Entry
 (PR #721). V1a ist ohne Integrations-Build geschlossen. `lean-ctx --version` → `3.9.6`.
 
-### 5.3 Lokaler Smoke, Teil 1 (§4.1)
+### 5.3 Lokaler Smoke, Teil 1 (§4.1) — ✅ **erledigt 2026-07-11**
+
+Alle sieben Prüfzeilen grün (Release-Binary): Render aus Pack-Store; harter `PACK_MISSING` ohne
+`LEAN_MD_SKILLS_DIR`; Overlay schlägt Pack; Debug-Fallback nur im Dev-Build (`cfg(debug_assertions)`);
+Assets `*.sh` mode `0755`; `.lmd.md`-Roh-Read liefert unaufgelöste Direktiven. Der `0.2.0`-Pack war
+der Verifikations-Pack, **nicht** der Publish (§5.4).
 
 ### 5.4 Pack publizieren — schließt V4a
 
@@ -245,16 +269,16 @@ Erst nach 5.8. `lean-md render docs/lean-md/plans/2026-07-09-lmd-p3-skills-pack-
 
 ## 7. Definition of Done
 
-**Paket C (5.1):** maßgeblich `2026-07-11-lmd-paket-c-rev3-abandon-skill-fix-design.md`.
-`skill-fix` abandonniert; #1040-Korrektur (+ Test) + SDD-Orient + Cleanup re-authored;
-`feat-lmd-v2`-Read-Semantik unverändert korrekt; `min_lean_ctx = "3.9.6"`; `skills.sha256` +
-`skills.ctxpkg-hash` neu geblesst, Drift-Gate grün; Suite + clippy grün.
+**Paket C (5.1): ✅ erfüllt (2026-07-11, `2a93810..0d0fd72`).** `skill-fix` abandonniert;
+#1040-Korrektur (+ Test) + SDD-Orient + Cleanup re-authored; `feat-lmd-v2`-Read-Semantik unverändert
+korrekt; `min_lean_ctx = "3.9.6"`; `skills.sha256` + `skills.ctxpkg-hash` neu geblesst, Drift-Gate
+grün ohne `LEAN_MD_BLESS`; Suite 562/562 + clippy grün; Whole-Branch-Final-Review ohne Findings.
 
 **Dev-Binary (5.2):** erledigt — `lean-ctx --version` = `3.9.6` (Vertrag + Registry-Entry bereits
 installiert). V1a geschlossen.
 
-**Smoke Teil 1 (4.1):** Release-Binary rendert aus dem Pack-Store; ohne `LEAN_MD_SKILLS_DIR`
-harter `PACK_MISSING`; Overlay schlägt Pack; Debug-Fallback nur im Dev-Build.
+**Smoke Teil 1 (4.1): ✅ erfüllt (2026-07-11).** Release-Binary rendert aus dem Pack-Store; ohne
+`LEAN_MD_SKILLS_DIR` harter `PACK_MISSING`; Overlay schlägt Pack; Debug-Fallback nur im Dev-Build.
 
 **Release (5.4–5.7):** V4a, V2, V4b geschlossen; das publizierte `pack_manifest` trägt
 `[[dependencies]]`.

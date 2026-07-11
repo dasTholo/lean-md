@@ -1,4 +1,4 @@
-# Tool availability audit — brainstorming path (phase 10)
+# Tool availability audit — brainstorming path
 
 Coverage matrix: each brainstorming workflow step → lmd directive → lean-ctx backing.
 The source of truth is `src/availability.rs::COVERAGE` (this doc-text is the
