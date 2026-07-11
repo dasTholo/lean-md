@@ -11,7 +11,9 @@ Tool discipline:
   wrap a tool in ctx_call.
 - NEVER fresh, NEVER raw — to re-read your own edits use ctx_delta or ctx_read mode=diff.
 - Search → ctx_search (never grep/rg); read files → ctx_read (never cat).
-- Rust (*.rs) edits → native Edit / ctx_edit; symbol nav/refactor → ctx_refactor / @symbol.
+- Rust (*.rs) non-symbol edits → `ctx_read mode=anchored` → `ctx_patch` (patch by
+  LINE:HASH anchor, never re-emit old text); `ctx_edit` only tiny-span/replace-all;
+  symbol nav/refactor → `ctx_refactor` / @symbol.
 - git commit: PLAIN git commit -m "subject" -m "trailer" — NEVER a heredoc / $( ) subshell.
 - Output discipline: render in CRP mode `{{ crp }}` (off|compact|tdd) — see tdd-schema.
 

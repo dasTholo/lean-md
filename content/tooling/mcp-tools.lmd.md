@@ -10,6 +10,10 @@
 
 ## Directive usage reference (for the plan author)
 
+- Non-symbol edits → the anchored loop: `@read <path> mode=anchored` (ctx_read →
+  LINE:HASH anchors) then `ctx_patch` (patch by anchor, never re-emit old text).
+  This is the default edit path. `@edit` (ctx_edit str_replace) is the exception:
+  tiny-span (1-2 tok, anchor ≥ old_string) or replace-all across scattered lines.
 - `@refactor <op> <symbol>` — LSP-safe symbol edits via ctx_refactor. Ops:
   `rename` / `move` / `extract`. **Use** for symbol changes in Rust instead of
   `@edit` (`@edit` for non-symbol edits only).
