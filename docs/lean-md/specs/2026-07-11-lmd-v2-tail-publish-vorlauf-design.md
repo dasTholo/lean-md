@@ -55,6 +55,14 @@ die publizierten `0.2.0`-Pack-Bytes (post-Rebless, `6491dc4e`) ≠ die Skills-By
 (Rebless liegt *nach* dem Tag). Akzeptiert; per Rev2 §7 kein Retag. Task 0 verifiziert, dass die
 Registry `@dasTholo/lean-md-skills 0.2.0` noch nicht kennt (Immutability-Kollision).
 
+**Tag ⟺ Pack-Entkopplung (E2-Nachtrag).** Ein neues Git-Tag ist an das *Binary*-Release gekoppelt
+(`release.yml`), **nicht** an den Pack. Das Binary embedded via `include_str!` nur
+`content/{core,gloss,templates,lang,tooling}` (+ `src/`, geprüft in `fragments.rs`/`gloss.rs`/`seeds.rs`);
+`content/skills/` lebt im **Pack**. ∴ eine `content/skills/`-Änderung → nur `pack publish`
+(Version-Bump, immutable), **kein** Tag; erst ein Eingriff in `src/` oder das embedded-Subset zwingt
+zu Tag + Release + `[artifacts]`-SHA-Nachzug. **Diese Phase ändert nichts an `content/`** (V4a/V4b =
+reine Registry-Ops) → **kein neues Tag** (Rev2 §5.6 mit V2 erledigt; der Runbook-Tail listet korrekt keinen Tag-Schritt).
+
 **E3 — Kuratierter Entry bleibt `listed`.** lean-md ist mit `listed` **voll auslieferbar**: der
 Install-Pfad ist der **Hosted-Pack** `addon add dasTholo/lean-md` (ein namespaced Ref löst gegen die
 Hosted-Registry auf und lädt den `kind=addon`-Pack mit dem eingebetteten vollen Manifest; der
@@ -75,8 +83,10 @@ Voraussetzung, orthogonal zur listed/installable-Frage.
 ## 4. Arbeitspakete
 
 ### Task 0 — Pre-Flight / origin-reconcile *(bindende Vorbedingung)*
-1. **Ungepushten `43fb487` klären** — pushen oder bewusst lokal halten; der Pack darf nur aus dem
-   sanktionierten Branch-Stand materialisiert werden.
+1. **Ungepushten `43fb487` klären** — ändert **nur** `.pre-commit-config.yaml` (+6 Zeilen), berührt
+   **weder `content/` noch `src/`** → **kein Pack- oder Binary-Impact** (kann den Pack nicht
+   kontaminieren, zwingt kein Tag). Reine Branch-Hygiene: pushen oder bewusst lokal halten. Der
+   Grundsatz „Pack nur aus sanktioniertem `content/skills`-Stand" gilt generell, greift hier aber nicht.
 2. **SHA-Kreuzprobe** — die fünf `[artifacts].sha256` == GH-Release `SHA256SUMS`, byte-genau.
 3. **Immutability-Check** — bestätigen, dass nie ein `0.2.0`-Pack publiziert wurde (lokal: kein
    `pack publish` lief; der echte Registry-Check ist erste Runbook-Vorbedingung).
