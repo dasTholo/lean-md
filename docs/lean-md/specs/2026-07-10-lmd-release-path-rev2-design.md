@@ -26,8 +26,9 @@
 > **Phase V2 + Registry-Nachzug §5.8 — in Arbeit:** eigene Spec
 > `2026-07-11-lmd-v2-tag-registry-nachzug-design.md` (Ansatz A, kein RC, via CI).
 > **Der Fortschritt dieser Phase wird in `ctx_knowledge` gehalten** (nicht in dieser
-> Datei) — Schlüssel `phase-design-v2-registry-nachzug` und die je Task/Gate
-> ergänzten `progress`-Einträge. Diese Spec bleibt der statische Gate-Überblick;
+> Datei) — Schlüssel `phase-design-v2-registry-nachzug` plus **ein** Abschluss-Eintrag
+> am Plan-Ende (Fortschritt wird nicht pro Task, sondern beim Plan-Abschluss
+> geschrieben). Diese Spec bleibt der statische Gate-Überblick;
 > laufender Stand → Knowledge abfragen (`ctx_knowledge action=recall`).
 
 ---
