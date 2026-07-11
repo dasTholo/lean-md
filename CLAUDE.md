@@ -42,14 +42,13 @@
 
 ## Subagent-Driven Execution
 
-When executing a plan via `superpowers:subagent-driven-development` (one fresh
-subagent dispatched per task), the lean-ctx multi-agent + memory contract is
-**mandatory** — for the controller and for every dispatched subagent. The
-controller MUST prepend the Dispatch Contract to each subagent prompt.
-
-
-
-@rules/subagent-multi-agent.md
+- SDD-Pläne werden mit dem Skill `lmd-subagent-driven-development` ausgeführt — ein
+  frischer Implementer-Subagent pro Task, Zwei-Verdikt-Review dazwischen.
+- Der Dispatch-Contract lebt als Seed `content/core/dispatch-contract.lmd.md`
+  (`include_str!` in `src/fragments.rs`, byte-stabil #498) und wird von `@dispatch`
+  automatisch vorangestellt. Nicht duplizieren, nicht von Hand einfügen.
+- Fortschritt, Briefs und Batons laufen über `ctx_session`, `ctx_knowledge` und
+  `ctx_agent` — nie über Scratch-Dateien.
 
 ## Language
 
