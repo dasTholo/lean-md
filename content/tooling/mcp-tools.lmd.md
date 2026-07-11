@@ -15,8 +15,8 @@
   This is the default edit path. `@edit` (ctx_edit str_replace) is the exception:
   tiny-span (1-2 tok, anchor ≥ old_string) or replace-all across scattered lines.
 - `@refactor <op> <symbol>` — LSP-safe symbol edits via ctx_refactor. Ops:
-  `rename` / `move` / `extract`. **Use** for symbol changes in Rust instead of
-  `@edit` (`@edit` for non-symbol edits only).
+  `rename` / `move` / `extract`. **Use** for symbol changes in Rust; non-symbol
+  edits take the anchored loop above (`@edit` only tiny-span / replace-all).
 - `@review diff-review` — fused review verdict (impact + caller + smells) on a diff.
   **Use** as a post-change gate.
 - `@smells [scan|summary] <path>` — code-smell findings (ctx_smells). **Use** as a
