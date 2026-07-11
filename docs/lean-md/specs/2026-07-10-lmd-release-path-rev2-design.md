@@ -22,6 +22,13 @@
 > 562/562 grün, Smoke Teil 1 (§4.1) grün. Commits `2a93810..0d0fd72`, Branch `feat-lmd-v2` lokal
 > gehalten (kein Push). Maßgeblich: `2026-07-11-lmd-paket-c-rev3-abandon-skill-fix-design.md`.
 > **Verbleibend: V2, V4a, V4b** (§5.4–5.7 — Netz/Token/Maintainer).
+>
+> **Phase V2 + Registry-Nachzug §5.8 — in Arbeit:** eigene Spec
+> `2026-07-11-lmd-v2-tag-registry-nachzug-design.md` (Ansatz A, kein RC, via CI).
+> **Der Fortschritt dieser Phase wird in `ctx_knowledge` gehalten** (nicht in dieser
+> Datei) — Schlüssel `phase-design-v2-registry-nachzug` und die je Task/Gate
+> ergänzten `progress`-Einträge. Diese Spec bleibt der statische Gate-Überblick;
+> laufender Stand → Knowledge abfragen (`ctx_knowledge action=recall`).
 
 ---
 
