@@ -56,9 +56,15 @@ Python-Read-Deny (#9) wird vollständig überflüssig.
 ### Änderungen
 
 **A. Config (`~/.config/lean-ctx/config.toml`):**
-- `read_redirect = "on"` **hinzufügen** (aktuell unset→auto). Aktiviert den nativen
-  Read-Redirect auch auf Claude Code → native Reads werden transparent komprimiert.
-- `read_dedup = "on"` **bleibt** (dedupt Re-Reads unabhängig davon).
+- `read_redirect` auf `on` setzen — **via CLI, nicht Hand-Edit**:
+  `lean-ctx config set read_redirect on` (über `ctx_shell`). `read_redirect` ist ein
+  **Routine-Key** (nicht in `config::risk`) → direkter Write, **kein** Bestätigungs-Prompt,
+  kein `--yes`. Läuft durch beide Kanäle: `lean-ctx` ist First-Token-whitelisted in
+  `bash-enforce-ctx-shell.py`, und `read_redirect` ist kein guarded Key in
+  `lean-ctx-policy-guard.py` (dessen `_CONFIG_RE` matcht nur `shell_allowlist*`/
+  `shell_security`/`shell_strict_mode`/`shell_hook_disabled`).
+  Aktiviert den nativen Read-Redirect auch auf Claude Code → native Reads transparent komprimiert.
+- `read_dedup = "on"` **bleibt** (bereits gesetzt; dedupt Re-Reads unabhängig davon).
 
 **B. Hooks entfernen (`~/.claude/settings.json` + Datei):**
 - **#1 `skill-plan-injector.py`** — PostToolUse/Skill-Eintrag entfernen (Datei fehlt bereits).
@@ -78,8 +84,10 @@ Python-Read-Deny (#9) wird vollständig überflüssig.
 `read_redirect="on"` ist **nur** sicher, solange `edit-tool-discipline.py` native Edit
 verweigert (sonst bricht der Read-Redirect die native-Edit read-before-write-Guard,
 #637). Config und Hooks leben beide global unter `~/` und reisen zusammen. Wer die
-Edit-Disziplin je entfernt, MUSS `read_redirect` auf `auto` zurücknehmen. Dies wird als
-Kommentar in `config.toml` neben `read_redirect` verankert.
+Edit-Disziplin je entfernt, MUSS `read_redirect` auf `auto` zurücknehmen
+(`lean-ctx config set read_redirect auto`). Verankert als **`ctx_knowledge`-Gotcha**
+(durable, cross-session) — **nicht** als Inline-Kommentar, da `config set` wertbasiert
+schreibt und keinen Kommentar-Anker trägt.
 
 ## Nicht-Ziele
 
@@ -93,6 +101,8 @@ Kommentar in `config.toml` neben `read_redirect` verankert.
 
 ## Verifikation (manuell — kein Repo-Test)
 
+0. `lean-ctx config set read_redirect on` → Ausgabe `Updated read_redirect = on` (kein Prompt);
+   Gegenprobe `lean-ctx config show` (bzw. `config get read_redirect`) → `on`.
 1. `python3 -c "import json; json.load(open('/home/tholo/.claude/settings.json'))"` → valides JSON; die drei Einträge #1/#7/#9 fehlen.
 2. Dateien `plan-discipline.py`, `read-search-discipline.py` gelöscht; `skill-plan-injector.py` war nie vorhanden.
 3. Neue Claude-Code-Session:
@@ -104,7 +114,7 @@ Kommentar in `config.toml` neben `read_redirect` verankert.
 
 ## Risiken
 
-- **Kopplung** (s. o.) — mitigiert durch config.toml-Kommentar.
+- **Kopplung** (s. o.) — mitigiert durch `ctx_knowledge`-Gotcha (Rücknahme-Rezept).
 - **Globale Config wirkt auf alle Hosts:** `read_redirect=on` ist auf Nicht-Guard-Hosts
   (Cursor/Zed) ein No-op (dort war auto bereits on). Kein Regressions-Risiko dort.
 - **Out-of-repo, kein Test-Gate:** rein manueller Smoke-Test; als eigener Plan-Task mit
