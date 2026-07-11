@@ -22,6 +22,9 @@ a restore point, NOT a worktree substitute.)
 the ACTIVE SESSION block. Tasks already marked complete are NOT re-dispatched (recovery map =
 `ctx_knowledge` + `git log`).
 
+**Orientation:** before Task 1, map the ground once — `ctx_overview "<plan topic>"` plus
+`ctx_repomap` (PageRank top symbols). Cheaper than discovering the architecture task by task.
+
 Once: `ctx_agent action=register agent_type=claude role=plan`.
 
 next: render phase "preflight".
