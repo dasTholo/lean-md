@@ -28,8 +28,9 @@ via `lean_md::skills::{render_skill, render_companion, render_source_with_phase}
 
 ## Global Constraints
 
-- Non-goal: die im mdai-Worktree mitliegende **lean-ctx wird nie gebaut/aufgerufen** —
-  nur der **markdownai**-Render-Layer wird gemessen.
+- Non-goal: **kein** lokaler Engine-Build, **kein** lean-ctx im Worktree. mdai-Engine =
+  veröffentlichtes `@markdownai/core` (Binary `mai`, global installiert) — nur dieser
+  markdownai-Render-Layer wird gemessen.
 - #498: `SUMMARY.md` ist byte-stabil (zweifache Generierung identisch) — Test-Gate.
 - `lean_md`-Crate bleibt frei von `tiktoken-rs` und Subprozess-Logik (Isolation in
   der Bench-Crate) — Reviewer prüft: kein Diff an Root-`[dependencies]`/`[lib]`/`[[bin]]`.
@@ -75,6 +76,7 @@ New `benchmarks/workflow-token-comparison/Cargo.toml`:
     [dependencies]
     lean_md = { path = "../..", package = "lean-md" }
     tiktoken-rs = "0.12"
+    serde_json = "1.0"   # minimal MCP stdio JSON-RPC client for `mai serve`
 
     [[bin]]
     name = "workflow-token-comparison"
@@ -133,29 +135,43 @@ verwaiste Datei: nicht kompiliert, Test läuft nicht, Gate falsch-grün).
 
     #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     pub enum MdaiMode { Live, Recorded }
-    pub struct MdaiCli { pub worktree: std::path::PathBuf, pub mode: MdaiMode }
+    pub struct MdaiCli { pub mai_bin: String, pub mode: MdaiMode }
     impl MdaiCli {
-        pub fn preflight() -> Self;                               // env MDAI_WORKTREE, default worktree; Live iff markdownai build present
-        pub fn render_full(&self, file: &str) -> Option<String>;  // None in Recorded mode
-        pub fn render_phase(&self, file: &str, phase: &str) -> Option<String>;
+        pub fn preflight() -> Self;   // env MAI_BIN (default "mai"); Live iff `<mai_bin> --version` exits 0
+        // Both drive ONE `mai serve` MCP session (stdio JSON-RPC); None in Recorded mode.
+        pub fn render_full(&self, cwd: &std::path::Path, rel: &str) -> Option<String>;          // read_file{path:rel, format:"ai"}
+        pub fn render_phase(&self, cwd: &std::path::Path, rel: &str, phase: &str) -> Option<String>; // read_file{path:rel, phase, format:"ai"}
+        pub fn list_phases(&self, cwd: &std::path::Path, rel: &str) -> Vec<String>;             // MCP list_phases (or `mai list-phases`)
     }
     // recorded fallback constants (cl100k, from mdai-benchmark.md v3 S3a / v4 Part-B):
     pub const REC_MDAI_FULL_RENDER: usize = 2266;    // v3 rendered full plan
     pub const REC_MDAI_PHASE_MIN: usize = 404;       // v4 Part-B T0
     pub const REC_MDAI_PHASE_MAX: usize = 3234;      // v4 Part-B T5
 
-Default-Worktree: `/home/tholo/Scripts/lean-ctx-mdai-bench` (env `MDAI_WORKTREE`
-überschreibt). `preflight` prüft NUR markdownai-Baubarkeit (z.B. Existenz von
-`markdownai/packages/*/dist/*` bzw. erfolgreicher `node <cli> --version`), **niemals
-lean-ctx**. Fehlt der Build → `MdaiMode::Recorded`, kein Panic.
+**Engine = veröffentlichtes `@markdownai/core` (Binary `mai` 1.4.0, global via
+`npm i -g @markdownai/core`, in der lean-ctx-Allowlist).** `preflight`:
+`<mai_bin> --version` exit 0 → `MdaiMode::Live`, sonst `MdaiMode::Recorded` (kein
+Panic). **Kein** lokaler Build, **kein** lean-ctx, **kein** Worktree-Engine-Code —
+die Engine ist separat installiert.
 
-**Offener Impl-Punkt — hier entscheiden (Discovery zuerst):** prüfen ob der
-`mdai-bench`-Branch ein CLI-`--phase`-Flag hat
-(`git -C <worktree> grep -n -- '--phase\|read_file' markdownai/packages`). Falls
-ja → CLI-Subprozess für `render_phase`. Falls nein → markdownai-MCP-Server per
-stdio treiben (inkl. `respondTool()`-Compliance-Patch aus `mdai-benchmark.md`) ODER
-`render_phase` liefert `None` und Achse 2 nutzt die recorded-Konstanten. Die
-gewählte Variante in `remember_decision` festhalten.
+Phase-Isolation ist **validiert** und läuft über den **MCP-Server** (`mai serve`,
+stdio) — es gibt kein CLI-`--phase`. Protokoll (verifiziert, newline-delimited
+JSON-RPC 2.0):
+1. `mai serve --cwd <cwd>` spawnen (stdin/stdout Pipes).
+2. `initialize` (`protocolVersion:"2024-11-05"`, `capabilities:{}`,
+   `clientInfo:{…}`) → dann Notification `notifications/initialized`.
+3. `tools/call` `read_file`, args `{path:<rel>, format:"ai"}` (voll) bzw.
+   `{path:<rel>, phase:<id>, format:"ai"}` (isoliert). **`path` ist relativ zu
+   `--cwd`** (absolute Pfade blockt der Server). Antwort:
+   `result.content` = gerenderter Markdown-String
+   (Shape `{"content":"…","isMarkdownAI":true,"warnings":[]}`) → tokenisieren.
+4. Server killen. Der Client sitzt minimal in `mdai.rs` (`std::process` + `serde_json`).
+
+Achse-1-brainstorm: cwd = `MDAI_WORKTREE` (env, default
+`/home/tholo/Scripts/lean-ctx-mdai-bench`), rel =
+`mdai/skills/mdai-brainstorm/body.mdai.md`. Achse-2: cwd = Fixture-Genre-Dir,
+rel = `plan.mdai.md`. Fixtures sind self-contained (v2-Syntax `@phase-end`, keine
+externen `@include`) → sauber isolierbar.
 
 @call tdd(mdai_preflight_never_panics)
 
@@ -163,16 +179,16 @@ Test verbatim:
 
     #[test]
     fn mdai_preflight_never_panics() {
-        // With MDAI_WORKTREE pointing nowhere, preflight must degrade to Recorded.
+        // With MAI_BIN pointing to a missing binary, preflight must degrade to Recorded.
         // SAFETY: single-threaded test; env mutation is local to this test binary.
-        unsafe { std::env::set_var("MDAI_WORKTREE", "/nonexistent-mdai-xyz"); }
+        unsafe { std::env::set_var("MAI_BIN", "/nonexistent-mai-binary-xyz"); }
         let cli = super::MdaiCli::preflight();
         assert_eq!(cli.mode, super::MdaiMode::Recorded);
-        assert!(cli.render_full("whatever.mdai.md").is_none());
+        assert!(cli.render_full(std::path::Path::new("/tmp"), "whatever.mdai.md").is_none());
         assert!(super::REC_MDAI_FULL_RENDER > 0 && super::REC_MDAI_PHASE_MAX > super::REC_MDAI_PHASE_MIN);
     }
 
-**Expected:** Test grün; fehlender/ungültiger Worktree ⇒ `Recorded`, keine Panik,
+**Expected:** Test grün; fehlendes/ungültiges `mai`-Binary ⇒ `Recorded`, keine Panik,
 recorded-Konstanten plausibel.
 
 ### Verify & Close
@@ -180,7 +196,7 @@ recorded-Konstanten plausibel.
 @call verify("benchmarks/workflow-token-comparison/src/mdai.rs")
 @call gate("benchmarks/workflow-token-comparison/src/mdai.rs")
 @call commit("benchmarks/workflow-token-comparison/src/mdai.rs", "feat(bench): mdai markdownai adapter + preflight + recorded fallback")
-@call remember_decision("mdai-Adapter: MDAI_WORKTREE env, Live iff markdownai-Build da sonst Recorded; Phase-Isolation-Variante (CLI/MCP/recorded) = <hier eintragen>")
+@call remember_decision("mdai-Adapter: Engine=@markdownai/core `mai` (env MAI_BIN, default 'mai'); Live iff `mai --version` ok sonst Recorded; Phase-Isolation via `mai serve` MCP tools/call read_file{path,phase,format:ai} → result.content; path relativ zu --cwd")
 @phase-end
 
 @phase "task-3"
@@ -235,9 +251,11 @@ Konkrete Stage-Daten (verbatim):
       lmd-companions=[implementer, task-reviewer, code-reviewer]
 
 mdai-brainstorm-Zelle (nur stage=="brainstorm"): Live →
-`mdai.render_full("mdai/skills/mdai-brainstorm/body.mdai.md")` tokenisieren →
-`mdai_content=Some(n)`, `mdai_status="live"`. Recorded → `mdai_content=None`,
-`mdai_status="recorded"`. Andere Stages: `mdai_content=None`, `mdai_status="n/a"`.
+`mdai.render_full(&mdai_worktree, "mdai/skills/mdai-brainstorm/body.mdai.md")`
+tokenisieren (`mdai_worktree` = env `MDAI_WORKTREE`, default
+`/home/tholo/Scripts/lean-ctx-mdai-bench`) → `mdai_content=Some(n)`,
+`mdai_status="live"`. Recorded → `mdai_content=None`, `mdai_status="recorded"`.
+Andere Stages: `mdai_content=None`, `mdai_status="n/a"`.
 
 @call tdd(axis1_overhead_and_na_invariant)
 
@@ -283,8 +301,10 @@ sonst `n/a`.
 Discovery: zwei reale Quell-Pläne wählen (`@list docs/lean-md/plans/`) — ein
 Refactoring-Genre, ein Audit-Genre. Für jeden:
 - `plan.lmd.md` = der reale lmd-Plan (unverändert kopiert).
-- `plan.mdai.md` = 1:1-Port in markdownai-Direktiven (`@include`/`@import`/`@call`/
-  `@phase … @end`/`@constraint`) — **inhaltsgleich**.
+- `plan.mdai.md` = 1:1-Port in markdownai-**v2**-Direktiven (`@phase … @phase-end`,
+  `@call`/`@constraint … @constraint-end`, argfreie self-close mit ` /`) —
+  **inhaltsgleich**, **self-contained** (keine externen `@include`/`@import`, damit
+  `mai serve`-Phasen sauber isolieren; Header `@markdownai v1.0`).
 - `plan.md` = superpowers-Stil Prosa-Monolith derselben Substanz (keine Direktiven,
   Phasen als Markdown-Headings).
 
@@ -353,9 +373,12 @@ für `full`, `Some(phase)` je Phase (Phasenliste aus den `@phase`-IDs des
 `plan.lmd.md`). superpowers: `full == source == jede phase` (keine Engine —
 Subagent bekommt strukturell den Vollplan) — konkret
 `superpowers.phases = vec![full; <lmd-Phasenzahl>]` (gleiche Subagent-Zahl wie lmd,
-damit der Dispatch-Vergleich fair ist). mdai: `MdaiCli::render_full`/`render_phase`
-(Live, `status="live"`) sonst recorded (`status="recorded"`,
-`full = REC_MDAI_FULL_RENDER`, `phases = vec![REC_MDAI_PHASE_MIN, REC_MDAI_PHASE_MAX]`).
+damit der Dispatch-Vergleich fair ist). mdai (Live, `status="live"`): cwd =
+`fixtures/<genre>/`, rel = `plan.mdai.md`;
+`mdai.render_full(cwd,"plan.mdai.md")` = `full`, je Phase aus
+`mdai.list_phases(cwd,"plan.mdai.md")` ein `mdai.render_phase(cwd,"plan.mdai.md",id)`.
+sonst recorded (`status="recorded"`, `full = REC_MDAI_FULL_RENDER`,
+`phases = vec![REC_MDAI_PHASE_MIN, REC_MDAI_PHASE_MAX]`).
 
 Fairness-Sanity im Collect: gerenderte `lmd.full` vs `mdai.full` vs `sp.full`
 innerhalb `FAIRNESS_TOL` (mdai-Vergleich nur wenn `mdai.status=="live"`; recorded
@@ -427,9 +450,10 @@ Dispatch-Kostenmodell Sonnet/Opus), jede mdai-Zelle mit `live|recorded|n/a`.
 `main.rs` verdrahtet: `preflight` → `collect_axis1` → `collect_axis2` →
 `format_summary` → `std::fs::write("SUMMARY.md", …)` (Pfad via `CARGO_MANIFEST_DIR`).
 
-New `README.md`: Methodik, markdownai-Build-Prereq (`npm ci && npx tsc` in
-`markdownai/`, **kein** lean-ctx-Build), Fairness-Protokoll + `FAIRNESS_TOL`,
-recorded-Modus-Erklärung, Aufruf/Test-Kommandos.
+New `README.md`: Methodik, mdai-Engine-Prereq (`npm i -g @markdownai/core` →
+Binary `mai`; einmalig `lean-ctx allow mai`; **kein** lokaler Build, **kein**
+lean-ctx), Fairness-Protokoll + `FAIRNESS_TOL`, recorded-Modus-Erklärung
+(`mai` fehlt → recorded), Aufruf/Test-Kommandos.
 
 @call tdd(summary_is_byte_stable)
 
