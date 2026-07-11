@@ -16,3 +16,9 @@ repos:
         pass_filenames: false
         files: '^content/skills(/|\.sha256$|\.ctxpkg-hash$)'
         description: content/skills.sha256 + skills.ctxpkg-hash must match the skill bytes
+  - repo: https://github.com/AndrejOrsula/pre-commit-cargo
+    rev: 0.5.0
+    hooks:
+      - id: cargo-fmt
+      - id: cargo-clippy
+        args: ["--all-targets", "--all-features"]
