@@ -8,7 +8,12 @@ homepage = "https://github.com/dasTholo/lean-md"
 license = "Apache-2.0"
 categories = ["workflow"]
 keywords = ["markdown", "macros", "dispatch", "skills"]
-min_lean_ctx = "3.9.4"
+min_lean_ctx = "3.9.6"
+# E4 (Rev3): 3.9.6 = erste released Version mit dem #727-Vertrag (= #780); 3.9.5
+#            trägt ihn nicht. Der Wert dokumentiert den Vertrag. Per Rev2-D6 schützt
+#            das Preflight-Gate strukturell nicht gegen ≤ die einführende Version —
+#            das lokale 3.9.6-Binary passiert im Gleichstand; realer Schutz gegen
+#            stillen Leerlauf bleibt der harte PACK_MISSING im Renderer.
 # verified: do NOT set — it is registry-controlled and meaningless in a
 #           hand-written manifest. Trust is conferred by the registry, not the entry.
 
