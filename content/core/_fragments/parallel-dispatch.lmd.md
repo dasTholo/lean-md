@@ -42,8 +42,9 @@ register/handoff baton) — never dispatch a bare task.
 - Baton/status: each subagent ctx_agent action=post category=status +
   ctx_agent action=handoff to_agent=<controller>; the controller uses
   ctx_agent action=sync over the fan-out group, never manual polling.
-- Warm-read before dispatch: ctx_multi_read paths=[…] (shared MCP cache; no
-  ctx_share, no fresh).
+- Warm-read before dispatch: ctx_multi_read paths=[…] — a latency win, NOT a token
+  win: subagents always read full text, because cross-conversation cache stubs are
+  withheld (lean-ctx #1040). No ctx_share, no fresh.
 
 ### When NOT to use
 Shared state · agents would edit the same files · strict ordering between tasks · a

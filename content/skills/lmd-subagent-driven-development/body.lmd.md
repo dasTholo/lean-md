@@ -77,8 +77,9 @@ For each task, in order:
    tasks).
 2. Brief = the phase render, captured raw:
    `ctx_shell(command="cargo run -q --bin lean-md -- render <plan> --phase task-N --consumer=ai", raw=true)`.
-   Warm the source files the task touches in ONE call: `ctx_multi_read paths=[…]` (the cache is
-   shared across session agents — the subagent's first `ctx_read` hits it).
+   Warm the source files the task touches in ONE call: `ctx_multi_read paths=[…]` — a latency
+   win, not a token win: the implementer reads full text (cross-conversation stubs are withheld,
+   lean-ctx #1040).
 3. Take a snapshot around the edit: `@call snapshot("pre-task-N")` before, `@call
    snapshot("post-task-N")` after — captures exactly what the implementer changed.
 4. **Model selection (Controller sets the model at the Agent-tool call; `@dispatch` only composes
@@ -134,7 +135,7 @@ Fidelity: the two-verdict review is preserved PER task — only execution fans o
 
 1. **Per agent, BEFORE fan-out:** record `BASE_i = @query "git rev-parse HEAD"` for each task
    (Fidelity-critical; never `HEAD~1`). Warm the sources each task touches in ONE call:
-   `ctx_multi_read paths=[…]` (shared cache).
+   `ctx_multi_read paths=[…]` — latency, not tokens (#1040).
 2. **Fan-out:** emit one `@dispatch skill="lmd-subagent-driven-development"
    companion="implementer" role=dev to_agent="{{ controller_id }}"` per independent task, ALL in
    a single response (multiple in one answer = parallel). Each carries its own `--phase task-N`

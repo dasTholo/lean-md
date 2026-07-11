@@ -1,7 +1,7 @@
 ## lean-ctx Subagent Contract (MANDATORY)
 You run in an isolated context. Before any other action:
 1. ctx_agent action=register agent_type=subagent role={{ role }}
-   (the controller's cache is already shared — no ctx_share pull, just ctx_read)
+   (no ctx_share, no fresh — you read full text; the controller's stubs never reach you)
 
 @include hard-rules
 

@@ -234,6 +234,54 @@ mod tests {
     }
 
     #[test]
+    fn no_body_or_fragment_claims_a_warm_subagent_cache() {
+        // A subagent's first ctx_read is never warm: cross-conversation stubs are
+        // withheld (lean-ctx #1040). ctx_multi_read buys latency, not tokens.
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let reg = crate::fragments::FragmentRegistry::with_builtins();
+        let dispatch = reg.resolve("dispatch-contract", &jail).unwrap();
+        let parallel = reg.resolve("parallel-dispatch", &jail).unwrap();
+
+        // Corpus = every skill body plus the two embedded fragment seeds.
+        let mut corpus: Vec<(String, String)> = SKILLS
+            .iter()
+            .map(|name| ((*name).to_string(), skill_source(name, &jail).unwrap()))
+            .collect();
+        corpus.push(("dispatch-contract".to_string(), dispatch.clone()));
+        corpus.push(("parallel-dispatch".to_string(), parallel.clone()));
+
+        for (origin, text) in &corpus {
+            let lower = text.to_lowercase();
+            for claim in [
+                "cache is already shared",
+                "cache is shared",
+                "shared cache",
+                "shared mcp cache",
+                "first `ctx_read` hits",
+            ] {
+                assert!(
+                    !lower.contains(claim),
+                    "{origin} still claims a warm subagent cache: '{claim}'"
+                );
+            }
+        }
+
+        // The replacement must name the real reason, not just drop the old one.
+        assert!(
+            parallel.contains("#1040") && parallel.to_lowercase().contains("latency"),
+            "parallel-dispatch must carry the #1040 latency-not-tokens rationale"
+        );
+
+        // Guard against over-reach: lmd-writing-plans' "warm cache" is the
+        // just-in-time resolution of path:line anchors, NOT a subagent's first read.
+        let wp = skill_source("lmd-writing-plans", &jail).unwrap();
+        assert!(
+            wp.contains("warm cache"),
+            "lmd-writing-plans' anchor-resolution wording must stay untouched"
+        );
+    }
+
+    #[test]
     fn brainstorm_all_phases_render_nonempty() {
         let jail = std::path::PathBuf::from(".");
         for p in [
