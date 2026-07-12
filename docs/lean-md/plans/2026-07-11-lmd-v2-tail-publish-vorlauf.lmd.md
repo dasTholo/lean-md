@@ -270,14 +270,15 @@ Expected: Integrity-Lock grün; der volle Chain aus task-4 reproduziert gegen di
 
 ### Vorbedingungen (verifizieren VOR 5.1)
 
-- **P0 — Pack-Drift auflösen (KRITISCH, blockiert V4a).** `content/skills.ctxpkg-hash` (checked-in
-  `8114591a…`) widerspricht dem real berechneten Pack-Content-Hash `6491dc4e…`. Ursache: Commit
-  `d64e1fd` änderte `content/skills/lmd-dispatching-parallel-agents/body.lmd.md` **nach** dem
-  AP5-Rebless (`0d0fd72`), ohne `content/skills.sha256` + `content/skills.ctxpkg-hash` nachzuziehen
-  → CI-Workflow „Pack Drift" rot. **Vor jedem Publish auflösen:** entweder die `d64e1fd`-Body-
-  Änderung prüfen/zurücknehmen **oder** `LEAN_MD_BLESS=1` rebless + `content/skills.{sha256,
-  ctxpkg-hash}` nachziehen + Pack-Version bumpen. Sonst publiziert man `6491dc4e`, während der Repo
-  `8114591a` behauptet.
+- **P0 — Pack-Drift-Status verifizieren (bereits aufgelöst, KEIN offener Blocker).** Frühere Sessions
+  notierten eine committete Drift (`content/skills.ctxpkg-hash` `8114591a…` vs. real `6491dc4e…`,
+  eingeführt von `d64e1fd`). **Diese Drift ist bereits behoben:** Commit `4c3cbce` („rebless pack
+  hashes …", Ancestor von BASE `78194e3`) zog `content/skills.{ctxpkg-hash,sha256}` nach — der
+  checked-in `ctxpkg-hash` == `6491dc4e…` == der real berechnete Hash (bei BASE **und** HEAD
+  identisch), CI „Pack Drift" grün. **Vor 5.1 nur verifizieren:** `git show HEAD:content/skills.ctxpkg-hash`
+  == `6491dc4e…`. **Kein Rebless, kein Version-Bump** — die publizierten Bytes bleiben `6491dc4e`
+  bei fixer Version `0.2.0` (E2). Nur falls wider Erwarten ein Mismatch auftritt: erst dann rebless
+  + Version-Bump erwägen.
 - **P1 — Immutability echt prüfen (R3).** Bestätigen, dass die **Registry** `@dasTholo/lean-md-skills
   0.2.0` **nicht** kennt (task-0.3 `NONE` deckt nur lokal ab). Kollision ⇒ abbrechen (immutable).
 - **P2 — Signing.** Ein ed25519-Key **ist** verfügbar (task-0.4 `NO_KEY` war ein False-Negative:
