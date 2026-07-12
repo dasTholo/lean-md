@@ -1,9 +1,5 @@
 # lean-md
 
-> ⚠️ **Work in progress.** Only the foundation (the render core and addon wiring)
-> is in place so far. Creating or executing plans via skills is **not yet
-> possible**.
-
 Standalone macro/directive markdown renderer. The render core runs in-process
 (rushdown parser + evalexpr expressions); code-intel is outbound via
 `backend.call("ctx_*")` — lean-ctx acts as the code-intel backend, not a hard
@@ -60,22 +56,54 @@ lean-md render demo.lmd.md
 
 ## Skills
 
-lean-md ships an embedded pilot skill (`content/skills/lmd-brainstorm/`). The MCP
-server renders it on demand via `ctx_md_render` with `skill=<name>` / `phase=<name>`
-addressing against the binary-embedded body.
+lean-md embeds **8 skills** — native ports of the superpowers process skills —
+rendered on demand, one phase at a time (the −88…−95 % token lever). Each
+`SKILL.md` is a delegation stub; the MCP server renders the body/companion via
+`ctx_md_render` with `skill=<name>` / `phase=<name>` (or `companion=<name>`)
+addressing.
+
+| Stage | Skill | Purpose |
+|---|---|---|
+| Design | `lmd-brainstorm` | Idea → approved design spec |
+| Plan | `lmd-writing-plans` | Spec → token-efficient `.lmd.md` plan |
+| Execute | `lmd-executing-plans` | Run a plan inline, batch review checkpoints |
+| Execute | `lmd-subagent-driven-development` | One implementer subagent per task, two-verdict review |
+| Execute | `lmd-dispatching-parallel-agents` | One subagent per independent domain, then conflict-scan |
+| Finish | `lmd-finishing-a-development-branch` | Integrate a branch: merge / PR / keep / discard |
+| Cross-cutting | `lmd-test-driven-development` | RED→GREEN→REFACTOR before implementation |
+| Cross-cutting | `lmd-writing-skills` | TDD for skills — pressure-test first |
+
+Purpose texts are distilled from each skill's `SKILL.md` `description` field, not invented.
+
+### How invocation works
+
+Two levels:
+
+- **End-user entry:** in an agent host (e.g. Claude Code) skills auto-trigger via
+  their `description`, or you invoke `/lmd-<skill>` as a slash command; the host
+  agent walks the phases.
+- **Render mechanics:** every `SKILL.md` is a stub; the body/companion is fetched
+  phase by phase via `ctx_md_render(skill="<name>", phase="<phase>")` (CLI:
+  `lean-md render --skill <name> --phase <phase> --consumer=ai`). Phase isolation is
+  where the token saving comes from.
 
 ## Install as a lean-ctx addon
 
-From the registry (once listed):
+The local build is the working path today; the hosted registry entry is pending.
 
-```sh
-lean-ctx addon add lean-md
-```
-
-From a local clone:
+From a local clone (works today):
 
 ```sh
 lean-ctx addon add ./lean-ctx-addon.toml
+```
+
+From the registry (planned — the `@dasTholo/lean-md` addon is **not listed yet**,
+PR #721 pending; its skills-pack dependency
+[`@dasTholo/lean-md-skills`](https://ctxpkg.com/@dastholo/lean-md-skills) is already
+published, so `addon add` resolves it automatically once the addon entry lands):
+
+```sh
+lean-ctx addon add @dasTholo/lean-md
 ```
 
 > For prerequisites, the full local-build flow, what `addon add` writes, and
