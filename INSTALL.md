@@ -12,15 +12,15 @@ quick install section.
 
 ## Path A — from the registry (planned, not yet listed)
 
-The `@dasTholo/lean-md` addon is **not published yet** — the curated registry entry
+The `@dastholo/lean-md` addon is **not published yet** — the curated registry entry
 is pending (PR #721 against the lean-ctx registry). Its skills-pack dependency
-`@dasTholo/lean-md-skills 0.2.0` is **already published** to ctxpkg
+`@dastholo/lean-md-skills 0.2.0` is **already published** to ctxpkg
 (<https://ctxpkg.com/@dastholo/lean-md-skills>), so once the addon entry lands,
 `addon add` resolves the pack automatically via `[[dependencies]]` + `{pack_dir:}`
 expansion — no manual pack step.
 
 ```sh
-lean-ctx addon add @dasTholo/lean-md    # once the registry entry is listed
+lean-ctx addon add @dastholo/lean-md    # once the registry entry is listed
 ```
 
 ## Path B — from a local clone
@@ -31,7 +31,7 @@ lean-ctx addon add ./lean-ctx-addon.toml     # wire it into the gateway
 ```
 
 This is the working path today. **Note on skills:** the published skills-pack
-[`@dasTholo/lean-md-skills 0.2.0`](https://ctxpkg.com/@dastholo/lean-md-skills) (on
+[`@dastholo/lean-md-skills 0.2.0`](https://ctxpkg.com/@dastholo/lean-md-skills) (on
 ctxpkg) is the distribution channel — it is live, only the addon entry that pulls it in
 is still pending (PR #721). A **debug** build
 (`cargo run …`) reads skills straight from `content/skills/` via the debug fallback; a

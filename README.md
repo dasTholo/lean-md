@@ -97,13 +97,13 @@ From a local clone (works today):
 lean-ctx addon add ./lean-ctx-addon.toml
 ```
 
-From the registry (planned — the `@dasTholo/lean-md` addon is **not listed yet**,
+From the registry (planned — the `@dastholo/lean-md` addon is **not listed yet**,
 PR #721 pending; its skills-pack dependency
-[`@dasTholo/lean-md-skills`](https://ctxpkg.com/@dastholo/lean-md-skills) is already
+[`@dastholo/lean-md-skills`](https://ctxpkg.com/@dastholo/lean-md-skills) is already
 published, so `addon add` resolves it automatically once the addon entry lands):
 
 ```sh
-lean-ctx addon add @dasTholo/lean-md
+lean-ctx addon add @dastholo/lean-md
 ```
 
 > For prerequisites, the full local-build flow, what `addon add` writes, and
