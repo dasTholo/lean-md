@@ -261,3 +261,63 @@ Expected: Integrity-Lock grün; der volle Chain aus task-4 reproduziert gegen di
 
 @call remember_decision("v2-tail task-5: Runbook-Tail vollständig niedergeschrieben + gegatet (token+daemon+#721); NICHT ausgeführt")
 @phase-end
+
+## Gated Publish Runbook — V2-Tail (resolved & corrected · NICHT agent-auto-run)
+
+> Niedergeschrieben von task-5 (2026-07-12). **Kein Kommando hier wird automatisch ausgeführt.**
+> **Gate (ALLE müssen halten, bevor irgendein Kommando läuft):** valide Publish-Credentials
+> (`ctxp_…`-Token) **und** Daemon-Rebuild aus PR #721 **und** #721 gemergt.
+
+### Vorbedingungen (verifizieren VOR 5.1)
+
+- **P0 — Pack-Drift auflösen (KRITISCH, blockiert V4a).** `content/skills.ctxpkg-hash` (checked-in
+  `8114591a…`) widerspricht dem real berechneten Pack-Content-Hash `6491dc4e…`. Ursache: Commit
+  `d64e1fd` änderte `content/skills/lmd-dispatching-parallel-agents/body.lmd.md` **nach** dem
+  AP5-Rebless (`0d0fd72`), ohne `content/skills.sha256` + `content/skills.ctxpkg-hash` nachzuziehen
+  → CI-Workflow „Pack Drift" rot. **Vor jedem Publish auflösen:** entweder die `d64e1fd`-Body-
+  Änderung prüfen/zurücknehmen **oder** `LEAN_MD_BLESS=1` rebless + `content/skills.{sha256,
+  ctxpkg-hash}` nachziehen + Pack-Version bumpen. Sonst publiziert man `6491dc4e`, während der Repo
+  `8114591a` behauptet.
+- **P1 — Immutability echt prüfen (R3).** Bestätigen, dass die **Registry** `@dasTholo/lean-md-skills
+  0.2.0` **nicht** kennt (task-0.3 `NONE` deckt nur lokal ab). Kollision ⇒ abbrechen (immutable).
+- **P2 — Signing.** Ein ed25519-Key **ist** verfügbar (task-0.4 `NO_KEY` war ein False-Negative:
+  `ls`/`find` allowlist-gejailt; `pack create` meldete `Signed: ed25519`). Daher **mit `--sign`**
+  exportieren/publishen.
+
+### 5.1 — Pack publish (schließt V4a)
+
+    lean-ctx pack create --kind skills --name @dasTholo/lean-md-skills --version 0.2.0 --from content/skills --description "lean-md rendering skills"
+    lean-ctx pack export --sign --output=<pfad>/pack.ctxpkg
+    lean-ctx pack publish <pfad>/pack.ctxpkg --token ctxp_…
+
+Expected: Registry akzeptiert `@dasTholo/lean-md-skills 0.2.0`. Kollision ⇒ abbrechen.
+Korrektur ggü. Ur-Plan: `pack create` braucht `--description`; `pack export` braucht `--output=`
+(+ `--sign` aus P2). Verifiziert in task-1.
+
+### 5.2 — Addon publish (schließt V4b)
+
+    lean-ctx addon publish --namespace dasTholo
+
+**Stopp (E4/D7):** das publizierte **Addon**-`pack_manifest` muss nicht-leeres `[[dependencies]]`
+tragen; leeres Array ⇒ falsches Binary ⇒ **abbrechen**. (Hinweis: der Skills-**Pack** selbst trägt
+korrekt `dependencies: []` — die E4-Prüfung gilt dem Addon-Manifest, nicht dem Pack.)
+
+### 5.3 — Hosted-Re-Smoke + Integrity-Lock (enthält den deferred task-4-Block)
+
+    lean-ctx addon add @dasTholo/lean-md        # bzw. ./lean-ctx-addon.toml gegen die LIVE Registry
+    lean-ctx addon verify
+
+Expected — voller Chain aus task-4, jetzt gegen die **echte** Registry:
+- consent-preview nennt den Pack `@dasTholo/lean-md-skills`;
+- `min_lean_ctx`-Gate akzeptiert bei Gleichstand `3.9.6` (installiert `3.9.7` ≥);
+- `ensure_addon_binary` zieht das Linux-Triple von der public URL + matcht sha256 `af5642…`;
+- `{pack_dir:}` expandiert zu einem **absoluten** Store-Pfad (kein Literal) — **damit ist die
+  task-2/2.3-Materialisierungslücke end-to-end geschlossen:** `LEAN_MD_SKILLS_DIR={pack_dir}`
+  zeigt auf den **materialisierten** Skills-Baum (nicht den verpackten Store) → non-empty Render;
+- Lockfile pinnt **Addon UND Pack**;
+- Integrity-Lock grün.
+
+### 5.4 — §5.8 abschließen
+
+PR #721 gemergt bestätigen; `min_lean_ctx` im kuratierten Registry-Entry auf `3.9.6` setzen
+(Entry bleibt `listed`, E3 — **kein** `installable`-Flip).
