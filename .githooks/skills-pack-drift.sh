@@ -25,7 +25,7 @@ fi
 #    Needs the lean-ctx CLI; warn-and-skip if it is unavailable.
 if command -v lean-ctx >/dev/null 2>&1; then
   loc="$(lean-ctx pack create --kind skills \
-          --name @dasTholo/lean-md-skills --version 0.0.0-precommit \
+          --name @dastholo/lean-md-skills --version 0.0.0-precommit \
           --from content/skills --description 'lean-md skills (pre-commit drift)' \
         | sed -n 's/^ *Location: *//p')"
   if [ -n "$loc" ] && [ -f "$loc/manifest.json" ]; then

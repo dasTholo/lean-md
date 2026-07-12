@@ -2,7 +2,7 @@
 //!
 //! Since P3 the skill bodies, companions, `SKILL.md` stubs, assets and the
 //! skill-local `_includes/` live in the `kind=skills` pack
-//! `@dasTholo/lean-md-skills`, not in this binary. lean-ctx materializes the
+//! `@dastholo/lean-md-skills`, not in this binary. lean-ctx materializes the
 //! pack and hands its absolute directory over in one environment variable —
 //! this module is the only place that knows about it.
 //!
@@ -14,7 +14,7 @@
 use std::path::{Path, PathBuf};
 
 /// Absolute `skills_dir` of the materialized pack. lean-ctx expands it from the
-/// `{pack_dir:@dasTholo/lean-md-skills}` placeholder in `[mcp.env]` at wiring
+/// `{pack_dir:@dastholo/lean-md-skills}` placeholder in `[mcp.env]` at wiring
 /// time (`core/addons/pack_env.rs`). lean-md never derives the store layout.
 pub const SKILLS_DIR_ENV: &str = "LEAN_MD_SKILLS_DIR";
 
@@ -71,11 +71,11 @@ fn pack_missing_message() -> String {
     match std::env::var(SKILLS_DIR_ENV) {
         Ok(raw) if !raw.is_empty() => format!(
             "{SKILLS_DIR_ENV}={raw} is not a directory — reinstall the addon: \
-             `lean-ctx addon add @dasTholo/lean-md`"
+             `lean-ctx addon add @dastholo/lean-md`"
         ),
         _ => format!(
             "{SKILLS_DIR_ENV} is unset — the skills pack was never wired. \
-             Reinstall the addon: `lean-ctx addon add @dasTholo/lean-md`"
+             Reinstall the addon: `lean-ctx addon add @dastholo/lean-md`"
         ),
     }
 }

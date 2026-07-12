@@ -48,7 +48,7 @@ jobs:
       - name: Build the pack and compare its content_hash
         run: |
           ./lean-ctx pack create --kind skills \
-            --name @dasTholo/lean-md-skills \
+            --name @dastholo/lean-md-skills \
             --version "0.0.0-cihash" \
             --from content/skills \
             --description "lean-md skills (CI drift check)" | tee create.log

@@ -46,7 +46,7 @@ sha256   = "1b092ff475d16e5a24027f3e4a978dcd4bf190b09dd227a274438b41b645d1cb"
 # `version_req` depth-1 gegen den Registry-Index auf; ein Pack, das nur als
 # GitHub-Asset existiert, ist für ihn unsichtbar → hosted publish ist Pflicht.
 [[dependencies]]
-name        = "@dasTholo/lean-md-skills"
+name        = "@dastholo/lean-md-skills"
 version_req = "^0.2"
 optional    = false
 
@@ -59,7 +59,7 @@ args = ["mcp"]
 # materialisierten Packs (core/addons/pack_env.rs). Ein `{` ohne `}` oder ein
 # unbekanntes Schema ist ein harter Parse-Fehler — kein Literal-Escape existiert.
 [mcp.env]
-LEAN_MD_SKILLS_DIR = "{pack_dir:@dasTholo/lean-md-skills}"
+LEAN_MD_SKILLS_DIR = "{pack_dir:@dastholo/lean-md-skills}"
 # sha256: leave empty for community; for the verified/paid tier set the binary pin
 #         (`shasum -a 256 lean-md` → hex). The gateway refuses to spawn on mismatch.
 

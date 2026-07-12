@@ -1,4 +1,4 @@
-# Dev README — updating `@dasTholo/lean-md-skills`
+# Dev README — updating `@dastholo/lean-md-skills`
 
 How to ship a change to skill content without releasing a binary.
 
@@ -15,7 +15,7 @@ carries. Which one you touched decides what you have to release.
 
 | You changed                                                                | You release                                        |
 |----------------------------------------------------------------------------|----------------------------------------------------|
-| `content/skills/**` — bodies, companions, assets, skill-local `_includes/` | **pack only** → `@dasTholo/lean-md-skills` `0.2.x` |
+| `content/skills/**` — bodies, companions, assets, skill-local `_includes/` | **pack only** → `@dastholo/lean-md-skills` `0.2.x` |
 | `content/core/**`, `content/gloss/**`                                      | **binary** → tag `v*`, full build, SHA sync        |
 | `src/**`                                                                   | **binary**                                         |
 
@@ -65,7 +65,7 @@ binary.
 
 ## What consumers see
 
-`addon add @dasTholo/lean-md` resolves the highest non-yanked version matching `^0.2`, so a
+`addon add @dastholo/lean-md` resolves the highest non-yanked version matching `^0.2`, so a
 fresh install picks up `0.2.1` automatically. `lean-ctx-addon.toml` is untouched, so the
 `kind=addon` pack does **not** need republishing.
 
@@ -98,7 +98,7 @@ None of the above works until all four are green:
 | **V1** | lean-ctx ships dependency authoring + `{pack_dir:}` env expansion + the `min_lean_ctx` gate (see `lean-ctx/docs/lean-md/specs/2026-07-09-addon-pack-dependencies-design.md`) |
 | **V2** | lean-md release `v0.2.0` with real SHA-256 in all five `[artifacts]` blocks                                                                                                  |
 | **V3** | curated registry entry addressed (`listed`)                                                                                                                                  |
-| **V4** | `@dasTholo/lean-md` **and** `@dasTholo/lean-md-skills` published to the hosted registry                                                                                      |
+| **V4** | `@dastholo/lean-md` **and** `@dastholo/lean-md-skills` published to the hosted registry                                                                                      |
 
 **V1 is the hard blocker.** Without it, `[[dependencies]]` is silently dropped at publish and
 `LEAN_MD_SKILLS_DIR` is never set — a cut binary would fail every `render --skill` at runtime.
@@ -123,9 +123,9 @@ Content-Änderung einen **Pack**-Bump — nie einen Binary-Bump. `version_req = 
 
 1. `content/skills/**` editieren.
 2. `LEAN_MD_BLESS=1 cargo nextest run --test pack_drift` — schreibt `content/skills.sha256`.
-3. `lean-ctx pack create --kind skills --name @dasTholo/lean-md-skills --version <neu> --from content/skills --description "lmd skills"`
+3. `lean-ctx pack create --kind skills --name @dastholo/lean-md-skills --version <neu> --from content/skills --description "lmd skills"`
 4. `content/skills.ctxpkg-hash` aus `<pkg_dir>/manifest.json` (`integrity.content_hash`) aktualisieren.
-5. `lean-ctx pack export @dasTholo/lean-md-skills@<neu> --sign --output pack.ctxpkg`
+5. `lean-ctx pack export @dastholo/lean-md-skills@<neu> --sign --output pack.ctxpkg`
 6. `lean-ctx pack publish pack.ctxpkg --token ctxp_…` — **von Hand**. CI verifiziert nur;
    es liegt bewusst kein Publish-Token in der Workflow-Umgebung.
 
