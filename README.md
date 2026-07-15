@@ -89,21 +89,21 @@ Two levels:
 
 ## Install as a lean-ctx addon
 
-The local build is the working path today; the hosted registry entry is pending.
-
-From a local clone (works today):
+From the registry (recommended) — the `@dastholo/lean-md` addon is **published and
+live** on [ctxpkg](https://ctxpkg.com/@dastholo/lean-md); `addon add` pulls the
+sha256-pinned prebuilt binary and resolves its skills-pack dependency
+[`@dastholo/lean-md-skills`](https://ctxpkg.com/@dastholo/lean-md-skills)
+automatically via `[[dependencies]]`. No Rust toolchain required:
 
 ```sh
-lean-ctx addon add ./lean-ctx-addon.toml
+lean-ctx addon add dastholo/lean-md
 ```
 
-From the registry (planned — the `@dastholo/lean-md` addon is **not listed yet**,
-PR #721 pending; its skills-pack dependency
-[`@dastholo/lean-md-skills`](https://ctxpkg.com/@dastholo/lean-md-skills) is already
-published, so `addon add` resolves it automatically once the addon entry lands):
+From a local clone (development / from source):
 
 ```sh
-lean-ctx addon add @dastholo/lean-md
+cargo install --path .
+lean-ctx addon add ./lean-ctx-addon.toml
 ```
 
 > For prerequisites, the full local-build flow, what `addon add` writes, and
