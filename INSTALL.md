@@ -8,32 +8,35 @@ quick install section.
 
 - `lean-ctx >= 3.9.6` on `PATH` (the addon ecosystem + `lean-ctx addon` CLI;
   matches `min_lean_ctx` in `lean-ctx-addon.toml`).
-- A Rust toolchain (`cargo`) to build/install from source.
+- A Rust toolchain (`cargo`) — **only for Path B** (building from source); Path A pulls a prebuilt binary and needs no toolchain.
 
-## Path A — from the registry (planned, not yet listed)
+## Path A — from the registry (recommended)
 
-The `@dastholo/lean-md` addon is **not published yet** — the curated registry entry
-is pending (PR #721 against the lean-ctx registry). Its skills-pack dependency
-`@dastholo/lean-md-skills 0.2.0` is **already published** to ctxpkg
-(<https://ctxpkg.com/@dastholo/lean-md-skills>), so once the addon entry lands,
-`addon add` resolves the pack automatically via `[[dependencies]]` + `{pack_dir:}`
-expansion — no manual pack step.
+The `@dastholo/lean-md` addon is **published and live** on ctxpkg
+(<https://ctxpkg.com/@dastholo/lean-md>). This is the recommended install — no Rust
+toolchain and no manual pack step: `addon add` fetches the sha256-pinned prebuilt
+binary into lean-ctx's managed bin dir and pulls in the skills-pack dependency
+`@dastholo/lean-md-skills 0.2.0` automatically via `[[dependencies]]` + `{pack_dir:}`
+expansion.
 
 ```sh
-lean-ctx addon add @dastholo/lean-md    # once the registry entry is listed
+lean-ctx addon add dastholo/lean-md
 ```
 
-## Path B — from a local clone
+This resolves directly against the ctxpkg registry — it works today. A curated
+*listed* entry for registry discovery/search is tracked separately (PR #721) and is
+**not** required for `addon add` to succeed.
+
+## Path B — from a local clone (development / from source)
 
 ```sh
 cargo install --path .                       # puts `lean-md` on PATH
 lean-ctx addon add ./lean-ctx-addon.toml     # wire it into the gateway
 ```
 
-This is the working path today. **Note on skills:** the published skills-pack
+Use this for local development or building from source. **Note on skills:** the published skills-pack
 [`@dastholo/lean-md-skills 0.2.0`](https://ctxpkg.com/@dastholo/lean-md-skills) (on
-ctxpkg) is the distribution channel — it is live, only the addon entry that pulls it in
-is still pending (PR #721). A **debug** build
+ctxpkg) is the distribution channel — both it and the addon are now live on ctxpkg. A **debug** build
 (`cargo run …`) reads skills straight from `content/skills/` via the debug fallback; a
 **release** binary from `cargo install --path .` has no fallback, so `render --skill`
 needs `LEAN_MD_SKILLS_DIR` pointed at the pack store (else it fails with `PACK_MISSING`).
