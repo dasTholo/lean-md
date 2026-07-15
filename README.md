@@ -155,7 +155,7 @@ install semantics, security model, and CLI surface. Pinned to
 
 lean-md would not be possible without two projects it stands on:
 
-- **[lean-ctx](https://github.com/yvgude/lean-ctx)** by **yvgude** ([Apache-2.0](https://github.com/yvgude/lean-ctx/blob/main/LICENSE)) — the context-engineering runtime that lean-md ships as an addon for, and whose tooling powers its own development workflow.
+- **[lean-ctx](https://github.com/yvgude/lean-ctx)** by **yvgude** — the context-engineering runtime that lean-md ships as an addon for, and whose tooling powers its own development workflow.
 - **[superpowers](https://github.com/obra/superpowers)** by **obra** — the skill collection whose skills (brainstorming, writing-skills, test-driven-development, and more) lean-md ports as native embedded skills.
 
 It also draws inspiration from kindred work:
