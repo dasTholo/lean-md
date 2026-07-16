@@ -275,41 +275,60 @@ fn cmd_source(rest: &[String]) {
 // Protocol subset implemented:
 //   initialize                → serverInfo + capabilities.tools
 //   notifications/initialized → (no response — it is a notification)
-//   tools/list                → list of ctx_md_render + ctx_md_check
+//   tools/list                → 4 tools: ctx_md_render/lmd_render (alias) +
+//                                ctx_md_check/lmd_check (alias)
 //   tools/call                → dispatch to do_render / do_check
 //   <unknown>                 → JSON-RPC error -32601 (method not found)
 
 /// Tool input schemas — byte-identical to ctx_md.rs field names and types.
 fn tool_defs() -> Value {
+    // Schemas/descriptions bound once so the lmd_* alias can never drift from its
+    // ctx_md_* original (#498) — lmd_render/lmd_check are additive tool-name
+    // aliases; ctx_md_* stay the canonical names (Global Constraints: pack content
+    // keeps citing ctx_md_render/ctx_md_check).
+    let render_schema = json!({
+        "type": "object",
+        "properties": {
+            "path":     { "type": "string", "description": "Path to a .lmd.md source" },
+            "content":  { "type": "string", "description": "Inline lmd source (alternative to path)" },
+            "consumer": { "type": "string", "description": "Override audience: ai|human" },
+            "crp":      { "type": "string", "description": "Override CRP mode: tdd|compact|off" },
+            "skill":    { "type": "string", "description": "Render an embedded lmd skill body by name (alternative to path/content)" },
+            "phase":     { "type": "string", "description": "Render only this named phase of the skill (requires skill; mutually exclusive with companion)" },
+            "companion": { "type": "string", "description": "Render a skill's named companion reference (requires skill; mutually exclusive with phase)" }
+        }
+    });
+    let render_description = "Render an lmd (.lmd.md) plan/spec to Markdown. consumer=human narrates \
+    directives as prose (readable plan); consumer/crp override the source header.";
+    let check_schema = json!({
+        "type": "object",
+        "properties": {
+            "path":    { "type": "string", "description": "Path to a .lmd.md source" },
+            "content": { "type": "string", "description": "Inline lmd source (alternative to path)" }
+        }
+    });
+    let check_description = "Parse-check an lmd (.lmd.md) source: reports header config and directive \
+    count without executing anything.";
     json!([
         {
             "name": "ctx_md_render",
-            "description": "Render an lmd (.lmd.md) plan/spec to Markdown. consumer=human narrates \
-    directives as prose (readable plan); consumer/crp override the source header.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "path":     { "type": "string", "description": "Path to a .lmd.md source" },
-                    "content":  { "type": "string", "description": "Inline lmd source (alternative to path)" },
-                    "consumer": { "type": "string", "description": "Override audience: ai|human" },
-                    "crp":      { "type": "string", "description": "Override CRP mode: tdd|compact|off" },
-                    "skill":    { "type": "string", "description": "Render an embedded lmd skill body by name (alternative to path/content)" },
-                    "phase":     { "type": "string", "description": "Render only this named phase of the skill (requires skill; mutually exclusive with companion)" },
-                    "companion": { "type": "string", "description": "Render a skill's named companion reference (requires skill; mutually exclusive with phase)" }
-                }
-            }
+            "description": render_description,
+            "inputSchema": render_schema.clone()
+        },
+        {
+            "name": "lmd_render",
+            "description": format!("Alias for ctx_md_render — identical behavior. {render_description}"),
+            "inputSchema": render_schema
         },
         {
             "name": "ctx_md_check",
-            "description": "Parse-check an lmd (.lmd.md) source: reports header config and directive \
-    count without executing anything.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "path":    { "type": "string", "description": "Path to a .lmd.md source" },
-                    "content": { "type": "string", "description": "Inline lmd source (alternative to path)" }
-                }
-            }
+            "description": check_description,
+            "inputSchema": check_schema.clone()
+        },
+        {
+            "name": "lmd_check",
+            "description": format!("Alias for ctx_md_check — identical behavior. {check_description}"),
+            "inputSchema": check_schema
         }
     ])
 }
@@ -489,7 +508,7 @@ fn cmd_mcp() {
                 let args = params.get("arguments").cloned().unwrap_or(Value::Null);
 
                 match name {
-                    "ctx_md_render" => {
+                    "ctx_md_render" | "lmd_render" => {
                         if let Some(skill) = args.get("skill").and_then(Value::as_str) {
                             let phase = args.get("phase").and_then(Value::as_str);
                             let companion = args.get("companion").and_then(Value::as_str);
@@ -550,7 +569,7 @@ fn cmd_mcp() {
                         }
                     }
 
-                    "ctx_md_check" => match mcp_load_source(&args) {
+                    "ctx_md_check" | "lmd_check" => match mcp_load_source(&args) {
                         Ok((source, _jail)) => {
                             let summary = do_check(&source);
                             rpc_ok(
@@ -721,6 +740,32 @@ mod tests {
         assert!(
             schema.get("companion").is_some(),
             "ctx_md_render must expose a 'companion' param: {schema}"
+        );
+    }
+
+    #[test]
+    fn tools_list_carries_lmd_render_and_lmd_check() {
+        let defs = tool_defs();
+        let names: Vec<&str> = defs
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            vec!["ctx_md_render", "lmd_render", "ctx_md_check", "lmd_check"],
+            "tools/list must expose ctx_md_render/ctx_md_check + their lmd_* aliases: {names:?}"
+        );
+        // Alias schema must be identical to the original — one source of truth (#498),
+        // so ctx_md_render/lmd_render (and ctx_md_check/lmd_check) can never drift.
+        assert_eq!(
+            defs[0]["inputSchema"], defs[1]["inputSchema"],
+            "lmd_render inputSchema must not drift from ctx_md_render"
+        );
+        assert_eq!(
+            defs[2]["inputSchema"], defs[3]["inputSchema"],
+            "lmd_check inputSchema must not drift from ctx_md_check"
         );
     }
 
