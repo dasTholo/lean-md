@@ -175,7 +175,7 @@ Work through this order before concluding the gateway is broken:
    and the call was simply misaddressed; fix the call, don't fall back.
 2. Got `Transport closed`? Retry once — sporadic, the gateway respawns the server.
 3. Only once the server is genuinely absent: fall back to the shell (`lean_md_bin` +
-   `LEAN_MD_SKILLS_DIR`, see the "Backend selection" section below) — same binary,
+   `LEAN_MD_SKILLS_DIR`, see INSTALL.md's "Standalone requirement") — same binary,
    byte-identical output.
 
 **Step 3 is for consumers of the installed addon.** If you are developing *inside the lean-md
