@@ -75,8 +75,9 @@ next: render phase "red" for the next behavior.
 Bug found? Write a failing test that reproduces it, then follow the cycle — the test proves the fix and prevents regression. Never fix a bug without a test.
 
 Verification checklist: test written first · RED observed · minimal GREEN · refactor under green.
-For testing anti-patterns (mocks, test-only methods, incomplete mocks), render the companion:
-`ctx_md_render(skill="lmd-test-driven-development", companion="testing-anti-patterns")`.
+For testing anti-patterns (mocks, test-only methods, incomplete mocks), render the
+`testing-anti-patterns` companion of `lmd-test-driven-development` (call form: see
+the `lmd-rendering-skills` skill).
 
 next: return to your active phase (red/green/refactor).
 @phase-end

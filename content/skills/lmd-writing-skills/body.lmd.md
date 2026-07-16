@@ -56,8 +56,8 @@ STOP before moving to the next skill: do NOT batch-create skills untested. The
 deployment checklist (see companion "testing/creation-checklist") is mandatory
 for EACH skill. Deploying untested skills = deploying untested code.
 
-For loophole-closing technique render the companion:
-`ctx_md_render(skill="lmd-writing-skills", companion="bulletproofing")`.
+For loophole-closing technique render the `bulletproofing` companion of
+`lmd-writing-skills` (call form: see the `lmd-rendering-skills` skill).
 
 After closing loopholes, re-dispatch the same tester
 (`@dispatch skill="lmd-writing-skills" companion="testing/methodology" role=test`)
@@ -82,8 +82,8 @@ next: return to RED for the next skill, or ship.
 
 **All of these mean: test before deploying. No exceptions.**
 
-For the full testing methodology render the companion:
-`ctx_md_render(skill="lmd-writing-skills", companion="testing/methodology")`.
+For the full testing methodology render the `testing/methodology` companion of
+`lmd-writing-skills` (call form: see the `lmd-rendering-skills` skill).
 
 next: return to your active phase (red/green/refactor).
 @phase-end

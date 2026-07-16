@@ -11,8 +11,9 @@ body or companion file from disk.
 
 ## The call
 
-`ctx_md_render` is NOT a direct tool. lean-md is a separate stdio MCP server,
-reachable only through the lean-ctx gateway:
+In the **lean-ctx addon** topology — lean-md aggregated behind the lean-ctx gateway,
+the common case and the one this skill exists for — `ctx_md_render` is NOT a direct
+tool. lean-md is a separate stdio MCP server, reachable only through the gateway:
 
     ctx_tools(action="call", tool="lean-md::ctx_md_render",
               arguments={"skill": "<skill>", "phase": "<phase>"})
@@ -21,14 +22,18 @@ Pass exactly **one** of `phase` or `companion`:
 
     arguments={"skill": "<skill>", "companion": "<name>"}
 
-A direct `ctx_md_render(...)` call cannot succeed — lean-ctx holds no lean-md code.
-The failure reads like a dead gateway; it is a misaddressed call.
+Behind the gateway a direct `ctx_md_render(...)` call cannot succeed — lean-ctx holds
+no lean-md code. The failure reads like a dead gateway; it is a misaddressed call.
+(Wired straight into your MCP client instead — `lean-md mcp` as its own server —
+lean-md exposes `ctx_md_render` as a plain direct tool; then call it bare. Step 1
+below tells you which topology you are in.)
 
 ## Diagnosis order
 
-1. `ctx_tools(action="list")` — does it show `lean-md [stdio, enabled]`? Then
-   everything works and the call was merely misaddressed. Fix the call, do not
-   fall back.
+1. `ctx_tools(action="list")` — does it show `lean-md [stdio, enabled]`? Then you
+   are behind the gateway, everything works, and the call was merely misaddressed.
+   Fix the call, do not fall back. (No lean-ctx gateway at all, but `ctx_md_render`
+   sits in your own tool list? Direct topology — the bare call is correct.)
 2. `Transport closed`? Retry once — sporadic, the gateway respawns the server.
 3. Only if the server is genuinely absent: shell fallback (below).
 

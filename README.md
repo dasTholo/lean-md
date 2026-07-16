@@ -56,9 +56,10 @@ lean-md render demo.lmd.md
 
 ## Skills
 
-lean-md embeds **9 skills** — 8 native ports of the superpowers process skills, plus
-`lmd-rendering-skills` (a single bootstrap skill documenting the render call itself, see
-below) — rendered on demand, one phase at a time (the −88…−95 % token lever). Each
+lean-md embeds **9 skills**: 8 native ports of the superpowers process skills — rendered on
+demand, one phase at a time (the −88…−95 % token lever) — plus `lmd-rendering-skills`, a
+single bootstrap skill that documents the render call itself (not renderable; it has no
+body and is a plain SKILL.md, see below). Each
 process-skill `SKILL.md` is a delegation stub; the MCP server renders the body/companion via
 `lmd_render` (alias `ctx_md_render`) with `skill=<name>` / `phase=<name>` (or
 `companion=<name>`) addressing.

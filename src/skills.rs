@@ -1209,8 +1209,12 @@ mod tests {
         )
         .unwrap();
         assert!(
-            out.contains("companion=\"testing-anti-patterns\""),
-            "rationalizations must carry the concrete companion render call: {out}"
+            out.contains("`testing-anti-patterns` companion of `lmd-test-driven-development`"),
+            "rationalizations must name the concrete companion to render: {out}"
+        );
+        assert!(
+            out.contains("lmd-rendering-skills"),
+            "…and must point at the skill that carries the render call form: {out}"
         );
         assert!(
             !out.contains("ported in Spec #2"),
@@ -1611,6 +1615,66 @@ mod tests {
                  exclusively in lmd-rendering-skills"
             );
         }
+    }
+
+    /// No pack content file may INSTRUCT the bare `ctx_md_render(skill=…)` call form.
+    /// In the lean-ctx addon topology that call cannot succeed (lean-md is a separate
+    /// stdio server behind the gateway) — bodies and companions must address the render
+    /// by skill+phase/companion and defer the call form to `lmd-rendering-skills`.
+    /// Unlike the stub guards above this walks EVERY content file, because bodies are
+    /// read at phase-render time and companions by `@dispatch`'d subagents that never
+    /// saw a stub.
+    #[test]
+    fn no_pack_content_instructs_the_bare_ctx_md_render_call() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else {
+                    out.push(path);
+                }
+            }
+        }
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("content");
+        let mut files = Vec::new();
+        walk(&root, &mut files);
+        assert!(
+            files.len() > 20,
+            "content walk found suspiciously few files"
+        );
+
+        let mut offenders = Vec::new();
+        for path in &files {
+            let Ok(text) = std::fs::read_to_string(path) else {
+                continue; // binary / non-utf8 asset
+            };
+            for (idx, line) in text.lines().enumerate() {
+                // The bare call form: `ctx_md_render(` followed by the `skill` argument.
+                // The gateway form (`tool="lean-md::ctx_md_render", arguments={…}`) and a
+                // prose mention of the tool name both stay legal.
+                for (pos, _) in line.match_indices("ctx_md_render") {
+                    let rest = line[pos + "ctx_md_render".len()..].trim_start();
+                    let Some(args) = rest.strip_prefix('(') else {
+                        continue;
+                    };
+                    if args.trim_start().starts_with("skill") {
+                        offenders.push(format!(
+                            "{}:{}",
+                            path.strip_prefix(&root).unwrap().display(),
+                            idx + 1
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "pack content instructs the bare ctx_md_render(skill=…) call form at {offenders:?} \
+             — it cannot succeed behind the lean-ctx gateway; address the render by \
+             skill+phase/companion and point at the lmd-rendering-skills skill instead"
+        );
     }
 
     /// …and each of them must point at the skill that does carry it.
