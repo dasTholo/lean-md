@@ -87,6 +87,37 @@ Two levels:
   `lean-md render --skill <name> --phase <phase> --consumer=ai`). Phase isolation is
   where the token saving comes from.
 
+### Making the skills discoverable (install the `SKILL.md` stubs)
+
+`addon add` wires the MCP tools and the skill **bodies** (the pack), but it does
+**not** place the `SKILL.md` stubs an agent host (e.g. Claude Code) needs to *see*
+and auto-trigger the skills. That is why a fresh `addon add` install shows no
+skills. Install the stubs with the built-in installer — **local is the default**
+(per-repo), `--global` for a user-wide scope:
+
+```sh
+lean-md skill install lmd-brainstorm            # → ./.claude/skills/…   (local, default)
+lean-md skill install lmd-brainstorm --global   # → ~/.claude/skills/…   (every repo)
+lean-md skill remove  lmd-brainstorm [--global] # mirror uninstall
+```
+
+Install all eight at once (the canonical `INSTALLABLE_SKILLS` set):
+
+```sh
+for s in lmd-brainstorm lmd-writing-plans lmd-executing-plans \
+         lmd-subagent-driven-development lmd-dispatching-parallel-agents \
+         lmd-finishing-a-development-branch lmd-test-driven-development \
+         lmd-writing-skills; do
+  lean-md skill install "$s"          # --local is default; append --global for user-wide
+done
+```
+
+Beyond the stub, `install` also materializes any skill assets **and** the project
+seeds into `<repo>/.lean-ctx/lean-md/` (dispatch-contract, plan templates — required
+by `@dispatch` and the plan recipes). A bare `SKILL.md` symlink would skip those
+seeds, so always use the installer. Full flow, the eight skill names, and the
+standalone `LEAN_MD_SKILLS_DIR` requirement: [`INSTALL.md`](INSTALL.md).
+
 ## Install as a lean-ctx addon
 
 From the registry (recommended) — the `@dastholo/lean-md` addon is **published and

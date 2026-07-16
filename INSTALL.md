@@ -48,6 +48,71 @@ re-reads its catalog and the lean-md tools become reachable through the
 **`ctx_tools`** gateway as `lean-md::ctx_md_render` / `lean-md::ctx_md_check`.
 This is the most common "tool not found" cause.
 
+## Install the skill stubs (local default / global)
+
+`addon add` wires the MCP tools and the skill **bodies** (the
+`@dastholo/lean-md-skills` pack). It does **not** drop the `SKILL.md` stubs that an
+agent host (e.g. Claude Code) reads to discover and auto-trigger the skills — so a
+fresh install shows no skills until you install them explicitly:
+
+```sh
+lean-md skill install <name>            # local (default) → ./.claude/skills/<name>/
+lean-md skill install <name> --global   # global          → ~/.claude/skills/<name>/
+lean-md skill remove  <name> [--global] # mirror uninstall (removes the lmd-owned dir)
+```
+
+- **Local (default)** — project-relative, env-independent, versionable, team-shareable.
+- **Global** — under `claude_state_dir()` = `$CLAUDE_CONFIG_DIR` else `~/.claude`;
+  visible in every repo.
+
+Each `install` writes, per invocation:
+
+1. the `SKILL.md` stub into the scope's `skills/<name>/` dir;
+2. skill assets (e.g. `lmd-brainstorm` browser scripts, `lmd-writing-skills` graph helper);
+3. the **project seeds** into `<cwd>/.lean-ctx/lean-md/` — the dispatch-contract and
+   plan templates that `@dispatch` and the plan recipes consume (absent-only; pass
+   `--force` / `--refresh` to refresh a stale seed).
+
+> A plain symlink of `SKILL.md` is **not** equivalent — it skips steps 2 and 3, so
+> `<cwd>/.lean-ctx/lean-md/` is never created and `@dispatch` has no contract. Use the
+> installer.
+
+The eight installable skills:
+
+```sh
+for s in lmd-brainstorm lmd-writing-plans lmd-executing-plans \
+         lmd-subagent-driven-development lmd-dispatching-parallel-agents \
+         lmd-finishing-a-development-branch lmd-test-driven-development \
+         lmd-writing-skills; do
+  lean-md skill install "$s"          # --local is default; append --global for user-wide
+done
+```
+
+### Standalone requirement: `LEAN_MD_SKILLS_DIR`
+
+The installer reads each stub through the content cascade:
+`<cwd>/.lean-ctx/lean-md/skills/` → `$LEAN_MD_SKILLS_DIR` (the materialized pack) →
+`content/skills/` (debug builds only). A **release** `lean-md` invoked from your
+shell sees neither the pack env (that is injected only into the gateway-spawned MCP
+process) nor the debug fallback — so it fails with `PACK_MISSING` unless you point it
+at the pack store first. Resolve the exact path `addon add` recorded, then export it:
+
+```sh
+grep LEAN_MD_SKILLS_DIR ~/.config/lean-ctx/config.toml
+# e.g. ~/.local/share/lean-ctx/packages/skills/@dastholo__lean-md-skills/<version>
+export LEAN_MD_SKILLS_DIR="…/@dastholo__lean-md-skills/<version>"   # <version> = the installed pack (0.2.0)
+lean-md skill install lmd-brainstorm --global
+```
+
+From a clone you can skip the env entirely with a **debug** build — it reads
+`content/skills/` via the debug fallback. `skill install` uses the current dir as its
+project root, so run it from the target repo (via `--manifest-path`) to land the stub
+and seeds there:
+
+```sh
+cargo run --manifest-path /path/to/lean-md/Cargo.toml -- skill install lmd-brainstorm
+```
+
 ## What `addon add` writes (you maintain nothing by hand)
 
 Installation is automatic and global-only: it upserts a `[[gateway.servers]]`
