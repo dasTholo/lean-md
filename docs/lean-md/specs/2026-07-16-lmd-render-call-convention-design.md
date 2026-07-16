@@ -31,21 +31,20 @@ Korrekte Form (live verifiziert, und in `INSTALL.md` die ganze Zeit richtig):
 
 ### 1. Stub-Straffung (Pack)
 
-Der bloße Name `ctx_md_render` steht in keinem Stub mehr allein. Der volle Handle
-`lean-md::ctx_md_render` erscheint genau einmal pro Datei, innerhalb von `ctx_tools`.
-Damit braucht es **keine** Erklärung mehr, warum der Direktaufruf scheitert — es gibt
-keine Falle, die man erklären müsste.
+Der Name `ctx_md_render` verschwindet **vollständig** aus allen 8 Stubs. Der volle Handle
+steht künftig genau **einmal im ganzen Set** — im Bootstrap-Skill `lmd-rendering-skills`
+(Entscheidung 5). Damit gibt es keine Falle mehr, die man erklären müsste, und keine
+Aufrufform, die an acht Stellen driften kann.
 
 - `description` trägt **nur noch**, wofür der Skill gewählt wird. Render-Mechanik
   (`Render-on-invoke via …`, `phase-isolated for the −88…−95% token lever`, `Native lmd
   port of …`) entfällt: sie entscheidet nicht über die Auswahl, kostet aber in jeder
   Session Tokens im Skill-Index.
 - Der Erklär-Absatz („`ctx_md_render` is NOT a direct tool — lean-md is a separate MCP
-  server…") entfällt ersatzlos.
+  server…") entfällt ersatzlos — er lebt jetzt in `lmd-rendering-skills`.
 - Die Kurzform `ctx_md_render(skill=…, phase=…)` verschwindet aus Phasen- und
   Companion-Listen; dort stehen nur noch Namen. Kein Shorthand, keine Konvention.
-- `Transport closed` → einmal wiederholen. Bleibt, einzeilig (P7: ehrlich, weil die
-  Ursache unbekannt ist).
+- `Transport closed`, Diagnose und Fallback wandern aus allen 8 Stubs in die eine Datei.
 
 Zielform:
 
@@ -54,14 +53,22 @@ description: <nur Auswahl-Trigger + "Use when …">
 ---
 # <skill> (delegation stub)
 
-Body renders one phase at a time — never read it from disk:
+Body renders one phase at a time — never read it from disk.
+Rendering, diagnosis and fallback: see the `lmd-rendering-skills` skill.
 
-    ctx_tools(action="call", tool="lean-md::ctx_md_render",
-              arguments={"skill": "<skill>", "phase": "pre-context"})
-
-Same call below, `phase` getauscht (Companion: `companion` statt `phase`).
-On `Transport closed`: retry once.
+Phases: pre-context → explore → questions → …
+Companions: <name> — <one line>
 ```
+
+**Akzeptierter Preis:** ein Agent muss `lmd-rendering-skills` konsultieren, bevor er die
+erste Phase rendern kann — ein Hop mehr auf dem häufigsten Pfad. Dafür ist der Handle
+single-source und die Stubs schrumpfen auf ihren eigentlichen Zweck: Auswahl-Trigger +
+Phasenliste.
+
+**Daraus folgt eine harte Anforderung** (siehe Entscheidung 5): der Verweis macht
+`lmd-rendering-skills` load-bearing. Ist er nicht installiert, zeigt jeder Stub ins Leere
+und der Agent improvisiert — exakt der Zustand, den dieses Paket beseitigt. `install_skill()`
+MUSS ihn deshalb bei jedem lmd-Skill-Install mitziehen.
 
 ### 2. `@dispatch` komponiert die `.ext` (Binary) — P4
 
@@ -131,56 +138,72 @@ fällt beim Release, gemeinsam mit den Funden aus „scheitert leise".
 3. Erst wenn der Server wirklich fehlt: Shell-Fallback (`lean_md_bin` +
    `LEAN_MD_SKILLS_DIR`). Gleiches Binary, byte-identische Ausgabe.
 
+Derselbe Inhalt trägt `lmd-rendering-skills` (Entscheidung 5) — dort für den Agenten,
+hier für den Menschen. Bewusste Doppelung an genau zwei Stellen mit verschiedenen
+Zielgruppen; die Stubs bleiben davon frei.
+
 **Wichtige Trennung:** Punkt 3 gilt für **Konsumenten**. In diesem Dev-Repo ist der
 Shell-Fallback der *reguläre* Weg (`CLAUDE.md`), weil der Gateway den lean-md-Katalog
 zwar führt, das Tool dem Agenten aber nicht direkt reicht. Ohne diese Trennung baut die
 Doku die nächste Falle: ein Agent liest „Fallback nur wenn der Server fehlt" und dreht
 die Fehldiagnose um 180°.
 
-### 5. Release-Runbook als Skill `lmd-releasing-lean-md` (Pack)
+### 5. Bootstrap-Skill `lmd-rendering-skills` (Pack, installierbar)
 
-**Problem:** `docs/dev-readme.md` liegt in keinem Auto-Load-Pfad. Eine andere Session weiß
-nicht, dass es die Datei gibt, und rekonstruiert die Choreografie aus dem Gedächtnis — bei
-einer Reihenfolge, die erzwungen ist (Pack vor Addon, Tag vor `sync-manifest`), ist Raten
-teuer. Das ist derselbe Fehlertyp wie der Haupt-Bug: die Information existiert, ist korrekt,
-und wird nicht gefunden.
+**Problem:** heute muss jedes Konsumenten-Projekt einen Block in seine `CLAUDE.md`
+kopieren, der erklärt, dass `ctx_md_render` kein direktes Tool ist, wie der Gateway-Aufruf
+lautet, wie man Verfügbarkeit prüft und wie der Shell-Fallback geht. Handkopierte
+Boilerplate driftet — und ihr Fehlen ist genau der Zustand, der den Haupt-Bug auslöst.
 
-**Entscheidung:** neuer Skill `content/skills/lmd-releasing-lean-md/` mit dem Runbook aus
-`dev-readme.md` als Phasen (Vorschlag: `preflight` → `pack` → `binary` → `addon` → `verify`).
-`dev-readme.md` bleibt die Prosa-Quelle; der Skill ist der auffindbare, phasen-isolierte
-Einstieg.
+**Entscheidung:** neuer, **installierbarer** Skill `content/skills/lmd-rendering-skills/`.
+Er ersetzt den CLAUDE.md-Block ersatzlos und ist der einzige Ort im gesamten Set, an dem
+der Handle `lean-md::ctx_md_render` steht. Inhalt:
 
-**Registrierung — der Kern der Entscheidung:** `SKILLS` (`skills.rs:17`) und
-`INSTALLABLE_SKILLS` (`skill_install.rs:10`) sind zwei **unabhängige** Registries. `SKILLS`
-steuert, was renderbar ist; `INSTALLABLE_SKILLS` steuert, was `install_skill()` als Stub
-materialisiert — `skill_md()` (`:55`) lehnt jeden nicht gelisteten Namen ab. Beide sind
-heute deckungsgleich, aber kein Test koppelt sie.
+- Was `lmd-*`-Skills sind: Delegations-Stubs, deren Bodies im versions-gepinnten Pack
+  `@dastholo/lean-md-skills` liegen und on demand rendern.
+- Der Gateway-Aufruf (`ctx_tools(action="call", tool="lean-md::ctx_md_render", …)`),
+  `phase` vs. `companion`, und warum der Direktaufruf scheitert.
+- Verifikation: `ctx_tools(action="list")` → `lean-md [stdio, enabled]`.
+- `Transport closed` → einmal wiederholen (P7: sporadisch, Ursache unbekannt).
+- Shell-Fallback **nur** bei wirklich fehlendem Server: `lean_md_bin` +
+  `lean_md_skills_dir` aus `.lean-ctx/lean-md/vars.toml`, `LEAN_MD_SKILLS_DIR` exportieren,
+  sonst `PACK_MISSING`. Gleiches Binary, byte-identische Ausgabe.
 
-Der Skill wird **nur in `SKILLS`** eingetragen, **nicht** in `INSTALLABLE_SKILLS`. Folge:
+**Er ist der einzige Skill mit inline-`SKILL.md` — kein Delegations-Stub.** Henne-Ei: ein
+Agent, der den Gateway-Aufruf nicht kennt, kann den Skill, der ihn erklärt, nicht rendern.
+Der Bootstrap muss ohne den Mechanismus lesbar sein, den er beschreibt. Bewusste,
+begründete Ausnahme von der Stub-Konvention.
 
-- In diesem Repo sofort renderbar über den Debug-Fallback
-  (`$CARGO_MANIFEST_DIR/content/skills`, siehe `dev-readme.md` „Lokal ohne Pack
-  entwickeln") — also über den Aufruf, den `CLAUDE.md` ohnehin vorschreibt.
-- Bei Konsumenten wird **nie ein Stub materialisiert**: kein `.claude/skills/`-Eintrag,
-  kein Skill-Index-Eintrag, **null Token**. Er reist nur als wenige Bytes im Pack-Archiv.
+**Registrierung:** in `INSTALLABLE_SKILLS` (`skill_install.rs:10`) — er *soll* bei
+Konsumenten materialisiert werden. In `SKILLS` (`skills.rs:17`) gehört er **nicht**: es
+gibt keinen Body zu rendern. Die beiden Registries sind unabhängig, kein Test koppelt sie
+(`SKILLS` steuert Renderbarkeit, `INSTALLABLE_SKILLS` die Stub-Materialisierung;
+`skill_md()` (`:55`) lehnt jeden nicht gelisteten Namen ab).
 
-Damit entfällt der Zielkonflikt mit Entscheidung 1 vollständig — Pack-Mitgliedschaft und
-Installation sind entkoppelt.
+**Harte Anforderung — Mitinstallation.** Da die 8 Stubs keinen Aufruf mehr tragen, sondern
+auf diesen Skill verweisen, ist er load-bearing: fehlt er, zeigt jeder Stub ins Leere.
+`install_skill()` MUSS ihn bei **jedem** lmd-Skill-Install mitziehen, unabhängig davon,
+welcher Skill angefordert wurde. Ein Konsument, der nur `lmd-brainstorm` installiert, darf
+nicht mit einem baumelnden Verweis dastehen.
+
+**Zu klären bei der Planung:** ob `skill_md()`/`install_skill()` einen Skill ohne
+`body.lmd.md` klaglos installieren (der Body-Pfad wird laut `skills.rs:15` derived, nicht
+tabelliert) — und ob die Mitinstallation in `install_skill()` selbst sitzt oder eine Ebene
+höher im CLI-Handler.
 
 **Verworfene Alternativen:**
 
-- `.claude/skills/` — gitignored, Materialisierungs-Ziel von `install_skill()`. Kein Ort
-  für gepflegten Content; würde bei jedem Install überschrieben.
-- Pack-freier Root (`content/dev-skills/`) — bräuchte neue Mechanik (Pack-Scope,
-  Resolver-Pfad, Gate-Abgrenzung). Unnötig, weil die Allowlist das Ziel bereits erreicht.
+- **Release-Runbook-Skill** (`lmd-releasing-lean-md`) — der ctxpkg-Release ist
+  ausschließlich für dieses Repo relevant; `docs/dev-readme.md` genügt, ein eigenes
+  Artefakt wäre Overhead.
 - **Skill via `include_str!` ins Binary** — würde den #727-Schnitt rückabwickeln
   (`AGENTS.md`, `fragments.rs`: Skill-Content lebt seit P3 im Pack, nicht im Binary;
   `test-first-core`/`brainstorm-gate` wurden damals genau deshalb in die
-  `SKILL_INCLUDES`-Pack-Stage verschoben). Jede Runbook-Korrektur hinge dann an einem
-  Binary-Release. Nutzen null, da die Allowlist genügt.
-- **Runbook als Fragment, das andere Skills per `@include` konsumieren** — keiner der 8
-  Skills braucht das Release-Runbook; nur wer releast, braucht es. Ein Fragment ohne
-  Konsument wäre P4 ein zweites Mal: materialisiert und ungelesen.
+  `SKILL_INCLUDES`-Pack-Stage verschoben). Jede Korrektur hinge dann an einem
+  Binary-Release.
+- **Inhalt als Fragment, das die 8 Skills per `@include` konsumieren** — träfe das Ziel
+  nicht: ein `@include` landet im *gerenderten Body*, der Agent braucht die Information
+  aber *vor* dem ersten Render.
 
 ## Tests (TDD, rot zuerst)
 
@@ -191,8 +214,11 @@ Installation sind entkoppelt.
 - `lmd_render`/`lmd_check` in `tools/list`; beide Namen dispatchen identisch.
 - `skills.rs:1595` (`brainstorm_stub_description_carries_must_trigger`) prüft heute auf
   `ctx_md_render` im Stub → muss auf die neue Form nachgezogen werden.
-- `lmd-releasing-lean-md` rendert jede Phase; `install_skill("lmd-releasing-lean-md", …)`
-  ergibt `Err(NotFound)` — der Beweis, dass er Konsumenten nie erreicht.
+- Kein Stub der 8 enthält den String `ctx_md_render` — der Handle steht ausschließlich in
+  `lmd-rendering-skills`. Das ist der Regressionsschutz gegen ein Wiedereinschleichen.
+- Jeder Stub verweist auf `lmd-rendering-skills` (Verweis darf nicht baumeln).
+- `install_skill("lmd-brainstorm", …)` materialisiert **auch** `lmd-rendering-skills` —
+  der Beweis für die Mitinstallation.
 - `pack_drift` nach `LEAN_MD_BLESS=1` grün.
 
 ## Umfang dieses Pakets: implementieren + committen, KEIN Publish
