@@ -1148,19 +1148,20 @@ mod tests {
         ));
         // Orientation layer (E6).
         assert!(stub.contains("NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"));
-        assert!(stub.contains("Where this runs"));
-        for call in [
-            "phase=\"red\"",
-            "phase=\"green\"",
-            "phase=\"refactor\"",
-            "phase=\"rationalizations\"",
-            "companion=\"testing-anti-patterns\"",
+        // The render handle is single-sourced in lmd-rendering-skills; the stub only
+        // names its phases and companions.
+        assert!(stub.contains("lmd-rendering-skills"));
+        for name in [
+            "**red**",
+            "**green**",
+            "**refactor**",
+            "**rationalizations**",
+            "`testing-anti-patterns`",
         ] {
-            assert!(stub.contains(call), "stub missing render call '{call}'");
+            assert!(stub.contains(name), "stub missing phase/companion '{name}'");
         }
-        // Companion trigger (E7, upstream wording) + final rule + XOR.
+        // Companion trigger (E7, upstream wording) + final rule.
         assert!(stub.contains("When adding mocks or test utilities"));
-        assert!(stub.contains("never both"));
         assert!(stub.contains("Otherwise → not TDD"));
     }
 
@@ -1591,10 +1592,43 @@ mod tests {
             stub.contains("You MUST use this before any creative work"),
             "stub description must carry the original MUST auto-trigger (spec §SKILL.md-Stub)"
         );
-        assert!(
-            stub.contains("ctx_md_render"),
-            "stub description/body must keep the lmd render-on-invoke pointer"
-        );
+    }
+
+    /// Every installable stub except the bootstrap skill itself must be free of the
+    /// `ctx_md_render` handle — it is single-sourced in `lmd-rendering-skills`.
+    #[test]
+    fn no_installable_stub_mentions_ctx_md_render() {
+        let jail = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for name in crate::skill_install::INSTALLABLE_SKILLS {
+            if *name == "lmd-rendering-skills" {
+                continue;
+            }
+            let stub =
+                crate::skill_source::read_skill_file(&format!("{name}/SKILL.md"), &jail).unwrap();
+            assert!(
+                !stub.contains("ctx_md_render"),
+                "stub {name} still carries the ctx_md_render handle — it belongs \
+                 exclusively in lmd-rendering-skills"
+            );
+        }
+    }
+
+    /// …and each of them must point at the skill that does carry it.
+    #[test]
+    fn every_installable_stub_points_at_lmd_rendering_skills() {
+        let jail = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for name in crate::skill_install::INSTALLABLE_SKILLS {
+            if *name == "lmd-rendering-skills" {
+                continue;
+            }
+            let stub =
+                crate::skill_source::read_skill_file(&format!("{name}/SKILL.md"), &jail).unwrap();
+            assert!(
+                stub.contains("lmd-rendering-skills"),
+                "stub {name} must point at the lmd-rendering-skills skill for \
+                 rendering, diagnosis and fallback"
+            );
+        }
     }
 
     #[test]
