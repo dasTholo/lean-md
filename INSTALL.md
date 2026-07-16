@@ -45,7 +45,7 @@ needs `LEAN_MD_SKILLS_DIR` pointed at the pack store (else it fails with `PACK_M
 
 **Required after `addon add`:** restart your MCP client/server so the gateway
 re-reads its catalog and the lean-md tools become reachable through the
-**`ctx_tools`** gateway as `lean-md::ctx_md_render` / `lean-md::ctx_md_check`.
+**`ctx_tools`** gateway as `lean-md::lmd_render` / `lean-md::lmd_check` (alias `ctx_md_render` / `ctx_md_check`).
 This is the most common "tool not found" cause.
 
 ## Install the skill stubs (local default / global)
@@ -77,16 +77,19 @@ Each `install` writes, per invocation:
 > `<cwd>/.lean-ctx/lean-md/` is never created and `@dispatch` has no contract. Use the
 > installer.
 
-The eight installable skills:
+The nine installable skills:
 
 ```sh
 for s in lmd-brainstorm lmd-writing-plans lmd-executing-plans \
          lmd-subagent-driven-development lmd-dispatching-parallel-agents \
          lmd-finishing-a-development-branch lmd-test-driven-development \
-         lmd-writing-skills; do
+         lmd-writing-skills lmd-rendering-skills; do
   lean-md skill install "$s"          # --local is default; append --global for user-wide
 done
 ```
+
+`lmd-rendering-skills` is listed here only for completeness — every `skill install` call
+already pulls it in as a dependency, so installing it explicitly is never required.
 
 ### Standalone requirement: `LEAN_MD_SKILLS_DIR`
 
@@ -129,17 +132,18 @@ lean-md render demo.lmd.md
 ```
 
 Through the lean-ctx gateway, the addon is aggregated under the **`ctx_tools`**
-downstream gateway as `lean-md::ctx_md_render` / `lean-md::ctx_md_check` — **not**
-on the `ctx_call` / `ctx_discover_tools` router (those expose only lean-ctx's own
-tools). Confirm the wiring and run the round-trip from an MCP client:
+downstream gateway as `lean-md::lmd_render` / `lean-md::lmd_check` (alias
+`lean-md::ctx_md_render` / `lean-md::ctx_md_check`) — **not** on the `ctx_call` /
+`ctx_discover_tools` router (those expose only lean-ctx's own tools). Confirm the wiring
+and run the round-trip from an MCP client:
 
 ```sh
 lean-ctx addon list        # → ✓ lean-md … → gateway server `lean-md` (local)
 ```
 
 ```jsonc
-ctx_tools {"action":"list"}     // → lean-md [stdio, enabled] — 2 tool(s)
-ctx_tools {"action":"call","tool":"lean-md::ctx_md_render",
+ctx_tools {"action":"list"}     // → lean-md [stdio, enabled] — 4 tool(s)
+ctx_tools {"action":"call","tool":"lean-md::lmd_render",
            "arguments":{"path":"demo.lmd.md"}}
 ```
 
@@ -160,12 +164,49 @@ variables (build with the `mcp` feature):
 A malformed/unreachable endpoint falls back to the CLI backend — it never bricks
 rendering. See the README's "Backend selection" table for details.
 
+## Why `ctx_md_render` Is Regularly Misdiagnosed as a Broken Gateway
+
+Neither `ctx_md_render(...)` nor its alias `lmd_render(...)` is a directly callable tool —
+lean-md is a separate stdio MCP server, reachable only through the `ctx_tools` gateway
+wrapper shown in "Verify" above. A bare, unwrapped call fails, and the failure reads exactly
+like "the gateway is down," which sends people into the shell fallback (`LEAN_MD_SKILLS_DIR`,
+below) for the rest of the session. The fallback works and reports no error, so the
+misdiagnosis conceals itself.
+
+Work through this order before concluding the gateway is broken:
+
+1. `ctx_tools(action="list")` — does it show `lean-md [stdio, enabled]`? Then the server is
+   fine and the call was simply misaddressed; fix the call, don't fall back.
+2. Got `Transport closed`? Retry once — sporadic, the gateway respawns the server.
+3. Only once the server is genuinely absent: fall back to the shell (`lean_md_bin` +
+   `LEAN_MD_SKILLS_DIR`, see "Standalone requirement" above) — same binary, byte-identical
+   output.
+
+**Step 3 is for consumers of the installed addon.** If you are developing *inside the
+lean-md repo itself*, the shell fallback is the *normal* path, not a last resort — that
+repo's `CLAUDE.md` documents why: the gateway carries the lean-md catalog, but does not hand
+the tool to the dev agent directly, so step 3 is the default entry point there, not an escape
+hatch.
+
+`lmd_render` / `lmd_check` are the recommended tool names going forward; `ctx_md_render` /
+`ctx_md_check` remain supported aliases with identical behavior. Rendered skill *pack*
+content intentionally keeps citing `ctx_md_render` / `ctx_md_check` — the pack has no
+lean-md-minimum-version gate to enforce a rename (`min_lean_ctx` pins the *lean-ctx*
+version, not lean-md's), so pack content stays on the name every lean-md version is
+guaranteed to understand.
+
+The agent-facing counterpart — same diagnosis order, for an LLM to follow the moment a
+render call fails — is the `lmd-rendering-skills` skill.
+
 ## Troubleshooting
 
 - **Tools not visible** → restart the MCP client/server (catalog re-read).
-- **`ctx_call` / `ctx_discover_tools` can't find `ctx_md_render`** → expected: that
-  router lists only lean-ctx's own tools. Addon tools live on the **`ctx_tools`**
-  downstream gateway as `lean-md::ctx_md_render` — invoke via
-  `ctx_tools {"action":"call","tool":"lean-md::ctx_md_render", …}`.
+- **A render call fails and looks like the gateway is down** → see "Why `ctx_md_render` Is
+  Regularly Misdiagnosed as a Broken Gateway" above; work the three-step diagnosis before
+  falling back to the shell.
+- **`ctx_call` / `ctx_discover_tools` can't find `lmd_render` / `ctx_md_render`** → expected:
+  that router lists only lean-ctx's own tools. Addon tools live on the **`ctx_tools`**
+  downstream gateway as `lean-md::lmd_render` (alias `lean-md::ctx_md_render`) — invoke via
+  `ctx_tools {"action":"call","tool":"lean-md::lmd_render", …}`.
 - **Tool name carries the `lean-md::` prefix** → that is the gateway namespace
   (`<server>::<tool>`); the prefixed handle is the one to call.
