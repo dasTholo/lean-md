@@ -157,10 +157,31 @@ pub fn refresh_contracts(
             lock_dirty = true;
             report.healed.push(target);
         } else {
-            // Local edit, or no lock entry (unknown provenance): never overwrite.
-            let mut new_name = target.file_name().unwrap_or_default().to_os_string();
-            new_name.push(".new");
-            std::fs::write(target.with_file_name(new_name), content)?;
+            // Local edit, or no lock entry (unknown provenance): never overwrite. The
+            // embedded copy goes beside it as `.new` — but only when that actually says
+            // something new. Rewriting an identical `.new` on every server start makes it
+            // look freshly changed each time, and a signal that cries wolf every session
+            // is one the user learns to scroll past. Written only when missing (nothing
+            // there to read yet) or when it differs (the embedded seed moved on, so the
+            // standing proposal is out of date and the user deserves the current one).
+            //
+            // Deleting the `.new` does NOT stop it from coming back, and that is
+            // deliberate: the divergence between this seed and the binary is still real,
+            // and lean-md has no place to record "the user knows". The lock stores
+            // provenance, not consent — repurposing it (adopting the local hash) would
+            // silence the report at the price of disabling healing for this seed forever.
+            // Between re-stating a true fact and hiding it, we re-state it.
+            let new_target = {
+                let mut new_name = target.file_name().unwrap_or_default().to_os_string();
+                new_name.push(".new");
+                target.with_file_name(new_name)
+            };
+            let up_to_date = std::fs::read(&new_target)
+                .map(|existing| existing == content.as_bytes())
+                .unwrap_or(false);
+            if !up_to_date {
+                std::fs::write(&new_target, content)?;
+            }
             report.preserved.push(target);
         }
     }
@@ -359,6 +380,123 @@ mod tests {
         );
         assert!(report.preserved.iter().any(|p| p.ends_with("rust.lmd.md")));
         assert!(report.healed.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Drive a tree into the preserve case: seeds materialized, lock written for the
+    /// pristine tree, then one seed locally edited. Returns (root, edited target).
+    fn tree_with_a_user_edited_seed(tag: &str) -> (PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!("lmd_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        materialize_contracts(&root, dir, false).unwrap();
+        refresh_contracts(&root, dir).unwrap();
+        let target = root.join(dir).join("lang/rust.lmd.md");
+        std::fs::write(&target, "# my project rule\n").unwrap();
+        (root, target)
+    }
+
+    fn new_path_of(target: &Path) -> PathBuf {
+        let mut name = target.file_name().unwrap().to_os_string();
+        name.push(".new");
+        target.with_file_name(name)
+    }
+
+    #[test]
+    fn an_unchanged_new_file_is_not_rewritten() {
+        // Rewriting an identical .new on every server start is what turns a real signal
+        // into wallpaper: the file's mtime keeps saying "brand new" when nothing changed.
+        // Proof: pin an old mtime, refresh, and require the mtime to survive.
+        let (root, target) = tree_with_a_user_edited_seed("new_stable");
+        let dir = ".lean-ctx/lean-md";
+        refresh_contracts(&root, dir).unwrap();
+        let new_file = new_path_of(&target);
+        assert!(new_file.exists(), "preserve must drop a .new first");
+
+        let pinned = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        std::fs::File::options()
+            .write(true)
+            .open(&new_file)
+            .unwrap()
+            .set_modified(pinned)
+            .unwrap();
+
+        refresh_contracts(&root, dir).unwrap();
+        assert_eq!(
+            std::fs::metadata(&new_file).unwrap().modified().unwrap(),
+            pinned,
+            "an identical .new must not be touched again"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_stale_new_file_is_refreshed_to_the_current_seed() {
+        // The user must see the CURRENT proposal, not one from three binaries ago.
+        let (root, target) = tree_with_a_user_edited_seed("new_stale");
+        let dir = ".lean-ctx/lean-md";
+        let new_file = new_path_of(&target);
+        std::fs::write(&new_file, "# a proposal from an older binary\n").unwrap();
+
+        refresh_contracts(&root, dir).unwrap();
+        let embedded = PROJECT_SEEDS
+            .iter()
+            .find(|(p, _)| *p == "lang/rust.lmd.md")
+            .map(|(_, c)| *c)
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&new_file).unwrap(),
+            embedded,
+            "a stale .new must be refreshed to the embedded seed"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_preserved_user_edit_never_becomes_the_new_provenance() {
+        // Option (b) — adopting the local hash as provenance — was explicitly rejected:
+        // it silences the report forever but also disables healing for good. The lock
+        // entry must keep pointing at what WE last wrote.
+        let (root, target) = tree_with_a_user_edited_seed("new_prov");
+        let dir = ".lean-ctx/lean-md";
+        let before = crate::lock::Lock::load(&root)
+            .get("lean-md/lang/rust.lmd.md")
+            .map(str::to_string);
+        let local_hex = crate::hashx::sha256_hex(&std::fs::read(&target).unwrap());
+
+        refresh_contracts(&root, dir).unwrap();
+
+        let after = crate::lock::Lock::load(&root)
+            .get("lean-md/lang/rust.lmd.md")
+            .map(str::to_string);
+        assert_ne!(
+            after.as_deref(),
+            Some(local_hex.as_str()),
+            "preserve must not adopt the user edit as provenance"
+        );
+        assert_eq!(after, before, "preserve must leave the lock entry alone");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_deleted_new_file_comes_back_because_the_divergence_did_not_go_away() {
+        // Pins the acknowledgement decision: deleting the .new is not a resolution, it is
+        // a dismissal. The seed still diverges from the binary, and lean-md has no channel
+        // that records "the user knows" — the lock records provenance, not consent, and
+        // repurposing it (option b) would trade this report for permanently dead healing.
+        // Given the choice between re-stating a true fact and hiding it, we re-state it.
+        let (root, target) = tree_with_a_user_edited_seed("new_revive");
+        let dir = ".lean-ctx/lean-md";
+        refresh_contracts(&root, dir).unwrap();
+        let new_file = new_path_of(&target);
+        std::fs::remove_file(&new_file).unwrap();
+
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert!(
+            new_file.exists(),
+            "the divergence persists, so the proposal must reappear"
+        );
+        assert!(report.preserved.iter().any(|p| p.ends_with("rust.lmd.md")));
         let _ = std::fs::remove_dir_all(&root);
     }
 
