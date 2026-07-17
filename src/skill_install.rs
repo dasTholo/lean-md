@@ -78,10 +78,10 @@ fn target_dir(name: &str, scope: Scope, project_root: &Path) -> PathBuf {
 }
 
 /// Materialize a skill's `SKILL.md` into the chosen scope. Atomic-ish,
-/// idempotent (overwrites the stub — byte-stable content, #498). `force=true`
-/// additionally refreshes the project-level seeds even when they already exist
-/// (a stale derived seed after an embedded-seed edit); `force=false` keeps the
-/// seeds absent-only so user edits are never clobbered.
+/// idempotent (overwrites the stub — byte-stable content, #498). `force=false` runs
+/// the lock-based seed refresh (heals stale-but-untouched seeds, preserves user edits
+/// and drops the embedded copy beside them as `.new`); `force=true` overwrites the
+/// project-level seeds unconditionally.
 pub fn install_skill(
     name: &str,
     scope: Scope,
@@ -130,10 +130,20 @@ pub fn install_skill(
         let _ = install_skill(BOOTSTRAP_SKILL, scope, project_root, force);
     }
     // Materialize the project-level seeds (plan-recipes/plan-template, lang/*,
-    // tooling/*, dispatch-contract.ext) into the project root — absent-only unless
-    // `force`, so user edits are never overwritten by a plain reinstall (Spec §6);
-    // `--force` refreshes a stale derived seed after an embedded-seed edit.
-    crate::seeds::materialize_contracts(project_root, ".lean-ctx/lean-md", force)?;
+    // tooling/*, dispatch-contract.ext) into the project root. Two of the three seed
+    // modes (Spec §6):
+    //
+    // * `force=false` (the default install) → `refresh_contracts`: the lock separates a
+    //   stale-but-untouched seed (healed silently) from a user-edited one (never
+    //   touched, embedded copy dropped beside it as `.new`). Absent-only would let a
+    //   seed age forever; this heals it without ever clobbering local work.
+    // * `force=true` → `materialize_contracts(force)`: the deliberate hammer, overwrites
+    //   unconditionally, local changes included.
+    if force {
+        crate::seeds::materialize_contracts(project_root, ".lean-ctx/lean-md", true)?;
+    } else {
+        crate::seeds::refresh_contracts(project_root, ".lean-ctx/lean-md")?;
+    }
     Ok(target)
 }
 

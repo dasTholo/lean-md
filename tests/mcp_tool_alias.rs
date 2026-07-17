@@ -12,8 +12,14 @@ const BIN: &str = env!("CARGO_BIN_EXE_lean-md");
 /// close stdin so the server drains and exits, and return the parsed
 /// responses in the order they were written to stdout.
 fn mcp_roundtrip(requests: &[Value]) -> Vec<Value> {
+    // Pin the cwd to a scratch dir: `lean-md mcp` refreshes the project seeds at start,
+    // and it derives the project root from the cwd. Inheriting the test runner's cwd
+    // would let this test write into the checkout's own `.lean-ctx/lean-md/`.
+    let cwd = std::env::temp_dir().join(format!("lmd_mcp_alias_{}", std::process::id()));
+    std::fs::create_dir_all(&cwd).expect("create scratch cwd");
     let mut child = Command::new(BIN)
         .arg("mcp")
+        .current_dir(&cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()

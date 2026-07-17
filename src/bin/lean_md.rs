@@ -46,17 +46,46 @@ fn do_render(
         .unwrap_or_else(|e| format!("<!-- lmd render error: {e:?} -->"))
 }
 
+/// Seed-refresh status for `check` — READ-ONLY, it only reports what a previous
+/// refresh already left on disk. The `.new` files are written at MCP server start
+/// (`cmd_mcp`); its stderr goes to the gateway log, which the agent never reads, so
+/// `check` is where that case becomes visible (Spec decision 4). Deterministic: the
+/// line is a pure function of the seed tree in `PROJECT_SEEDS` order (#498).
+fn seed_report_line(project_root: &std::path::Path) -> Option<String> {
+    let base = project_root.join(".lean-ctx/lean-md");
+    let pending: Vec<String> = lean_md::seeds::PROJECT_SEEDS
+        .iter()
+        .map(|(rel, _)| format!("{rel}.new"))
+        .filter(|rel| base.join(rel).exists())
+        .collect();
+    if pending.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "lmd seeds — your local copies were kept; the updated seeds sit beside them: {} \
+         (diff them, then replace or delete the .new file)",
+        pending.join(", ")
+    ))
+}
+
 /// Core check logic — shared by `cmd_check` and the MCP `ctx_md_check` handler.
-fn do_check(source: &str) -> String {
+/// Stays purely reading (D-1): `project_root=None` (or an unresolvable cwd) simply
+/// drops the seed part; the file check is unaffected.
+fn do_check(source: &str, project_root: Option<&std::path::Path>) -> String {
     let (header, body) = parse_header(source);
     let directives = body
         .lines()
         .filter(|l| l.trim_start().starts_with('@'))
         .count();
-    format!(
+    let mut out = format!(
         "lmd ok — consumer={:?}, crp={:?}, directives={}",
         header.consumer, header.crp, directives
-    )
+    );
+    if let Some(line) = project_root.and_then(seed_report_line) {
+        out.push('\n');
+        out.push_str(&line);
+    }
+    out
 }
 
 // ─── CLI flags ─────────────────────────────────────────────────────────────
@@ -250,7 +279,10 @@ fn cmd_check(rest: &[String]) {
         std::process::exit(1);
     };
     let source = load_file(file);
-    println!("{}", do_check(&source));
+    // Same root derivation as everywhere else in the binary (the jail root fragments
+    // resolve against). No cwd → the seed part drops out silently.
+    let root = std::env::current_dir().ok();
+    println!("{}", do_check(&source, root.as_deref()));
 }
 
 fn cmd_source(rest: &[String]) {
@@ -450,6 +482,28 @@ fn cmd_skill_vars(rest: &[String]) {
 fn cmd_mcp() {
     use std::io::{BufRead, Write};
 
+    // Seed refresh — server start is the ONLY hook that runs in every session: the addon
+    // manifest has no lifecycle phase and no install hook, so a plain `addon update`
+    // swaps the pack without ever running our code. Once, before the read loop; render
+    // and check stay purely reading (D-1).
+    //
+    // Visibility is deliberately asymmetric (Spec decision 4): stdout is the JSON-RPC
+    // channel (a warning there corrupts the protocol) and stderr lands in the gateway log
+    // the agent never sees. So the normal case (stale + untouched) heals silently, and the
+    // `.new` case is surfaced by `lean-md check`; stderr is diagnostics only.
+    if let Ok(root) = std::env::current_dir()
+        && let Ok(report) = lean_md::seeds::refresh_contracts(&root, ".lean-ctx/lean-md")
+        && !report.preserved.is_empty()
+    {
+        for p in &report.preserved {
+            eprintln!(
+                "lean-md: kept your {} — updated seed written as {}.new",
+                p.display(),
+                p.display()
+            );
+        }
+    }
+
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let mut out = std::io::BufWriter::new(stdout.lock());
@@ -571,7 +625,8 @@ fn cmd_mcp() {
 
                     "ctx_md_check" | "lmd_check" => match mcp_load_source(&args) {
                         Ok((source, _jail)) => {
-                            let summary = do_check(&source);
+                            let root = std::env::current_dir().ok();
+                            let summary = do_check(&source, root.as_deref());
                             rpc_ok(
                                 &id,
                                 json!({
@@ -602,6 +657,83 @@ fn cmd_mcp() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mcp_start_refreshes_seeds_but_render_and_check_do_not_write() {
+        // D-1 purity: the renderer stays PURE. The wiring sits at server start, not on the
+        // hot path. Proof: file state before == after for render/check.
+        let root = std::env::temp_dir().join(format!("lmd_wire_pure_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        lean_md::seeds::materialize_contracts(&root, dir, false).unwrap();
+        lean_md::seeds::refresh_contracts(&root, dir).unwrap();
+
+        let target = root.join(dir).join("plan-recipes.lmd.md");
+        std::fs::write(&target, "# stale untouched\n").unwrap();
+        let mut lock = lean_md::lock::Lock::load(&root);
+        lock.set(
+            "lean-md/plan-recipes.lmd.md",
+            &lean_md::hashx::sha256_hex(b"# stale untouched\n"),
+        );
+        lock.save(&root).unwrap();
+
+        // render must not heal it …
+        let _ = do_render("@lean-md\nconsumer: ai\n\nhi\n", root.clone(), None, None);
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "# stale untouched\n"
+        );
+        // … nor must check.
+        let _ = do_check("@lean-md\nconsumer: ai\n\nhi\n", Some(&root));
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "# stale untouched\n"
+        );
+
+        // The MCP start path does.
+        lean_md::seeds::refresh_contracts(&root, dir).unwrap();
+        assert_ne!(
+            std::fs::read_to_string(&target).unwrap(),
+            "# stale untouched\n"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn check_reports_the_new_case_and_stays_silent_on_a_healed_one() {
+        let root = std::env::temp_dir().join(format!("lmd_wire_check_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        lean_md::seeds::materialize_contracts(&root, dir, false).unwrap();
+        lean_md::seeds::refresh_contracts(&root, dir).unwrap();
+
+        // Current tree → check says nothing about seeds.
+        let quiet = do_check("@lean-md\nconsumer: ai\n\nhi\n", Some(&root));
+        assert!(
+            !quiet.contains(".new"),
+            "a current tree must not be reported: {quiet}"
+        );
+
+        // A user edit + a refresh → .new exists → check must surface it, because stderr at
+        // MCP start is a log the agent never reads.
+        std::fs::write(root.join(dir).join("lang/rust.lmd.md"), "# mine\n").unwrap();
+        lean_md::seeds::refresh_contracts(&root, dir).unwrap();
+        let loud = do_check("@lean-md\nconsumer: ai\n\nhi\n", Some(&root));
+        assert!(
+            loud.contains("lang/rust.lmd.md.new"),
+            "check must name the .new file: {loud}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn check_without_a_project_root_still_checks_the_file() {
+        let out = do_check("@lean-md\nconsumer: ai\n\nhi\n", None);
+        assert!(
+            out.contains("lmd ok"),
+            "the file check must survive a missing root: {out}"
+        );
+    }
 
     #[test]
     fn parse_render_flags_knows_signatures() {
