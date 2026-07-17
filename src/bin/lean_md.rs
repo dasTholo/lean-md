@@ -121,7 +121,11 @@ fn directive_lines(body: &str) -> Vec<&str> {
 /// Core check logic — shared by `cmd_check` and the MCP `ctx_md_check` handler.
 /// Stays purely reading (D-1): `project_root=None` (or an unresolvable cwd) simply
 /// drops the seed part; the file check is unaffected.
-fn do_check(source: &str, project_root: Option<&std::path::Path>) -> String {
+///
+/// `Err` = the FILE has errors → callers must fail (`cmd_check` exits 1). The verdict
+/// lives in the type, not in a substring: a reporting verb that only prints is exactly
+/// the silent failure this package removes. `Ok` still carries the project hints.
+fn do_check(source: &str, project_root: Option<&std::path::Path>) -> Result<String, String> {
     let (header, body) = parse_header(source);
     let lines = directive_lines(body);
     // Argument validation reads the SAME schema the bridges do — a file that checks
@@ -140,27 +144,32 @@ fn do_check(source: &str, project_root: Option<&std::path::Path>) -> String {
     if let Some(m) = lean_md::phases::duplicate_phase_error(source) {
         errors.push(m);
     }
-    if !errors.is_empty() {
-        return format!("lmd errors:\n{}", errors.join("\n"));
-    }
-    let mut out = format!(
-        "lmd ok — consumer={:?}, crp={:?}, directives={}",
-        header.consumer,
-        header.crp,
-        lines.len()
-    );
+    // Seed report + pack range are about the PROJECT, not the file — so they are appended
+    // to BOTH verdicts. A file error must not swallow them (a pack outside the range
+    // "may silently use the wrong content"; deferring that until the typo is fixed is the
+    // same defect one layer up). They are hints, never errors: a user with an
+    // acknowledgeable seed conflict must not sit in a permanently red CI.
+    let mut hints = String::new();
     if let Some(line) = project_root.and_then(seed_report_line) {
-        out.push('\n');
-        out.push_str(&line);
+        hints.push('\n');
+        hints.push_str(&line);
     }
     // Pack range — same asymmetry as the seed report: `cmd_mcp` logs it to stderr, but
     // `check` is where the user actually looks. Only a RANGE violation speaks; a pack
     // that merely differs from the binary version is the intended normal case.
     if let Some(line) = project_root.and_then(lean_md::version_gate::drift_warning) {
-        out.push('\n');
-        out.push_str(&line);
+        hints.push('\n');
+        hints.push_str(&line);
     }
-    out
+    if !errors.is_empty() {
+        return Err(format!("lmd errors:\n{}{hints}", errors.join("\n")));
+    }
+    Ok(format!(
+        "lmd ok — consumer={:?}, crp={:?}, directives={}{hints}",
+        header.consumer,
+        header.crp,
+        lines.len()
+    ))
 }
 
 // ─── CLI flags ─────────────────────────────────────────────────────────────
@@ -381,7 +390,16 @@ fn cmd_check(rest: &[String]) {
     // Same root derivation as everywhere else in the binary (the jail root fragments
     // resolve against). No cwd → the seed part drops out silently.
     let root = std::env::current_dir().ok();
-    println!("{}", do_check(&source, root.as_deref()));
+    // Errors go to stderr + exit 1 — the same shape `--list-phases` gives the same defect
+    // (both refuse a duplicate @phase). Diagnostics are not the verb's payload, and no
+    // recipe in the repo consumes check's stdout, so nothing depends on them landing there.
+    match do_check(&source, root.as_deref()) {
+        Ok(out) => println!("{out}"),
+        Err(out) => {
+            eprintln!("{out}");
+            std::process::exit(1);
+        }
+    }
 }
 
 fn cmd_source(rest: &[String]) {
@@ -805,7 +823,12 @@ fn cmd_mcp() {
                     "ctx_md_check" | "lmd_check" => match mcp_load_source(&args) {
                         Ok((source, _jail)) => {
                             let root = std::env::current_dir().ok();
-                            let summary = do_check(&source, root.as_deref());
+                            // Both verdicts are a tool RESULT, not a protocol error: the
+                            // agent reads the text either way, and -32xxx is reserved for
+                            // a malformed call. Wire behavior is unchanged (#498).
+                            let summary = match do_check(&source, root.as_deref()) {
+                                Ok(s) | Err(s) => s,
+                            };
                             rpc_ok(
                                 &id,
                                 json!({
@@ -837,10 +860,106 @@ fn cmd_mcp() {
 mod tests {
     use super::*;
 
+    /// The text a check renders, verdict aside — for the assertions whose subject is the
+    /// WORDING. Where the subject is the verdict, tests assert `is_ok()` / `is_err()`.
+    fn check_text(source: &str, project_root: Option<&std::path::Path>) -> String {
+        match do_check(source, project_root) {
+            Ok(s) | Err(s) => s,
+        }
+    }
+
+    #[test]
+    fn a_file_with_errors_is_a_failed_check_not_a_printed_one() {
+        // `cmd_check` printed "lmd errors:" and fell out of main → exit 0. A CI gate on a
+        // file with a duplicate @phase went green. The verdict must live in the type.
+        let src = "@lean-md\nconsumer: ai\n\n@phase \"t\"\nfirst\n@phase-end\n@phase \"t\"\nsecond\n@phase-end\n";
+        assert!(
+            do_check(src, None).is_err(),
+            "a lossy file must be a failed check, not a message"
+        );
+        assert!(
+            do_check("@lean-md\nconsumer: ai\n\nhi\n", None).is_ok(),
+            "a clean file must stay a passing check"
+        );
+    }
+
+    #[test]
+    fn a_file_error_does_not_swallow_the_pack_warning() {
+        // Two verdicts, two subjects: the pack range is about the PROJECT ("rendering may
+        // fail or silently use the wrong content"), the typo is about the FILE. Reporting
+        // only the typo defers the louder one until the user has fixed the quieter one.
+        let root = std::env::temp_dir().join(format!("lmd_check_drift_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".lean-ctx")).unwrap();
+        std::fs::write(
+            root.join(".lean-ctx/ctxpkg.lock"),
+            "[[package]]\nname = \"@dastholo/lean-md-skills\"\nversion = \"0.3.0\"\n",
+        )
+        .unwrap();
+        let out = do_check(
+            "@lean-md\nconsumer: ai\n\n@dispatch brief=x phase=y\n",
+            Some(&root),
+        )
+        .expect_err("the file error stands");
+        assert!(out.contains("unknown argument"), "{out}");
+        assert!(
+            out.contains("0.3.0"),
+            "the pack warning must survive a file error: {out}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_file_error_does_not_swallow_the_seed_report() {
+        let root = std::env::temp_dir().join(format!("lmd_check_seedsw_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        lean_md::seeds::materialize_contracts(&root, dir, false).unwrap();
+        lean_md::seeds::refresh_contracts(&root, dir).unwrap();
+        std::fs::write(root.join(dir).join("lang/rust.lmd.md"), "# mine\n").unwrap();
+        lean_md::seeds::refresh_contracts(&root, dir).unwrap();
+
+        let out = do_check(
+            "@lean-md\nconsumer: ai\n\n@dispatch brief=x phase=y\n",
+            Some(&root),
+        )
+        .expect_err("the file error stands");
+        assert!(
+            out.contains("lang/rust.lmd.md.new"),
+            "the seed report must survive a file error: {out}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_seed_conflict_alone_is_not_a_failed_check() {
+        // Seed report + pack warning are HINTS about the project, not file errors. Making
+        // them red would park every user with an acknowledgeable seed conflict in a
+        // permanently failing CI.
+        let root = std::env::temp_dir().join(format!("lmd_check_hintok_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        lean_md::seeds::materialize_contracts(&root, dir, false).unwrap();
+        lean_md::seeds::refresh_contracts(&root, dir).unwrap();
+        std::fs::write(root.join(dir).join("lang/rust.lmd.md"), "# mine\n").unwrap();
+        lean_md::seeds::refresh_contracts(&root, dir).unwrap();
+        std::fs::write(
+            root.join(".lean-ctx/ctxpkg.lock"),
+            "[[package]]\nname = \"@dastholo/lean-md-skills\"\nversion = \"0.3.0\"\n",
+        )
+        .unwrap();
+
+        let out = do_check("@lean-md\nconsumer: ai\n\nhi\n", Some(&root))
+            .expect("hints must not fail a clean file");
+        assert!(out.contains("lmd ok"), "{out}");
+        assert!(out.contains(".new") && out.contains("0.3.0"), "{out}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn duplicate_phase_fails_in_check() {
         let src = "@lean-md\nconsumer: ai\n\n@phase \"t\"\nfirst\n@phase-end\n@phase \"t\"\nsecond\n@phase-end\n";
-        let out = do_check(src, None);
+        let out = do_check(src, None).expect_err("a lossy file must FAIL the check");
         assert!(
             !out.contains("lmd ok"),
             "check must not call a lossy file ok: {out}"
@@ -901,7 +1020,7 @@ mod tests {
             "# stale untouched\n"
         );
         // … nor must check.
-        let _ = do_check("@lean-md\nconsumer: ai\n\nhi\n", Some(&root));
+        let _ = check_text("@lean-md\nconsumer: ai\n\nhi\n", Some(&root));
         assert_eq!(
             std::fs::read_to_string(&target).unwrap(),
             "# stale untouched\n"
@@ -925,7 +1044,7 @@ mod tests {
         lean_md::seeds::refresh_contracts(&root, dir).unwrap();
 
         // Current tree → check says nothing about seeds.
-        let quiet = do_check("@lean-md\nconsumer: ai\n\nhi\n", Some(&root));
+        let quiet = check_text("@lean-md\nconsumer: ai\n\nhi\n", Some(&root));
         assert!(
             !quiet.contains(".new"),
             "a current tree must not be reported: {quiet}"
@@ -935,7 +1054,7 @@ mod tests {
         // MCP start is a log the agent never reads.
         std::fs::write(root.join(dir).join("lang/rust.lmd.md"), "# mine\n").unwrap();
         lean_md::seeds::refresh_contracts(&root, dir).unwrap();
-        let loud = do_check("@lean-md\nconsumer: ai\n\nhi\n", Some(&root));
+        let loud = check_text("@lean-md\nconsumer: ai\n\nhi\n", Some(&root));
         assert!(
             loud.contains("lang/rust.lmd.md.new"),
             "check must name the .new file: {loud}"
@@ -945,7 +1064,7 @@ mod tests {
 
     #[test]
     fn check_without_a_project_root_still_checks_the_file() {
-        let out = do_check("@lean-md\nconsumer: ai\n\nhi\n", None);
+        let out = check_text("@lean-md\nconsumer: ai\n\nhi\n", None);
         assert!(
             out.contains("lmd ok"),
             "the file check must survive a missing root: {out}"
@@ -959,7 +1078,8 @@ mod tests {
         let out = do_check(
             "@lean-md\nconsumer: ai\n\n@dispatch brief=x phase=y\n",
             None,
-        );
+        )
+        .expect_err("a swallowed arg must FAIL the check");
         assert!(out.contains("unknown argument"), "{out}");
         assert!(
             out.contains("brief"),
@@ -978,7 +1098,8 @@ mod tests {
         let out = do_check(
             "@lean-md\nconsumer: ai\n\n@dispatch phase=t role=exec\n",
             None,
-        );
+        )
+        .expect_err("a bad role must FAIL the check, not merely print");
         assert!(out.contains("role"), "{out}");
         assert!(
             !out.contains("lmd ok"),
@@ -988,7 +1109,8 @@ mod tests {
 
     #[test]
     fn a_dispatch_without_a_brief_source_fails_in_check() {
-        let out = do_check("@lean-md\nconsumer: ai\n\n@dispatch role=dev\n", None);
+        let out = do_check("@lean-md\nconsumer: ai\n\n@dispatch role=dev\n", None)
+            .expect_err("a brief-less @dispatch must FAIL the check");
         assert!(!out.contains("lmd ok"), "{out}");
     }
 
@@ -997,7 +1119,8 @@ mod tests {
         let out = do_check(
             "@lean-md\nconsumer: ai\n\n@dispatch phase=x skill=s companion=y\n",
             None,
-        );
+        )
+        .expect_err("an exclusive-group violation must FAIL the check");
         assert!(
             !out.contains("lmd ok"),
             "exclusive group must be enforced in check: {out}"
@@ -1013,7 +1136,8 @@ mod tests {
         let out = do_check(
             "@lean-md\nconsumer: ai\n\n@dispatch phase=x companion=y\n",
             None,
-        );
+        )
+        .expect_err("phase= + companion= must FAIL the check");
         assert!(
             !out.contains("lmd ok"),
             "phase= + companion= must never pass: {out}"
@@ -1026,11 +1150,8 @@ mod tests {
         // renderer, so a "broken" directive inside it is not broken — it is documentation.
         // A gate that blocks files which render cleanly is a false alarm.
         let src = "@lean-md\nconsumer: ai\n\n```\n@dispatch brief=x\n```\n@dispatch phase=t\n";
-        let out = do_check(src, None);
-        assert!(
-            out.contains("lmd ok"),
-            "a fenced directive must not fail check: {out}"
-        );
+        let out = do_check(src, None).expect("a fenced directive must not fail check");
+        assert!(out.contains("lmd ok"), "{out}");
     }
 
     #[test]
@@ -1038,7 +1159,8 @@ mod tests {
         let out = do_check(
             "@lean-md\nconsumer: ai\n\n@dispatch phase=t role=review\n",
             None,
-        );
+        )
+        .expect("a valid dispatch must pass the check");
         assert!(out.contains("lmd ok"), "{out}");
     }
 

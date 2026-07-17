@@ -126,7 +126,7 @@ impl Lock {
              # binary_version: ",
         );
         out.push_str(env!("CARGO_PKG_VERSION"));
-        out.push_str("\n# Eigene Anpassungen prüfen:  cd .lean-ctx && sha256sum -c lean-md.lock\n");
+        out.push_str("\n# Verify your own edits:  cd .lean-ctx && sha256sum -c lean-md.lock\n");
         for (rel, hex) in &acks {
             out.push_str(&format!("{ACK_PREFIX}{rel} {hex}\n"));
         }
@@ -152,6 +152,35 @@ impl Lock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_lock_header_is_english_like_every_other_artifact_lean_md_emits() {
+        // `lean-md.lock` is written into and committed to EVERY consumer project. Every
+        // other user-facing string the binary emits (check, ack, version_gate, MCP stderr)
+        // is English; German plans/chat do not reach generated artifacts.
+        let mut lock = Lock::default();
+        lock.set("lean-md/x.lmd.md", "aa");
+        let out = lock.render();
+        // Umlauts, not ASCII: the em-dash in line 1 is English punctuation and stays.
+        assert!(
+            !out.contains(['ä', 'ö', 'ü', 'ß', 'Ä', 'Ö', 'Ü']),
+            "no German in a generated artifact: {out}"
+        );
+        assert!(
+            !out.contains("Eigene Anpassungen"),
+            "the German header must be gone: {out}"
+        );
+        // The hint itself must survive the translation — the point of the line is telling
+        // the user HOW to re-check, and `sha256sum -c` is the format's only job.
+        assert!(out.contains("sha256sum -c lean-md.lock"), "{out}");
+        // Still a comment: coreutils skips `#` lines, and that is what keeps the hint from
+        // becoming a checksum claim.
+        for l in out.lines().filter(|l| !l.is_empty()) {
+            if l.contains("sha256sum -c") {
+                assert!(l.starts_with('#'), "the hint must stay a comment: {l}");
+            }
+        }
+    }
 
     #[test]
     fn lock_is_checkable_by_coreutils_sha256sum() {
