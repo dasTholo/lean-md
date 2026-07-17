@@ -52,6 +52,51 @@ pub const PROJECT_SEEDS: &[(&str, &str)] = &[
     ("plan-template.lmd.md", PLAN_TEMPLATE),
 ];
 
+/// Every sha256 each seed has ever shipped with (oldest first, current last),
+/// checked in as `content/seeds.sha256` and parsed at runtime.
+///
+/// Why a checked-in manifest and not a third `PROJECT_SEEDS` field: the history
+/// must outlive the bytes it describes. `include_str!` is build-invalidating —
+/// edit a seed and no compiled code can see the OLD version any more. A manifest
+/// is a snapshot the compiler does not drag along, which is exactly what makes
+/// the append-only gate in `tests/seed_history.rs` able to bite (#498).
+#[allow(dead_code)] // only `seed_history` (below) reads it until Task 3 wires the heal path.
+const SEED_HISTORY_SRC: &str = include_str!("../content/seeds.sha256");
+
+/// Parse `sha256sum`-format lines (`<hex>  <rel>`) into `rel → [hex]`, order
+/// preserved. Comment and blank lines are skipped. Shared with the gate so both
+/// sides read the manifest through one parser.
+#[allow(dead_code)] // pub(crate): only `seed_history` (below) and the unit test call it until Task 3 wires it into the heal path.
+pub(crate) fn parse_history(src: &str) -> std::collections::HashMap<String, Vec<String>> {
+    let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for line in src.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        let Some((hex, rel)) = t.split_once("  ") else {
+            continue;
+        };
+        map.entry(rel.trim().to_string())
+            .or_default()
+            .push(hex.trim().to_string());
+    }
+    map
+}
+
+/// The history of one seed, by its `PROJECT_SEEDS` target key. Empty slice for an
+/// unknown key — an unlisted seed simply has no history, never a panic.
+#[allow(dead_code)] // wired into the refresh_contracts heal path in a later task (#498 Part A, Task 3); Task 1 only wires the manifest + parser and covers it from the unit test below.
+fn seed_history(rel: &str) -> &'static [String] {
+    static HISTORY: std::sync::OnceLock<std::collections::HashMap<String, Vec<String>>> =
+        std::sync::OnceLock::new();
+    HISTORY
+        .get_or_init(|| parse_history(SEED_HISTORY_SRC))
+        .get(rel)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+}
+
 /// Materialize embedded project seeds into `<project_root>/<contracts_dir>`.
 /// `force=false` is absent-only (idempotent, never clobbers user edits); `force=true`
 /// overwrites an existing target to refresh a stale derived seed after the embedded
@@ -1183,5 +1228,32 @@ consumer: ai
             seed.contains("@edit"),
             "rust pack must scope @edit to non-symbol changes"
         );
+    }
+
+    #[test]
+    fn history_parses_and_lists_hashes_oldest_first() {
+        let h = seed_history("lang/rust.lmd.md");
+        assert!(h.len() >= 2, "rust seed has a real history: {}", h.len());
+        // Current embedded copy is the LAST entry — the invariant the heal path relies on.
+        let embedded = crate::hashx::sha256_hex(
+            PROJECT_SEEDS
+                .iter()
+                .find(|(p, _)| *p == "lang/rust.lmd.md")
+                .unwrap()
+                .1
+                .as_bytes(),
+        );
+        assert_eq!(h.last().unwrap(), &embedded, "current hash is last");
+        // A hash the project shipped earlier is still in the list.
+        assert!(
+            h.iter().any(|x| x.starts_with("48dd2f30a4461244")),
+            "the stale-in-the-wild rust hash is remembered"
+        );
+        assert!(
+            seed_history("nope.lmd.md").is_empty(),
+            "unknown key → empty"
+        );
+        // Comment lines never leak in as keys.
+        assert!(!parse_history(SEED_HISTORY_SRC).contains_key("#"));
     }
 }
