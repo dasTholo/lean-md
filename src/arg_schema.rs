@@ -59,16 +59,27 @@ pub fn validate(directive: &str, args: &DirectiveArgs) -> Result<(), String> {
         }
     }
 
-    // (2) exactly one group must be fully satisfied. A single-key group also counts as
-    // satisfied by positional(0) — `@dispatch task-1` is the documented short form and
-    // must not break silently, which is the very failure mode this schema closes.
+    // (2) exactly one group may be TOUCHED, and it must be fully satisfied.
+    //
+    // Exclusivity is decided on "touched", not on "complete": an incomplete second group
+    // used to slip through and its arguments then fell on the floor unread — `@dispatch
+    // phase=x companion=y` rendered the phase body and swallowed `companion=` without a
+    // word. Naming a key from two groups is the mistake; whether the user finished the
+    // second one is beside the point.
+    //
+    // A single-key group also counts as satisfied by positional(0) — `@dispatch task-1`
+    // is the documented short form and must not break silently, which is the very
+    // failure mode this schema closes.
     let positional = args.positional(0).is_some();
+    let touched =
+        |g: &&[&str]| (g.len() == 1 && positional) || g.iter().any(|k| args.get(k).is_some());
     let satisfied =
         |g: &&[&str]| (g.len() == 1 && positional) || g.iter().all(|k| args.get(k).is_some());
     let label = |g: &&[&str]| format!("{}=", g.last().copied().unwrap_or_default());
     let full = spec.required_one_of.iter().filter(|g| satisfied(g)).count();
+    let touched_count = spec.required_one_of.iter().filter(|g| touched(g)).count();
     let labels: Vec<String> = spec.required_one_of.iter().map(label).collect();
-    if full > 1 {
+    if touched_count > 1 {
         return Err(format!(
             "@{directive}: use exactly one of {}",
             labels.join(" or ")

@@ -69,15 +69,53 @@ fn seed_report_line(project_root: &std::path::Path) -> Option<String> {
     ))
 }
 
+/// Directive lines of a body — every `@…` line that the renderer would actually
+/// execute. Lines inside a fenced code block are verbatim text to the renderer
+/// (rushdown owns the fence rule), so `check` must skip them too: a directive that
+/// only *looks* broken inside a ``` block is documentation, not a defect, and a gate
+/// that rejects files which render cleanly is a false alarm.
+///
+/// Fence rule (CommonMark-shaped): a run of 3+ backticks or tildes opens a block; it
+/// closes on a run of the same char that is at least as long. An unclosed fence runs
+/// to the end of the document — same as the renderer.
+fn directive_lines(body: &str) -> Vec<&str> {
+    let fence_run = |l: &str| -> Option<(char, usize)> {
+        let t = l.trim_start();
+        let c = t.chars().next().filter(|c| *c == '`' || *c == '~')?;
+        let n = t.chars().take_while(|x| *x == c).count();
+        (n >= 3).then_some((c, n))
+    };
+    let mut open: Option<(char, usize)> = None;
+    let mut out = Vec::new();
+    for l in body.lines() {
+        match open {
+            // Inside a fence: only a matching, long-enough run closes it.
+            Some((oc, on)) => {
+                if let Some((c, n)) = fence_run(l)
+                    && c == oc
+                    && n >= on
+                {
+                    open = None;
+                }
+            }
+            None => {
+                if let Some(f) = fence_run(l) {
+                    open = Some(f);
+                } else if l.trim_start().starts_with('@') {
+                    out.push(l);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Core check logic — shared by `cmd_check` and the MCP `ctx_md_check` handler.
 /// Stays purely reading (D-1): `project_root=None` (or an unresolvable cwd) simply
 /// drops the seed part; the file check is unaffected.
 fn do_check(source: &str, project_root: Option<&std::path::Path>) -> String {
     let (header, body) = parse_header(source);
-    let lines: Vec<&str> = body
-        .lines()
-        .filter(|l| l.trim_start().starts_with('@'))
-        .collect();
+    let lines = directive_lines(body);
     // Argument validation reads the SAME schema the bridges do — a file that checks
     // ok is a file that renders. Directives without a schema are counted, not judged.
     let mut errors = Vec::new();
@@ -792,7 +830,7 @@ mod tests {
     }
 
     #[test]
-    fn phase_and_companion_together_fail_in_check() {
+    fn phase_and_a_complete_companion_group_fail_in_check() {
         let out = do_check(
             "@lean-md\nconsumer: ai\n\n@dispatch phase=x skill=s companion=y\n",
             None,
@@ -800,6 +838,35 @@ mod tests {
         assert!(
             !out.contains("lmd ok"),
             "exclusive group must be enforced in check: {out}"
+        );
+    }
+
+    #[test]
+    fn phase_and_companion_without_skill_is_still_exclusive() {
+        // The regression the review caught: an incomplete second group made `validate`
+        // wave the pair through, and `companion=` fell on the floor silently — exactly
+        // the defect class this package removes. Touching two groups is the error, not
+        // completing two.
+        let out = do_check(
+            "@lean-md\nconsumer: ai\n\n@dispatch phase=x companion=y\n",
+            None,
+        );
+        assert!(
+            !out.contains("lmd ok"),
+            "phase= + companion= must never pass: {out}"
+        );
+    }
+
+    #[test]
+    fn a_fenced_directive_is_not_checked() {
+        // `check` must see what `render` sees. A fenced block is verbatim text for the
+        // renderer, so a "broken" directive inside it is not broken — it is documentation.
+        // A gate that blocks files which render cleanly is a false alarm.
+        let src = "@lean-md\nconsumer: ai\n\n```\n@dispatch brief=x\n```\n@dispatch phase=t\n";
+        let out = do_check(src, None);
+        assert!(
+            out.contains("lmd ok"),
+            "a fenced directive must not fail check: {out}"
         );
     }
 
