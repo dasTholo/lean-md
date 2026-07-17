@@ -154,6 +154,8 @@ Pfad-Gefummel läuft. `binary_version` steht als `#`-Kommentar; lean-md parst ih
 ad75963…  lean-md/lang/rust.lmd.md
 b9f7f43…  lean-md/tooling/mcp-tools.lmd.md
 5c1e802…  lean-md/dispatch-contract.ext.lmd.md
+7e2a441…  lean-md/hard-rules.ext.lmd.md
+c93f018…  lean-md/parallel-dispatch.ext.lmd.md
 ```
 
 ```
@@ -255,8 +257,30 @@ Bridge liest keine Datei mehr selbst (Rückbau des Sonderpfads). Die Komposition
 `render_body`, damit die `.ext` an Placeholder-Substitution und `@include`-Auflösung teilnimmt.
 
 **Gewinn:** `hard-rules.ext.lmd.md` und `parallel-dispatch.ext.lmd.md` wirken erstmals — heute
-sind das tote Dateien, die ein Nutzer anlegen kann, ohne dass irgendetwas passiert. Built-ins
+wären das tote Dateien, die ein Nutzer anlegen kann, ohne dass irgendetwas passiert. Built-ins
 bleiben unersetzbar, die Iron-Law bleibt geschützt.
+
+**Die beiden neuen `.ext` werden `PROJECT_SEEDS`-Einträge.** Sonst bliebe der Gewinn
+theoretisch: heute materialisiert `seeds.rs:24-42` nur `dispatch-contract.ext.lmd.md` — ein
+Nutzer müsste `hard-rules.ext.lmd.md` erfinden und wüsste nicht einmal, dass es sie geben
+kann. Ein Erweiterungspunkt, den niemand entdeckt, ist keiner. Mit dem Seed sieht er im
+Verzeichnis, was erweiterbar ist, und der Kommentar erklärt es am Ort des Bedarfs — statt in
+einer Doku, die er nicht durchsucht, bevor er weiß, dass es etwas zu suchen gibt.
+
+Beide folgen dem bestehenden Muster von `dispatch-contract.ext.lmd.md` (reiner
+HTML-Kommentar, damit skip-if-inert greift):
+
+```
+<!-- Hard-rules extension (project seed).
+     Auto-composed after the built-in hard-rules fragment.
+     Add project-specific tool-discipline rules below. Empty by default. -->
+```
+
+**Abgrenzung:** `.ext` gilt nur für die **drei Built-ins** (`hard-rules`, `dispatch-contract`,
+`parallel-dispatch`) — sie sind unersetzbar, deshalb braucht es den Anbau. `lang/rust` und
+`tooling/mcp-tools` haben keinen Built-in; ihre materialisierte Datei **ist** die Quelle und
+wird direkt editiert. Ein `.ext` wäre dort ein zweiter Weg zum selben Ziel und wird bewusst
+nicht angelegt.
 
 Beide Doc-Kommentare (`fragments.rs:1-3`, `seeds.rs:1-6`) werden auf die Wahrheit gezogen:
 **extend**, nicht override. Damit ist P5 vollständig aufgelöst.
@@ -408,6 +432,14 @@ P9  version_req-Prüfung gegen ctxpkg.lock
 - `.ext` nimmt an Placeholder-Substitution teil (`{{ role }}` in der `.ext` wird ersetzt).
 - **Kopplungstest:** alte `.ext` mit `#`-Zeilen wird von P8 erkannt, **bevor** P5 sie anhängt.
 - `dispatch.rs` liest keine Datei mehr selbst (Sonderpfad zurückgebaut).
+- `hard-rules.ext` und `parallel-dispatch.ext` sind `PROJECT_SEEDS`-Einträge und
+  materialisieren beim Install/MCP-Start (Entdeckbarkeit — sonst bleibt der Gewinn theoretisch).
+- Beide neuen Seeds sind **inert** (reiner HTML-Kommentar) → Output byte-identisch zu „ohne
+  Seed" (#498). Der Regressionsschutz gegen den Fehler, den der stale `.ext` heute macht.
+- Die neuen Seeds landen im Lock (P8 kennt sie, sobald P5 sie registriert) — ein danach
+  hinzugekommener Seed materialisiert absent-only, ohne `.new`.
+- **Kein** `.ext`-Seed für `lang/rust` / `tooling/mcp-tools` (kein Built-in → die Datei ist
+  die Quelle; ein zweiter Weg wäre der Fehler).
 
 **P1/P3**
 
