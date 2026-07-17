@@ -1,9 +1,16 @@
 //! Project materialization of lang/tooling/.ext seeds (Spec §5.4, layer B).
-//! Seeds are binary-embedded (`include_str!`); `materialize_contracts` copies
-//! them into the project's `contracts_dir`. Absent-only by default, so a user's
-//! edits are never clobbered; an explicit `force` refresh overwrites a stale
-//! derived seed after the embedded copy changed. Resolution order: project file
-//! overrides the embedded seed (handled by FragmentRegistry's jailed file fallback).
+//! Seeds are binary-embedded (`include_str!`) and copied into the project's
+//! `contracts_dir` in one of three modes:
+//!
+//! * absent-only (`materialize_contracts(.., force=false)`) — the install default
+//!   for a fresh target; never touches an existing file, so seeds age silently.
+//! * `force` (`materialize_contracts(.., force=true)`) — the deliberate hammer:
+//!   overwrites unconditionally, local changes included.
+//! * lock-based (`refresh_contracts`) — uses `.lean-ctx/lean-md.lock` to tell a
+//!   stale-but-untouched seed (heal it) from a user-edited one (`.new` beside it).
+//!
+//! Materializing a seed does not by itself decide what a render resolves to —
+//! for the resolution order (built-in vs. project file) see `fragments.rs`.
 
 use std::path::{Path, PathBuf};
 
@@ -57,6 +64,100 @@ pub fn materialize_contracts(
         written.push(target);
     }
     Ok(written)
+}
+
+/// What a `refresh_contracts` run did that the user may want to know about.
+#[derive(Default)]
+pub struct RefreshReport {
+    /// Stale but untouched seeds that were silently updated to the embedded copy.
+    pub healed: Vec<PathBuf>,
+    /// Seeds carrying local changes (or unknown provenance): left alone, embedded
+    /// copy written beside them as `<target>.new`.
+    pub preserved: Vec<PathBuf>,
+}
+
+impl RefreshReport {
+    /// Nothing happened that is worth a word to the user.
+    pub fn is_quiet(&self) -> bool {
+        self.healed.is_empty() && self.preserved.is_empty()
+    }
+}
+
+/// Lock key for a seed: paths in the lock are relative to `.lean-ctx/`, the
+/// directory `sha256sum -c` runs in.
+fn lock_key(contracts_dir: &str, rel: &str) -> String {
+    let dir = contracts_dir
+        .strip_prefix(".lean-ctx/")
+        .unwrap_or(contracts_dir)
+        .trim_end_matches('/');
+    if dir.is_empty() {
+        rel.to_string()
+    } else {
+        format!("{dir}/{rel}")
+    }
+}
+
+/// Lock-based refresh — the third mode beside absent-only and `force`.
+///
+/// Absent-only lets seeds age; `force` clobbers real local work. The lock records
+/// the seed hash this project was materialized with, which is what separates
+/// "stale but untouched" (heal it) from "the user changed it" (never touch it,
+/// drop the new copy beside it as `.new` and say so). A seed with no lock entry
+/// has unknown provenance and is treated as user-owned.
+pub fn refresh_contracts(
+    project_root: &Path,
+    contracts_dir: &str,
+) -> std::io::Result<RefreshReport> {
+    let base = project_root.join(contracts_dir);
+    let mut lock = crate::lock::Lock::load(project_root);
+    let mut report = RefreshReport::default();
+    let mut lock_dirty = false;
+
+    for (rel, content) in PROJECT_SEEDS {
+        let target = base.join(rel);
+        let key = lock_key(contracts_dir, rel);
+        let embedded_hex = crate::hashx::sha256_hex(content.as_bytes());
+
+        let Ok(local) = std::fs::read(&target) else {
+            // Absent target: an install, not a user edit — write it and record it.
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&target, content)?;
+            lock.set(&key, &embedded_hex);
+            lock_dirty = true;
+            continue;
+        };
+        let local_hex = crate::hashx::sha256_hex(&local);
+
+        if local_hex == embedded_hex {
+            // Already current. Record provenance if the lock did not know it yet.
+            if lock.get(&key) != Some(embedded_hex.as_str()) {
+                lock.set(&key, &embedded_hex);
+                lock_dirty = true;
+            }
+            continue;
+        }
+
+        if lock.get(&key) == Some(local_hex.as_str()) {
+            // Local matches what we last wrote → untouched, only stale → heal it.
+            std::fs::write(&target, content)?;
+            lock.set(&key, &embedded_hex);
+            lock_dirty = true;
+            report.healed.push(target);
+        } else {
+            // Local edit, or no lock entry (unknown provenance): never overwrite.
+            let mut new_name = target.file_name().unwrap_or_default().to_os_string();
+            new_name.push(".new");
+            std::fs::write(target.with_file_name(new_name), content)?;
+            report.preserved.push(target);
+        }
+    }
+
+    if lock_dirty {
+        lock.save(project_root)?;
+    }
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -176,6 +277,147 @@ mod tests {
             "force=true must refresh the stale seed to the embedded content"
         );
 
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn refresh_heals_a_stale_untouched_seed_silently() {
+        let root = std::env::temp_dir().join(format!("lmd_refresh_heal_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        materialize_contracts(&root, dir, false).unwrap();
+        // First refresh writes the lock for the pristine tree.
+        refresh_contracts(&root, dir).unwrap();
+
+        // Simulate "the embedded seed moved on": pin an OLD hash in the lock and put the
+        // matching old content on disk. Local == lock → untouched → may heal.
+        let target = root.join(dir).join("plan-recipes.lmd.md");
+        let old = "# an older embedded copy\n";
+        std::fs::write(&target, old).unwrap();
+        let mut lock = crate::lock::Lock::load(&root);
+        lock.set(
+            "lean-md/plan-recipes.lmd.md",
+            &crate::hashx::sha256_hex(old.as_bytes()),
+        );
+        lock.save(&root).unwrap();
+
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            PLAN_RECIPES,
+            "stale + untouched must heal to the embedded seed"
+        );
+        assert!(
+            report
+                .healed
+                .iter()
+                .any(|p| p.ends_with("plan-recipes.lmd.md"))
+        );
+        assert!(report.preserved.is_empty(), "no .new for an untouched seed");
+        assert!(
+            !target.with_extension("md.new").exists(),
+            "must not litter a .new"
+        );
+        // The lock followed along, so the next run is a no-op.
+        assert!(refresh_contracts(&root, dir).unwrap().is_quiet());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn refresh_never_overwrites_a_user_edit_and_writes_new_beside_it() {
+        let root = std::env::temp_dir().join(format!("lmd_refresh_edit_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        materialize_contracts(&root, dir, false).unwrap();
+        refresh_contracts(&root, dir).unwrap(); // lock now matches the pristine tree
+
+        let target = root.join(dir).join("lang/rust.lmd.md");
+        let edit = "# my project rule\n";
+        std::fs::write(&target, edit).unwrap(); // local != lock → user edit
+
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            edit,
+            "a user edit must NEVER be clobbered"
+        );
+        let new_file = root.join(dir).join("lang/rust.lmd.md.new");
+        assert!(
+            new_file.exists(),
+            ".new must be written beside the edited seed"
+        );
+        assert!(report.preserved.iter().any(|p| p.ends_with("rust.lmd.md")));
+        assert!(report.healed.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn legacy_tree_without_a_lock_is_treated_conservatively() {
+        // Today's state: 4 stale seeds, no lock, provenance unknown. We must not guess
+        // "untouched" — that would clobber whatever the user did before locks existed.
+        let root = std::env::temp_dir().join(format!("lmd_refresh_legacy_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        materialize_contracts(&root, dir, false).unwrap();
+        let target = root.join(dir).join("tooling/mcp-tools.lmd.md");
+        std::fs::write(&target, "# a pre-lock local copy\n").unwrap();
+        assert!(!root.join(".lean-ctx/lean-md.lock").exists());
+
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "# a pre-lock local copy\n",
+            "unknown provenance must never be overwritten"
+        );
+        assert!(root.join(dir).join("tooling/mcp-tools.lmd.md.new").exists());
+        assert!(
+            report
+                .preserved
+                .iter()
+                .any(|p| p.ends_with("mcp-tools.lmd.md"))
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn refresh_of_a_current_tree_is_a_silent_noop() {
+        let root = std::env::temp_dir().join(format!("lmd_refresh_noop_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        materialize_contracts(&root, dir, false).unwrap();
+        refresh_contracts(&root, dir).unwrap();
+
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert!(
+            report.is_quiet(),
+            "a current tree must produce no report at all"
+        );
+        assert!(report.healed.is_empty() && report.preserved.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_newly_registered_seed_materializes_without_a_new_file() {
+        // task-5 adds two seeds AFTER locks exist in the field. An absent target is not a
+        // user edit — it must just appear, silently.
+        let root = std::env::temp_dir().join(format!("lmd_refresh_fresh_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        materialize_contracts(&root, dir, false).unwrap();
+        refresh_contracts(&root, dir).unwrap();
+
+        let (rel, _) = PROJECT_SEEDS[0];
+        std::fs::remove_file(root.join(dir).join(rel)).unwrap();
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert!(
+            root.join(dir).join(rel).exists(),
+            "absent seed must be (re)written"
+        );
+        assert!(
+            report.preserved.is_empty(),
+            "an absent target is not a user edit"
+        );
+        assert!(!root.join(dir).join(format!("{rel}.new")).exists());
         let _ = std::fs::remove_dir_all(&root);
     }
 
