@@ -38,8 +38,12 @@ Neue Module: `src/hashx.rs` (SHA-256, single source), `src/lock.rs` (Lock-Format
   — `bace97a` war ein Bless, kein Rot-Setzen (verifiziert 2026-07-17 im Review von task-1: bei
   `a7e722a` 2/2 PASS). Ein rotes Gate markiert **nicht** den Vorpaket-Zustand; wer diese
   Constraint als Erwartungswert benutzt hat, hat sie falsch gelesen.
-- **Non-goal:** die vier stale Seeds im Dev-Repo werden **nicht** von Hand geradegezogen; das
-  Paket liefert den Mechanismus, nicht das Aufräumen.
+- **Non-goal (mit einer Ausnahme):** die stale Seeds im Dev-Repo werden **nicht** von Hand
+  geradegezogen; das Paket liefert den Mechanismus, nicht das Aufräumen. **Ausnahme, vom
+  Menschen am 2026-07-17 entschieden:** `.lean-ctx/lean-md/dispatch-contract.ext.lmd.md` wird
+  auf die HTML-Form der Template-Datei gezogen. Grund: der Non-Goal und das „Expected" von
+  task-5 waren zusammen unerfüllbar — die `#`-Zeilen hingen sonst weiter in jedem Dispatch.
+  Betrifft **nur** diese eine Datei; die übrigen stale Seeds bleiben dem Mechanismus überlassen.
 - **Reihenfolge ist Architektur:** P8 (task-1…task-4) landet vor P5 (task-5). P5
   generalisiert den `.ext`-Pfad auf jedes Fragment; ohne P8 vervielfacht es den Bug, den es
   beheben soll.
