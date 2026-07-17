@@ -54,6 +54,35 @@ fn list_phases_and_phase_mutually_exclusive() {
 }
 
 #[test]
+fn list_phases_refuses_a_duplicate_out_loud() {
+    // A gate that degrades to silence is the very defect this package removes: no output
+    // + exit 0 is indistinguishable from `list_phases_empty_source_is_empty_exit_zero`
+    // below — the two cases MUST NOT look alike. `check` and `--phase X` already refuse
+    // this source; `--list-phases` says the same thing, at the same exit code.
+    let dir = std::env::temp_dir().join(format!("lmd_listphases_dup_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let plan = dir.join("p.lmd.md");
+    std::fs::write(
+        &plan,
+        "@lean-md\nconsumer: ai\n\n@phase \"t\"\nfirst\n@phase-end\n@phase \"t\"\nsecond\n@phase-end\n",
+    )
+    .unwrap();
+    let (stdout, stderr, code) = run(&["render", plan.to_str().unwrap(), "--list-phases"], &dir);
+    assert_eq!(code, 1, "a lossy source must not exit 0: {stderr}");
+    assert_eq!(stdout, "", "no half-index may reach stdout: {stdout}");
+    assert!(
+        stderr.contains("duplicate @phase \"t\""),
+        "the duplicate must be named: {stderr}"
+    );
+    assert!(
+        stderr.contains("line 4") && stderr.contains("line 7"),
+        "both sites must be named, as in every other surface: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn list_phases_empty_source_is_empty_exit_zero() {
     let dir = std::env::temp_dir().join(format!("lmd_listphases_empty_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

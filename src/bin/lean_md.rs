@@ -233,6 +233,24 @@ fn main() {
 
 // ─── render subcommand ─────────────────────────────────────────────────────
 
+/// Text of the `--list-phases` index: one `name\ttitle` line per phase — or the
+/// duplicate-`@phase` message when the source is lossy.
+///
+/// The gate lives in `iter_phase_blocks`, which answers a lossy source with an EMPTY
+/// list. Printing that verbatim degrades the loudest gate in the parser to silence:
+/// no output + exit 0 reads as "this file has no phases". So `--list-phases` refuses
+/// the same source `check` and `--phase X` refuse, with the same message from the
+/// same formatter (`duplicate_phase_error`) — no second wording to drift (#498).
+fn list_phases_output(source: &str) -> Result<String, String> {
+    if let Some(msg) = lean_md::phases::duplicate_phase_error(source) {
+        return Err(msg);
+    }
+    Ok(lean_md::outline_phases(source)
+        .into_iter()
+        .map(|p| format!("{}\t{}\n", p.name, p.title))
+        .collect())
+}
+
 fn cmd_render(rest: &[String]) {
     let a = parse_render_flags(rest);
     if a.list_phases {
@@ -261,8 +279,12 @@ fn cmd_render(rest: &[String]) {
                 load_file(file)
             }
         };
-        for p in lean_md::outline_phases(&source) {
-            println!("{}\t{}", p.name, p.title);
+        match list_phases_output(&source) {
+            Ok(index) => print!("{index}"),
+            Err(e) => {
+                eprintln!("lean-md render: {e}");
+                std::process::exit(1);
+            }
         }
         return;
     }
@@ -727,6 +749,33 @@ mod tests {
             "check must not call a lossy file ok: {out}"
         );
         assert!(out.contains("duplicate"), "{out}");
+    }
+
+    #[test]
+    fn list_phases_refuses_a_duplicate_out_loud() {
+        // A gate that degrades to silence is the very defect this package removes:
+        // no output + exit 0 is indistinguishable from "this file has no phases".
+        // Every surface must say the same thing.
+        let src = "@lean-md\nconsumer: ai\n\n@phase \"t\"\nfirst\n@phase-end\n@phase \"t\"\nsecond\n@phase-end\n";
+        let err = list_phases_output(src)
+            .expect_err("--list-phases must refuse a lossy source, not print nothing");
+        // Same message as `check` / `--phase X` — one formatter, no second wording.
+        assert_eq!(err, lean_md::phases::duplicate_phase_error(src).unwrap());
+        assert!(err.contains("duplicate @phase \"t\""), "{err}");
+        assert!(
+            err.contains("line 4") && err.contains("line 7"),
+            "both sites must be named: {err}"
+        );
+    }
+
+    #[test]
+    fn list_phases_still_lists_a_clean_source() {
+        let src = "@lean-md\nconsumer: ai\n\n@phase \"a\"\n# First\n@phase-end\n@phase \"b\"\n# Second\n@phase-end\n";
+        assert_eq!(
+            list_phases_output(src).unwrap(),
+            "a\tFirst\nb\tSecond\n",
+            "the gate must not cost a clean file its index"
+        );
     }
 
     #[test]

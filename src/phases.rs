@@ -1175,10 +1175,13 @@ trailing prose
     }
 
     #[test]
-    fn duplicate_phase_is_visible_in_the_outline() {
-        // --list-phases reads outline_phases. Today it shows the name once and the
-        // second block is simply gone — the surface that should expose the loss hides it.
-        use super::{duplicate_phase, outline_phases};
+    fn duplicate_phase_refusal_is_available_to_every_surface() {
+        // Library half of the contract: the parser REFUSES a lossy source (empty outline)
+        // and offers the message every surface prints. Refusing is not the same as being
+        // visible — an empty outline printed verbatim IS the silence this package removes.
+        // The visible half is asserted where the surface lives:
+        // `list_phases_refuses_a_duplicate_out_loud` in src/bin/lean_md.rs.
+        use super::{duplicate_phase, duplicate_phase_error, outline_phases};
         let src = "@lean-md\nconsumer: ai\n\n@phase \"t\"\nfirst\n@phase-end\n@phase \"t\"\nsecond\n@phase-end\n";
         assert!(
             duplicate_phase(src).is_some(),
@@ -1188,6 +1191,10 @@ trailing prose
             outline_phases(src).is_empty(),
             "outline must refuse a lossy source instead of listing one of two blocks"
         );
+        // The refusal must come with words a surface can print — an empty list alone
+        // leaves the caller nothing to say.
+        let msg = duplicate_phase_error(src).expect("the refusal must be speakable");
+        assert!(msg.contains("duplicate @phase \"t\""), "{msg}");
     }
 
     #[test]
