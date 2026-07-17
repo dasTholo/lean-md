@@ -10,7 +10,10 @@
 //!   stale-but-untouched seed (heal it) from a user-edited one (`.new` beside it).
 //!
 //! Materializing a seed does not by itself decide what a render resolves to —
-//! for the resolution order (built-in vs. project file) see `fragments.rs`.
+//! for the resolution order (built-in vs. project file) see `fragments.rs`. The
+//! `*.ext.lmd.md` seeds EXTEND their built-in fragment: `FragmentRegistry::resolve`
+//! appends the `.ext` after the built-in body, it never replaces it. They ship inert
+//! (HTML comments only) so an untouched seed keeps every render byte-stable (#498).
 
 use std::path::{Path, PathBuf};
 
@@ -36,6 +39,14 @@ pub const PROJECT_SEEDS: &[(&str, &str)] = &[
     (
         "dispatch-contract.ext.lmd.md",
         include_str!("../content/templates/dispatch-contract.ext.lmd.md"),
+    ),
+    (
+        "hard-rules.ext.lmd.md",
+        include_str!("../content/templates/hard-rules.ext.lmd.md"),
+    ),
+    (
+        "parallel-dispatch.ext.lmd.md",
+        include_str!("../content/templates/parallel-dispatch.ext.lmd.md"),
     ),
     ("plan-recipes.lmd.md", PLAN_RECIPES),
     ("plan-template.lmd.md", PLAN_TEMPLATE),

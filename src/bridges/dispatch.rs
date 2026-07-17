@@ -25,34 +25,6 @@ const TO_AGENT_SENTINEL: &str = "\x00TO_AGENT_VALUE\x00";
 
 pub struct DispatchBridge;
 
-/// Project-level dispatch-contract extension, composed onto the built-in contract
-/// (Spec 2026-07-16, decision 2). Returns `None` when the file is absent or inert
-/// (comments/whitespace only) — an untouched seed must keep the output byte-stable (#498).
-fn contract_ext(jail_root: &std::path::Path) -> Option<String> {
-    let candidate = jail_root.join(".lean-ctx/lean-md/dispatch-contract.ext.lmd.md");
-    let resolved = crate::pathx::jail_path(&candidate, jail_root).ok()?;
-    let raw = std::fs::read_to_string(&resolved).ok()?;
-    if strip_html_comments(&raw).trim().is_empty() {
-        return None;
-    }
-    Some(raw)
-}
-
-/// Remove `<!-- … -->` spans so an all-comment seed reads as inert.
-fn strip_html_comments(src: &str) -> String {
-    let mut out = String::with_capacity(src.len());
-    let mut rest = src;
-    while let Some(start) = rest.find("<!--") {
-        out.push_str(&rest[..start]);
-        match rest[start..].find("-->") {
-            Some(end) => rest = &rest[start + end + 3..],
-            None => return out, // unterminated comment swallows the tail
-        }
-    }
-    out.push_str(rest);
-    out
-}
-
 impl DirectiveBridge for DispatchBridge {
     fn name(&self) -> &'static str {
         "dispatch"
@@ -107,12 +79,6 @@ impl DirectiveBridge for DispatchBridge {
             .fragments
             .resolve("dispatch-contract", &ctx.jail_root)
             .map_err(|_| BridgeError::Resolve("CONTRACT_UNAVAILABLE".to_string()))?;
-        // Compose the project `.ext` onto the built-in contract BEFORE render_body so
-        // it takes part in placeholder substitution and `@include` resolution.
-        let contract_raw = match contract_ext(&ctx.jail_root) {
-            Some(ext) => format!("{contract_raw}\n{ext}"),
-            None => contract_raw,
-        };
         // crp is a controlled enum value (off|compact|tdd) — safe to inline
         // before render_body (no user bytes, no template-injection risk).
         let crp_str = match ctx.header.crp {
@@ -407,99 +373,6 @@ mod tests {
         assert!(
             out.contains("role=test"),
             "test role must substitute: {out}"
-        );
-    }
-
-    // --- `.ext` composition (Spec 2026-07-16, decision 2) ---
-
-    /// Build a jail root under the temp dir; `ext` = optional `.ext.lmd.md` content.
-    fn ext_fixture(tag: &str, ext: Option<&str>) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("lmd_dispatch_ext_{tag}"));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join(".lean-ctx/lean-md")).unwrap();
-        if let Some(body) = ext {
-            std::fs::write(
-                dir.join(".lean-ctx/lean-md/dispatch-contract.ext.lmd.md"),
-                body,
-            )
-            .unwrap();
-        }
-        dir
-    }
-
-    fn render_dispatch_in(jail_root: std::path::PathBuf) -> String {
-        use crate::engine::{EngineContext, render_body};
-        use crate::header::LeanMdHeader;
-        use std::rc::Rc;
-        let ctx = Rc::new(EngineContext::new(LeanMdHeader::default(), jail_root));
-        render_body(
-            &ctx,
-            "@phase \"P\"\nDo the work.\n@phase-end\n\n@dispatch phase=\"P\" role=dev to_agent=\"c\"\n",
-        )
-    }
-
-    #[test]
-    fn dispatch_ext_rule_appears_after_contract() {
-        let dir = ext_fixture("rule", Some("- PROJECT_EXT_RULE_XYZ: always ship green.\n"));
-        let out = render_dispatch_in(dir);
-        let rule = out
-            .find("PROJECT_EXT_RULE_XYZ")
-            .unwrap_or_else(|| panic!("ext rule missing: {out}"));
-        let contract = out
-            .find("Subagent Contract")
-            .unwrap_or_else(|| panic!("contract missing: {out}"));
-        let task = out
-            .find("## Task (phase-isolated)")
-            .unwrap_or_else(|| panic!("task header missing: {out}"));
-        assert!(contract < rule, "ext must follow the contract: {out}");
-        assert!(rule < task, "ext must precede the task block: {out}");
-    }
-
-    #[test]
-    fn dispatch_untouched_ext_seed_is_byte_stable() {
-        // The shipped seed is comments-only → inert → byte-identical to no-ext (#498).
-        let seed = include_str!("../../content/templates/dispatch-contract.ext.lmd.md");
-        let with_seed = render_dispatch_in(ext_fixture("seed", Some(seed)));
-        let without = render_dispatch_in(ext_fixture("seed_absent", None));
-        assert_eq!(with_seed, without, "untouched seed must not alter output");
-
-        // Pinned decision: an unterminated `<!--` swallows the tail → file reads inert.
-        let unterminated =
-            render_dispatch_in(ext_fixture("unterminated", Some("<!-- oops\nRULE\n")));
-        assert_eq!(
-            unterminated, without,
-            "unterminated comment must render the ext inert"
-        );
-    }
-
-    #[test]
-    fn dispatch_absent_ext_is_unchanged() {
-        let no_file = render_dispatch_in(ext_fixture("absent_file", None));
-        let no_dir = {
-            let dir = std::env::temp_dir().join("lmd_dispatch_ext_absent_dir");
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
-            render_dispatch_in(dir)
-        };
-        assert_eq!(no_file, no_dir, "absent ext must leave output unchanged");
-        assert!(
-            no_file.contains("role=dev"),
-            "dispatch still renders: {no_file}"
-        );
-    }
-
-    #[test]
-    fn dispatch_ext_jail_escape_still_rejected() {
-        let outside = std::env::temp_dir().join("lmd_dispatch_ext_outside.lmd.md");
-        std::fs::write(&outside, "- EXT_JAIL_ESCAPE_SECRET\n").unwrap();
-        let dir = ext_fixture("escape", None);
-        let link = dir.join(".lean-ctx/lean-md/dispatch-contract.ext.lmd.md");
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&outside, &link).unwrap();
-        let out = render_dispatch_in(dir);
-        assert!(
-            !out.contains("EXT_JAIL_ESCAPE_SECRET"),
-            "symlinked out-of-jail ext must not be read: {out}"
         );
     }
 }

@@ -8,12 +8,20 @@ fn builtin_seeds_match_disk() {
     let core = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("content")
         .join("core");
+    // Jail root without any `<name>.ext.lmd.md`: `resolve` composes a project extension
+    // onto the built-in, so a jail root that HAS one (this repo's own checkout, when the
+    // test runner's cwd is the crate root) would read as built-in drift. The claim under
+    // test is built-in vs. on-disk seed — the extension layer is a separate concern.
+    let jail_root = std::env::temp_dir().join(format!("lmd_determinism_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&jail_root);
+    std::fs::create_dir_all(&jail_root).unwrap();
     let reg = FragmentRegistry::with_builtins();
     for name in ["hard-rules", "dispatch-contract"] {
         let disk = std::fs::read_to_string(core.join(format!("{name}.lmd.md"))).unwrap();
-        let builtin = reg.resolve(name, Path::new(".")).unwrap();
+        let builtin = reg.resolve(name, &jail_root).unwrap();
         assert_eq!(builtin, disk, "{name} drifted from seed file");
     }
+    let _ = std::fs::remove_dir_all(&jail_root);
 }
 
 #[test]
