@@ -52,6 +52,11 @@ fn do_render(
 /// (`cmd_mcp`); its stderr goes to the gateway log, which the agent never reads, so
 /// `check` is where that case becomes visible (Spec decision 4). Deterministic: the
 /// line is a pure function of the seed tree in `PROJECT_SEEDS` order (#498).
+///
+/// Only UNacknowledged conflicts carry a `.new` (`refresh_contracts` withholds it once
+/// the user has acked, and `ack` removes the one that is there), so scanning for `.new`
+/// is exactly "what has the user not answered yet" — no lock read needed here, which
+/// keeps this the pure disk read D-1 requires.
 fn seed_report_line(project_root: &std::path::Path) -> Option<String> {
     let base = project_root.join(".lean-ctx/lean-md");
     let pending: Vec<String> = lean_md::seeds::PROJECT_SEEDS
@@ -62,9 +67,12 @@ fn seed_report_line(project_root: &std::path::Path) -> Option<String> {
     if pending.is_empty() {
         return None;
     }
+    // Name the way out. A report that does not say how to switch it off is half
+    // wallpaper already — the user has no reason to believe the next one matters.
     Some(format!(
         "lmd seeds — your local copies were kept; the updated seeds sit beside them: {} \
-         (diff them, then replace or delete the .new file)",
+         (diff them, then replace or delete the .new file — or run `lean-md ack` to keep \
+         yours and stop being told about these)",
         pending.join(", ")
     ))
 }
@@ -223,12 +231,14 @@ fn main() {
         "mcp" => cmd_mcp(),
         "skill" => cmd_skill(&args[1..]),
         "source" => cmd_source(&args[1..]),
+        "ack" => cmd_ack(&args[1..]),
         _ => {
             eprintln!(
-                "Usage: lean-md <render|check|mcp|skill|source> [args]\n\
+                "Usage: lean-md <render|check|mcp|skill|source|ack> [args]\n\
                  \n  render <file.lmd.md|--skill NAME [--phase P | --companion C]> [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md] [--list-phases]\
                  \n  check  <file.lmd.md>\
                  \n  source <file.lmd.md>  (raw file bytes, no rendering — for edit anchors)\
+                 \n  ack    [<seed>…]      (keep your edited seeds; stop reporting them until the seed changes)\
                  \n  mcp                   (stdio JSON-RPC 2.0 MCP server)\
                  \n  skill  <install|remove> <name> [--global|--local]\
                  \n  skill  vars --init [name]"
@@ -386,6 +396,53 @@ fn cmd_source(rest: &[String]) {
     print!("{source}");
 }
 
+// ─── ack subcommand ────────────────────────────────────────────────────────
+
+/// `lean-md ack [<seed>…]` — the user's answer to a seed conflict: "I keep mine."
+///
+/// Records consent for the CURRENT embedded seed and drops the `.new` beside it, so
+/// `check` stops reporting it. Consent is scoped to this proposal: when the embedded
+/// seed moves on there is something new to say and the report returns by itself. The
+/// lock's provenance entry is deliberately NOT touched — the seed must still be able to
+/// heal if the user ever reverts.
+///
+/// One of the three writing verbs (with `skill install` and the `mcp` server start);
+/// `render`/`check` stay purely reading (D-1).
+fn cmd_ack(rest: &[String]) {
+    let filter: Vec<String> = rest
+        .iter()
+        .filter(|a| !a.starts_with('-'))
+        .cloned()
+        .collect();
+    let Ok(root) = std::env::current_dir() else {
+        eprintln!("lean-md ack: cannot resolve the current directory");
+        std::process::exit(1);
+    };
+    let report = match lean_md::seeds::ack_seeds(&root, ".lean-ctx/lean-md", &filter) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("lean-md ack: {e}");
+            std::process::exit(1);
+        }
+    };
+    for p in &report.acked {
+        println!(
+            "acked {} — your copy stays; we stop reporting it",
+            p.display()
+        );
+    }
+    // An argument that matched nothing must never read as success: the user thinks they
+    // silenced something and would find out only by the report not going away.
+    for a in &report.unmatched {
+        eprintln!("lean-md ack: no seed conflict matches '{a}'");
+    }
+    if report.acked.is_empty() && report.unmatched.is_empty() {
+        println!("no seed conflicts to acknowledge");
+    }
+    if !report.unmatched.is_empty() {
+        std::process::exit(1);
+    }
+}
 // ─── mcp subcommand ────────────────────────────────────────────────────────
 //
 // Framing: line-delimited JSON (one JSON object per line, \n terminated).
@@ -586,7 +643,8 @@ fn cmd_mcp() {
     {
         for p in &report.preserved {
             eprintln!(
-                "lean-md: kept your {} — updated seed written as {}.new",
+                "lean-md: kept your {} — updated seed written as {}.new \
+                 (`lean-md ack` to keep yours and silence this)",
                 p.display(),
                 p.display()
             );
