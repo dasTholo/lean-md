@@ -1,11 +1,13 @@
 # lean-md scheitert leise — `check`-Semantik, `.ext`-Generalisierung, Seed-Provenienz
 
 **Status:** approved (Brainstorm 2026-07-17)
-**Umfang:** implementieren + committen + **releasen** — gemeinsam mit dem Vorpaket
-„Render-Aufrufkonvention" (2026-07-16), das bewusst ohne Publish endete.
-**Version:** 0.2.1 (Patch, beide Linien). Berührt ausschließlich die **Binary**-Linie
-(`src/**` + `content/**` via `include_str!`); **kein** Task fasst `content/skills/**` an.
-Der Pack-Bump auf 0.2.1 stammt vollständig aus dem Vorpaket.
+**Umfang:** implementieren + committen. **Kein Publish, kein Tag** — der Release wird nach
+Abschluss dieses Pakets separat entschieden und gefahren, gemeinsam mit dem Vorpaket
+„Render-Aufrufkonvention" (2026-07-16), das ebenfalls ohne Publish endete.
+**Version:** 0.2.1 ist der **Kandidat**, keine gezogene Nummer. Berührt ausschließlich die
+**Binary**-Linie (`src/**` + `content/**` via `include_str!`); **kein** Task fasst
+`content/skills/**` an. In diesem Paket wird **keine** Versionsnummer angefasst — weder in
+`lean-ctx-addon.toml` noch in `content/skills.ctxpkg-hash`.
 
 ## Problem
 
@@ -41,13 +43,13 @@ Fünf Ausprägungen, aus dem Code belegt:
 Im Dev-Repo selbst (2026-07-17) sind **vier von fünf** materialisierten Seeds veraltet — keine
 davon eine Anpassung, alle schlicht alte Kopien:
 
-| Datei | Zustand |
-|---|---|
-| `dispatch-contract.ext.lmd.md` | stale — `#`-Zeilen statt `<!-- -->` |
-| `lang/rust.lmd.md` | stale — trägt noch „`@edit` is for non-symbol changes" |
-| `tooling/mcp-tools.lmd.md` | stale — ohne den anchored-loop |
-| `plan-template.lmd.md` | stale — alte `#498`-Referenz |
-| `plan-recipes.lmd.md` | identisch |
+| Datei                          | Zustand                                                |
+|--------------------------------|--------------------------------------------------------|
+| `dispatch-contract.ext.lmd.md` | stale — `#`-Zeilen statt `<!-- -->`                    |
+| `lang/rust.lmd.md`             | stale — trägt noch „`@edit` is for non-symbol changes" |
+| `tooling/mcp-tools.lmd.md`     | stale — ohne den anchored-loop                         |
+| `plan-template.lmd.md`         | stale — alte `#498`-Referenz                           |
+| `plan-recipes.lmd.md`          | identisch                                              |
 
 `lang/rust` und `tooling/mcp-tools` haben **keinen** Built-in — für sie gewinnt der jailed-File-
 Fallback. Das Repo rendert also real die überholte Edit-Regel statt der aktuellen, die im Seed
@@ -72,18 +74,20 @@ Zuordnung folgt zwingend aus dem Einbettungsmechanismus, aber die Lücke lädt d
 zur selben Kollision ein. Sie wird in Task P8 mitgeschlossen (eine Tabellenzeile), weil P8 die
 `PROJECT_SEEDS` ohnehin anfasst.
 
-**Daraus folgt:** dieses Paket erzwingt keinen Pack-Bump. Der Pack geht auf 0.2.1 wegen der
-Stub-Straffung aus dem Vorpaket, wo `pack_drift` bereits rot steht und wartet. Beide Pakete
-werden **gemeinsam** released — ein Tag, ein 5-Leg-Build, eine Choreografie. Genau die
-Doppel-Choreografie, die das Vorpaket durch seinen Publish-Verzicht vermeiden wollte.
+**Daraus folgt:** dieses Paket erzwingt keinen Pack-Bump. Der Pack-Bump wird ohnehin fällig —
+wegen der Stub-Straffung aus dem Vorpaket, wo `pack_drift` seit `bace97a` rot steht und wartet.
+Beide Pakete gehen **gemeinsam** raus, wenn released wird: ein Tag, ein 5-Leg-Build, eine
+Choreografie statt zweier. Das ist genau der Grund, warum das Vorpaket auf seinen Publish
+verzichtet hat — und warum auch dieses Paket beim Commit endet.
 
-### 2. Version 0.2.1 — P1/P2 sind Bugfixes, keine Breaking Changes
+### 2. Versionskandidat 0.2.1 — P1/P2 sind Bugfixes, keine Breaking Changes
 
 P1 und P2 sind streng genommen verhaltensbrechend: eine Datei mit doppelten `@phase`-Namen
 rendert heute und bricht danach; `@dispatch brief=…` rendert heute und bricht danach. In `0.x`
 ist Minor der Breaking-Slot (Vorspec, Entscheidung 3).
 
-**Entschieden wurde dennoch 0.2.1.** Begründung: was hier bricht, ist kein funktionierender
+**Angesteuert wird dennoch 0.2.1** (gezogen wird die Nummer erst beim Release, nicht hier).
+Begründung: was hier bricht, ist kein funktionierender
 Zustand, sondern ein bisher unentdeckter Defekt. Eine Datei mit doppelten Phasen war nie
 korrekt — sie hat stillschweigend Content verloren. `brief=` wurde nie gerendert, es war immer
 schon ein Autorenfehler. Ein Patch, der einen stillen Fehler laut macht, ist die Definition
@@ -106,25 +110,42 @@ conffiles. Neu: **`.lean-ctx/lean-md.lock`** — neben `ctxpkg.lock`, bewusst in
 die Datei gehört lean-ctx, wird von `lean-ctx pack install` generiert und verfolgt die
 **Pack**-Linie; die Seeds sind **Binary**-Content. Zwei Linien, zwei Locks.
 
+**Warum ein Hash und nicht ein Byte-Vergleich:** „lokal == embedded" ließe sich direkt
+vergleichen — der Seed steckt via `include_str!` im Binary. Aber „lokal == der Stand von
+damals" braucht den **historischen** Seed-Content, den ein neueres Binary nicht mehr trägt.
+Nur der Hash konserviert ihn. Ohne Hash keine Provenienz, ohne Provenienz kein dritter Modus.
+
+**`sha2` muss von `[dev-dependencies]` nach `[dependencies]`.** Heute steht es in
+`Cargo.toml:35-37` unter dev — einziger Nutzer ist `tests/pack_drift.rs`. Das **Release-Binary
+trägt keinen SHA-256-Code** und könnte den Lock zur Laufzeit nicht schreiben. Das ist eine
+Voraussetzung von P8, kein Nebendetail: ohne den Umzug kompiliert der Task nicht.
+
+Gewählt wurde SHA-256 (nicht ein dependency-freier FNV-1a), weil der Nutzer jeden Wert selbst
+nachrechnen können muss — `sha256sum lang/rust.lmd.md`. Ein Lock, dessen Werte niemand prüfen
+kann, ist bei einer Fehldiagnose wertlos, und Fehldiagnosen sind das Thema dieses Pakets.
+Zusätzlich spricht der Lock damit die Sprache von `ctxpkg.lock` (`artifact_sha256`).
+`std::hash::DefaultHasher` scheidet aus: laut std-Doku nicht stabil über Rust-Releases — ein
+`rustup update` würde jeden Lock-Wert entwerten und eine `.new`-Flut auslösen.
+
 Inhalt: Binary-Version + Hash je Seed **zum Zeitpunkt der Materialisierung**.
 
 ```toml
 # lean-md.lock — generated by lean-md; commit this file.
-binary_version = "0.2.1"
+binary_version = "0.2.0"   # die Version, die materialisiert hat — zur Laufzeit gefüllt
 
 [seeds]
-"lang/rust.lmd.md"            = "sha256:…"
-"tooling/mcp-tools.lmd.md"    = "sha256:…"
+"lang/rust.lmd.md" = "sha256:…"
+"tooling/mcp-tools.lmd.md" = "sha256:…"
 "dispatch-contract.ext.lmd.md" = "sha256:…"
 ```
 
 Refresh-Semantik, drei Fälle:
 
-| lokal vs. lock | lock vs. embedded | Bedeutung | Aktion |
-|---|---|---|---|
-| gleich | verschieden | alt, unberührt | still aktualisieren, Lock nachziehen |
-| verschieden | — | **Nutzer-Anpassung** | **nie** überschreiben → `.new` daneben + melden |
-| — | gleich | aktuell | no-op |
+| lokal vs. lock | lock vs. embedded | Bedeutung            | Aktion                                          |
+|----------------|-------------------|----------------------|-------------------------------------------------|
+| gleich         | verschieden       | alt, unberührt       | still aktualisieren, Lock nachziehen            |
+| verschieden    | —                 | **Nutzer-Anpassung** | **nie** überschreiben → `.new` daneben + melden |
+| —              | gleich            | aktuell              | no-op                                           |
 
 **Altbestand ohne Lock** (der heutige Zustand, 4 Dateien): Provenienz unbekannt → konservativ
 `.new` + Meldung. Der Nutzer entscheidet einmal, danach existiert der Lock und alles läuft
@@ -327,6 +348,7 @@ P9  version_req-Prüfung gegen ctxpkg.lock
 ## Tests (TDD, rot zuerst)
 
 **P8**
+
 - Stale Seed + unberührt (Hash == Lock) → Refresh aktualisiert, Lock wird nachgezogen.
 - Seed mit Nutzer-Edit (Hash ≠ Lock) → `.new` entsteht, **Original unangetastet**.
 - Altbestand ohne Lock → konservativ `.new`, nichts wird überschrieben.
@@ -334,8 +356,12 @@ P9  version_req-Prüfung gegen ctxpkg.lock
 - `lean-md mcp` schreibt/pflegt den Lock beim Start; `render`/`check` schreiben **nicht**
   (Beweis für die D-1-Purity: Dateizustand vor == nach).
 - `lean-md check` meldet den `.new`-Fall sichtbar; der Still-Heil-Fall erzeugt **keine** Meldung.
+- Der Lock-Hash ist von außen nachrechenbar: `sha256sum <seed>` == der Wert im Lock.
+- `sha2` ist im **Release**-Profil verfügbar (nicht nur unter `cfg(test)`) — der Task
+  kompiliert sonst nicht.
 
 **P5**
+
 - `hard-rules.ext.lmd.md` mit Regel → erscheint im Output nach dem Built-in (heute tote Datei).
 - Unveränderter Seed → Output byte-identisch zu „ohne `.ext`" (#498) — kein bestehender
   Dispatch-Test kippt.
@@ -346,6 +372,7 @@ P9  version_req-Prüfung gegen ctxpkg.lock
 - `dispatch.rs` liest keine Datei mehr selbst (Sonderpfad zurückgebaut).
 
 **P1/P3**
+
 - `@dispatch brief=x phase=y` → ERR unknown argument, mit Auflistung der bekannten.
 - `@dispatch role=exec` → ERR **in `check`**, nicht erst beim Render.
 - `@dispatch` ohne `phase=`/`companion=` → ERR in `check`.
@@ -353,10 +380,12 @@ P9  version_req-Prüfung gegen ctxpkg.lock
 - Schema ist die einzige Quelle: `dispatch.rs` validiert nicht mehr eigenständig.
 
 **P2**
+
 - Doppelte `@phase` → ERR in `check` **und** `render` **und** `--list-phases` **und** MCP.
 - Die Fehlermeldung nennt beide Fundstellen.
 
 **P9**
+
 - Pack außerhalb `version_req` → WARN.
 - Pack innerhalb der Spanne, Version ≠ Binary → **kein Output** (Regressionsschutz gegen
   Rauschen im gewollten Normalfall).
@@ -366,12 +395,34 @@ P9  version_req-Prüfung gegen ctxpkg.lock
   (Muster des fragment-consistency-Gates; Divergenz fällt in CI, nicht beim Nutzer).
 
 **Global**
+
 - `cargo nextest run` grün, zero clippy warnings.
 - `pack_drift` bleibt rot (aus dem Vorpaket) bis zum Release-Schnitt — erwartet, kein Fehler.
 
-## Release-Choreografie (gemeinsam mit dem Vorpaket)
+## Umfang dieses Pakets: implementieren + committen, KEIN Publish
 
-Die Reihenfolge ist erzwungen, nicht Geschmack (übernommen aus der Vorspec):
+Dieses Paket endet beim Commit. **Kein `pack create`, kein `pack export`, kein `pack publish`,
+kein Tag, kein Addon-Republish.** Der Release wird nach Abschluss separat entschieden und
+gefahren.
+
+| # | Schritt                                                                            | Linie  |
+|---|------------------------------------------------------------------------------------|--------|
+| 1 | Branch von `feat-lmd-v2`; P8 → P5 → P1 → P2 → P9; `cargo fmt`; `cargo nextest run` | —      |
+| 2 | Commits (Code + Doc-Kommentare + dev-readme-Tabellenzeile)                         | Binary |
+
+**Erwartet nach Abschluss:** `pack_drift` meldet in CI weiterhin, dass `content/skills/` nicht
+zum letzten publizierten Pack passt. Das ist **kein Fehler**, sondern die Funktion des Gates —
+es erinnert an den Schnitt, der später kommt. Der Zustand besteht seit dem Vorpaket
+(`bace97a`) und wird von diesem Paket nicht verändert: es fasst `content/skills/**` nicht an.
+
+Die Versionsnummern in `lean-ctx-addon.toml` und `content/skills.ctxpkg-hash` bleiben
+**unangetastet** — sie werden erst beim tatsächlichen Release gezogen. Ob 0.2.1 dann die
+richtige Nummer ist, entscheidet sich dort, nicht hier.
+
+## Release-Choreografie (Referenz — NICHT Teil dieses Pakets)
+
+Wenn beide Pakete fertig sind, wird **einmal** released. Die Reihenfolge ist erzwungen, nicht
+Geschmack (übernommen aus der Vorspec):
 
 1. Skills-Pack muss publiziert sein, **bevor** das Addon republished wird — der Resolver löst
    `version_req` depth-1 gegen den Registry-Index auf; ein unpublizierter Pack ist unsichtbar.
@@ -380,16 +431,17 @@ Die Reihenfolge ist erzwungen, nicht Geschmack (übernommen aus der Vorspec):
 3. Das Addon-Pack darf erst **nach** dem `sync-manifest`-Commit gebaut werden, sonst pinnt es
    Platzhalter-SHAs.
 
-| # | Schritt | Linie |
-|---|---------|-------|
-| 1 | `pack create --version 0.2.1` → `content/skills.ctxpkg-hash` aus `manifest.json` (`integrity.content_hash`) → commit | Pack |
-| 2 | `pack export --sign` → `pack publish --token ctxp_…` — **von Hand**, CI hat bewusst kein Token | Pack |
-| 3 | `lean-ctx-addon.toml`: Version 0.2.1 + Artefakt-URLs; Tag `v0.2.1` → 5-Leg-Build → `sync-manifest`-Bot-Commit | Binary |
-| 4 | Addon-Pack (`kind=addon`) exportieren + publizieren | Binary |
+| # | Schritt                                                                                                            | Linie  |
+|---|--------------------------------------------------------------------------------------------------------------------|--------|
+| 1 | `pack create --version <v>` → `content/skills.ctxpkg-hash` aus `manifest.json` (`integrity.content_hash`) → commit | Pack   |
+| 2 | `pack export --sign` → `pack publish --token ctxp_…` — **von Hand**, CI hat bewusst kein Token                     | Pack   |
+| 3 | `lean-ctx-addon.toml`: Version + Artefakt-URLs; Tag `v<v>` → 5-Leg-Build → `sync-manifest`-Bot-Commit              | Binary |
+| 4 | Addon-Pack (`kind=addon`) exportieren + publizieren                                                                | Binary |
 
-`version_req = "^0.2"` bleibt **unangetastet** — der Pack bleibt in `0.2.x`.
+Solange der Skills-Pack in `0.2.x` bleibt, ist `version_req = "^0.2"` **unangetastet**. Die
+konkreten Nummern werden beim Release festgelegt, nicht hier.
 
-**Release-Notes müssen tragen:** P1/P2 machen bisher stille Fehler laut. Eine Datei mit
+**Release-Notes müssen dann tragen:** P1/P2 machen bisher stille Fehler laut. Eine Datei mit
 doppelten `@phase`-Namen oder unbekannten Directive-Argumenten bricht nach dem Update, ohne
 dass der Konsument etwas geändert hat. Das ist ein Bugfix, aber er ist sichtbar.
 
@@ -404,11 +456,14 @@ dass der Konsument etwas geändert hat. Das ist ein Bugfix, aber er ist sichtbar
   den Stubs beseitigt hat. Gehört gefixt, aber nicht hier.
 - **`lmd_render` in Pack-Content.** Wird erst durch P9 durchsetzbar; der Umzug ist eine eigene
   Entscheidung nach dem Release.
+- **Der Release selbst.** Kein `pack create`/`publish`, kein Tag, kein Addon-Republish, keine
+  gezogene Versionsnummer. Wird nach Abschluss separat entschieden und gefahren.
 
 ## Nachgelagert: Konsumenten
 
 In `canfdchela` sind `.claude/skills/*/SKILL.md` lokal gefixt (Commit `8b0f4a8`), und
 `.lean-ctx/lean-md/` ist dort **nicht** angepasst. `install_skill()` überschreibt die Stubs bei
-jedem Install (`skill_install.rs:104`) — erst der Upstream-Fix ist dauerhaft. Nach dem Release:
-`addon update` fahren. Die Seeds heilt der MCP-Start dann selbst (Entscheidung 4); der
+jedem Install (`skill_install.rs:104`) — erst der Upstream-Fix ist dauerhaft. Bis zum Publish
+bleibt der lokale Fix dort die Zwischenlösung; danach `addon update` fahren. Die Seeds heilt der MCP-Start dann selbst (
+Entscheidung 4); der
 `.new`-Fall tritt dort nicht auf, weil nichts angepasst wurde.
