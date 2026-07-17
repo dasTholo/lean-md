@@ -265,6 +265,13 @@ Bridge liest keine Datei mehr selbst (Rückbau des Sonderpfads). Die Komposition
 wären das tote Dateien, die ein Nutzer anlegen kann, ohne dass irgendetwas passiert. Built-ins
 bleiben unersetzbar, die Iron-Law bleibt geschützt.
 
+**`hard-rules.ext` vererbt sich über `@include`.** Der `dispatch-contract` macht
+`@include hard-rules` (`content/core/dispatch-contract.lmd.md`) — nach P5 zieht dieser Include
+die `hard-rules.ext` automatisch mit. Eine Projektregel steht damit an **einer** Stelle und
+wirkt in **jedem** Dispatch, ohne dass sie in `dispatch-contract.ext` dupliziert werden muss.
+Das ist der eigentliche Hebel der Generalisierung: nicht drei Erweiterungspunkte, sondern ein
+vererbender.
+
 **Die beiden neuen `.ext` werden `PROJECT_SEEDS`-Einträge.** Sonst bliebe der Gewinn
 theoretisch: heute materialisiert `seeds.rs:24-42` nur `dispatch-contract.ext.lmd.md` — ein
 Nutzer müsste `hard-rules.ext.lmd.md` erfinden und wüsste nicht einmal, dass es sie geben
@@ -454,6 +461,9 @@ P9  version_req-Prüfung gegen ctxpkg.lock
 **P5**
 
 - `hard-rules.ext.lmd.md` mit Regel → erscheint im Output nach dem Built-in (heute tote Datei).
+- **Vererbungstest:** eine Regel in `hard-rules.ext` erscheint im gerenderten `@dispatch` —
+  über `@include hard-rules`, **ohne** Eintrag in `dispatch-contract.ext`. Das ist der
+  Kernhebel der Generalisierung und muss belegt sein, nicht angenommen.
 - Unveränderter Seed → Output byte-identisch zu „ohne `.ext`" (#498) — kein bestehender
   Dispatch-Test kippt.
 - `.ext` fehlt → unverändert.
@@ -557,6 +567,30 @@ dass der Konsument etwas geändert hat. Das ist ein Bugfix, aber er ist sichtbar
   Entscheidung nach dem Release.
 - **Der Release selbst.** Kein `pack create`/`publish`, kein Tag, kein Addon-Republish, keine
   gezogene Versionsnummer. Wird nach Abschluss separat entschieden und gefahren.
+- **Dedup `dispatch-contract` ↔ `hard-rules`.** Der Contract macht `@include hard-rules` **und
+  wiederholt danach drei von dessen Regeln**: kein grep/cat, never raw, und den
+  anchored/`ctx_patch`/`ctx_refactor`-Block. Sie stehen doppelt im selben gerenderten Text.
+  Echt dispatch-spezifisch sind nur `tool_profile=power`/ToolSearch, never fresh + Re-Read via
+  `ctx_delta`, `git commit` plain, und die CRP-Ausgabedisziplin.
+
+  **Kein „scheitert leise"-Defekt** — nichts ist still kaputt, der Contract funktioniert, er
+  ist bloß redundant. Das ist ein Terseness-Thema (eigene Runden dafür: `hard-rules-slim`,
+  `terseness-rework`), und jede gestrichene Zeile ändert, was **Subagents lesen** — Verhalten,
+  nicht Kosmetik, mit #498 an jedem Contract-Byte. Braucht eigene Sorgfalt und eigene Tests.
+
+  **Nach P5 wird der Dedup erst richtig attraktiv:** `@include hard-rules` zieht dann auch
+  `hard-rules.ext` mit — eine Projektregel steht damit an *einer* Stelle und wirkt in **jedem**
+  Dispatch, ohne `dispatch-contract.ext`. Dieselbe Single-Source-Logik, die die Vorspec bei den
+  Stubs durchgesetzt hat. Die Runde sollte deshalb **nach** diesem Paket kommen, nicht davor.
+
+  **Was der Dedup NICHT darf: die Disziplin an den `lean-ctx`-Skill delegieren.** Geprüft
+  (`~/.claude/skills/lean-ctx/SKILL.md`): er ist eine **Referenz** (Tool-Tabelle, Read-Modi,
+  Shell-Hook), keine Norm. Er widerspricht sogar — „Native Edit/StrReplace stay fine", während
+  `hard-rules` anchored auch gegenüber nativem Edit als Default setzt. Dazu: ein dispatchter
+  Subagent bekommt den Contract, nicht den Skill-Index des Controllers; der Skill ist beim
+  Konsumenten nicht garantiert installiert; und lean-md ist standalone („zero lean-ctx" im
+  Render-Core). Die Disziplin muss im Contract stehen, sonst existiert sie für den Subagenten
+  nicht.
 
 ## Nachgelagert: Konsumenten
 
