@@ -145,6 +145,13 @@ fn do_check(source: &str, project_root: Option<&std::path::Path>) -> String {
         out.push('\n');
         out.push_str(&line);
     }
+    // Pack range — same asymmetry as the seed report: `cmd_mcp` logs it to stderr, but
+    // `check` is where the user actually looks. Only a RANGE violation speaks; a pack
+    // that merely differs from the binary version is the intended normal case.
+    if let Some(line) = project_root.and_then(lean_md::version_gate::drift_warning) {
+        out.push('\n');
+        out.push_str(&line);
+    }
     out
 }
 
@@ -584,6 +591,14 @@ fn cmd_mcp() {
                 p.display()
             );
         }
+    }
+
+    // Pack range check — read-only (`.lean-ctx/ctxpkg.lock` belongs to lean-ctx). stderr
+    // ONLY: stdout is the JSON-RPC channel below, a line there corrupts the protocol.
+    if let Ok(root) = std::env::current_dir()
+        && let Some(warning) = lean_md::version_gate::drift_warning(&root)
+    {
+        eprintln!("{warning}");
     }
 
     let stdin = std::io::stdin();

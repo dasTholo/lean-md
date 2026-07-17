@@ -32,6 +32,7 @@ pub mod skill_vars;
 pub mod skills;
 #[cfg(test)]
 mod test_env;
+pub mod version_gate;
 
 pub use engine::{EngineContext, render, render_body, render_with_overrides};
 pub use fragments::FragmentRegistry;
