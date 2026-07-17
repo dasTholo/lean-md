@@ -126,6 +126,12 @@ fn do_check(source: &str, project_root: Option<&std::path::Path>) -> String {
             errors.push(e);
         }
     }
+    // Duplicate @phase names: the parser refuses such a source (it is lossy — only the
+    // first block per name is addressable), so `check` must not call it ok. Read from
+    // `source`, not `body`, so the reported lines match the file the author opens.
+    if let Some(m) = lean_md::phases::duplicate_phase_error(source) {
+        errors.push(m);
+    }
     if !errors.is_empty() {
         return format!("lmd errors:\n{}", errors.join("\n"));
     }
@@ -711,6 +717,17 @@ fn cmd_mcp() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn duplicate_phase_fails_in_check() {
+        let src = "@lean-md\nconsumer: ai\n\n@phase \"t\"\nfirst\n@phase-end\n@phase \"t\"\nsecond\n@phase-end\n";
+        let out = do_check(src, None);
+        assert!(
+            !out.contains("lmd ok"),
+            "check must not call a lossy file ok: {out}"
+        );
+        assert!(out.contains("duplicate"), "{out}");
+    }
 
     #[test]
     fn mcp_start_refreshes_seeds_but_render_and_check_do_not_write() {

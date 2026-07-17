@@ -85,6 +85,9 @@ pub enum SkillRenderError {
     UnknownSkill(String),
     PhaseNotFound(String),
     CompanionNotFound(String),
+    /// A source with duplicate `@phase` names — the message names both sites
+    /// (`crate::phases::duplicate_phase_error`).
+    DuplicatePhase(String),
     Source(crate::skill_source::SourceError),
 }
 
@@ -94,6 +97,7 @@ impl std::fmt::Display for SkillRenderError {
             SkillRenderError::UnknownSkill(s) => write!(f, "UNKNOWN_SKILL '{s}'"),
             SkillRenderError::PhaseNotFound(p) => write!(f, "PHASE_NOT_FOUND '{p}'"),
             SkillRenderError::CompanionNotFound(c) => write!(f, "COMPANION_NOT_FOUND '{c}'"),
+            SkillRenderError::DuplicatePhase(m) => write!(f, "{m}"),
             SkillRenderError::Source(e) => write!(f, "{e}"),
         }
     }
@@ -110,6 +114,12 @@ pub fn render_skill(
     jail_root: PathBuf,
 ) -> Result<String, SkillRenderError> {
     let owned = skill_source(name, &jail_root)?;
+    // Duplicate @phase names → refuse before rendering: only the first block per name is
+    // addressable, so any output would silently omit the second one. Source-relative
+    // lines (the header is still attached here) point the author at both sites.
+    if let Some(m) = crate::phases::duplicate_phase_error(&owned) {
+        return Err(SkillRenderError::DuplicatePhase(m));
+    }
     let (mut header, body) = parse_header(&owned);
     if let Some(c) = consumer {
         header.consumer = c;
@@ -152,6 +162,11 @@ pub fn render_source_with_phase(
     crp: Option<CrpMode>,
     jail_root: PathBuf,
 ) -> Result<String, SkillRenderError> {
+    // See `render_skill`: a duplicated @phase name makes the source lossy, so no render
+    // of it can be honest. Both sites are named, 1-based in `source`.
+    if let Some(m) = crate::phases::duplicate_phase_error(source) {
+        return Err(SkillRenderError::DuplicatePhase(m));
+    }
     let (mut header, body) = parse_header(source);
     if let Some(c) = consumer {
         header.consumer = c;

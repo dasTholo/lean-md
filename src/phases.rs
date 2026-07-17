@@ -248,6 +248,13 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
         return render_markdown(ctx, body); // fast path, nothing to do
     }
 
+    // Duplicate @phase names are a silent content loss (only the first block per name
+    // is ever addressable) — refuse the body visibly instead of rendering a lie.
+    // Lines are body-relative here, the same convention as the PHASE_ABORTED envelope.
+    if let Some(msg) = duplicate_phase_error(body) {
+        return format!("<!-- lmd: {msg} -->\n");
+    }
+
     // Nested call (e.g. from @call body): outer phase is open on the stack.
     // This body may contain `@on complete` lines that belong to the outer
     // phase — the line scanner collects them without opening a new scope.
@@ -450,6 +457,77 @@ fn parse_phase_name(rest: &str) -> String {
     rest.trim().trim_matches('"').trim().to_string()
 }
 
+/// Lines of `source` that are NOT inside a fenced code block, as `(0-based index,
+/// line)`. Plans quote lmd source in ``` blocks, so a `@phase "x"` in a fence is
+/// documentation, not a definition — a duplicate gate that counted it would invent
+/// errors in valid docs.
+///
+/// Fence rule (CommonMark-shaped, same as `check`): a run of 3+ backticks or tildes
+/// opens; a run of the same char, at least as long, closes; an unclosed fence runs to
+/// the end of the document.
+fn unfenced_lines(source: &str) -> Vec<(usize, &str)> {
+    let fence_run = |l: &str| -> Option<(char, usize)> {
+        let t = l.trim_start();
+        let c = t.chars().next().filter(|c| *c == '`' || *c == '~')?;
+        let n = t.chars().take_while(|x| *x == c).count();
+        (n >= 3).then_some((c, n))
+    };
+    let mut open: Option<(char, usize)> = None;
+    let mut out = Vec::new();
+    for (idx, l) in source.lines().enumerate() {
+        match open {
+            Some((oc, on)) => {
+                if let Some((c, n)) = fence_run(l)
+                    && c == oc
+                    && n >= on
+                {
+                    open = None;
+                }
+            }
+            None => match fence_run(l) {
+                Some(f) => open = Some(f),
+                None => out.push((idx, l)),
+            },
+        }
+    }
+    out
+}
+
+/// First duplicate `@phase` name in `source` → `(name, first definition line,
+/// duplicate line)`, 1-based lines of `source`. `None` when every name is unique.
+///
+/// A duplicate name is a SILENT content loss: phase capture and the outline keep the
+/// first block per name, so the second one renders nowhere and is listed nowhere.
+/// This is the parser-level gate every surface reads (`check`, `render`,
+/// `--list-phases`, MCP, CLI) — the loss is structurally impossible instead of being
+/// reported by a linter one can skip. Byte-stable (#498).
+pub fn duplicate_phase(source: &str) -> Option<(String, usize, usize)> {
+    let mut seen: Vec<(String, usize)> = Vec::new();
+    for (idx, line) in unfenced_lines(source) {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("@phase-end") {
+            continue; // `@phase-end` also starts with `@phase` — not a definition
+        }
+        let Some(rest) = trimmed.strip_prefix("@phase") else {
+            continue;
+        };
+        let name = parse_phase_name(rest);
+        if let Some((n, first)) = seen.iter().find(|(n, _)| *n == name) {
+            return Some((n.clone(), *first, idx + 1));
+        }
+        seen.push((name, idx + 1));
+    }
+    None
+}
+
+/// Human-readable form of [`duplicate_phase`] — names BOTH sites, so the author does
+/// not have to hunt through a long file for the second definition.
+pub fn duplicate_phase_error(source: &str) -> Option<String> {
+    duplicate_phase(source).map(|(name, first, dup)| {
+        format!("duplicate @phase \"{name}\" — first defined at line {first}, again at line {dup}")
+    })
+}
+
 /// True for an `@on complete …` line (name `on`, first arg token `complete`).
 fn is_on_complete(trimmed: &str) -> bool {
     if let Some(rest) = trimmed.strip_prefix("@on") {
@@ -464,6 +542,13 @@ fn is_on_complete(trimmed: &str) -> bool {
 /// consume this — no second parser. Byte-stable (#498).
 pub(crate) fn iter_phase_blocks(source: &str) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
+    // A lossy source has no correct block list: the second block of a duplicated name
+    // would silently drop out here. Refuse instead — `outline_phases` (→ --list-phases)
+    // and `capture_phase_bodies` (→ --phase) both read this, so neither surface can
+    // present one of two blocks as if it were the whole file.
+    if duplicate_phase(source).is_some() {
+        return Vec::new();
+    }
     let mut open: Option<(String, Vec<&str>)> = None;
     for line in source.lines() {
         let trimmed = line.trim_start();
@@ -1048,6 +1133,70 @@ trailing prose
     fn outline_is_byte_stable() {
         let src = "@phase \"task-1\"\n## T1\n@phase-end\n@phase \"task-2\"\n## T2\n@phase-end\n";
         assert_eq!(super::outline_phases(src), super::outline_phases(src));
+    }
+
+    #[test]
+    fn duplicate_phase_is_reported_with_both_sites() {
+        use super::duplicate_phase;
+        let src = "@lean-md\nconsumer: ai\n\n@phase \"t\"\nfirst\n@phase-end\n@phase \"t\"\nsecond\n@phase-end\n";
+        let (name, first, dup) = duplicate_phase(src).unwrap();
+        assert_eq!(name, "t");
+        assert_eq!((first, dup), (4, 7), "both sites, 1-based");
+    }
+
+    #[test]
+    fn distinct_phases_are_not_a_duplicate() {
+        use super::duplicate_phase;
+        let src =
+            "@lean-md\nconsumer: ai\n\n@phase \"a\"\nx\n@phase-end\n@phase \"b\"\ny\n@phase-end\n";
+        assert!(duplicate_phase(src).is_none());
+    }
+
+    #[test]
+    fn duplicate_phase_aborts_render_visibly() {
+        // Today the second block vanishes without a trace. Silence is the bug.
+        let src = "@lean-md\nconsumer: ai\n\n@phase \"t\"\nfirst\n@phase-end\n@phase \"t\"\nsecond\n@phase-end\n";
+        let out = crate::skills::render_source_with_phase(
+            src,
+            Some("t"),
+            None,
+            None,
+            std::path::PathBuf::from("."),
+        );
+        let text = format!("{out:?}");
+        assert!(
+            text.contains("duplicate"),
+            "render must surface the duplicate: {text}"
+        );
+        assert!(
+            text.contains("line 4") && text.contains("line 7"),
+            "both sites: {text}"
+        );
+    }
+
+    #[test]
+    fn duplicate_phase_is_visible_in_the_outline() {
+        // --list-phases reads outline_phases. Today it shows the name once and the
+        // second block is simply gone — the surface that should expose the loss hides it.
+        use super::{duplicate_phase, outline_phases};
+        let src = "@lean-md\nconsumer: ai\n\n@phase \"t\"\nfirst\n@phase-end\n@phase \"t\"\nsecond\n@phase-end\n";
+        assert!(
+            duplicate_phase(src).is_some(),
+            "the parser-level gate every surface reads"
+        );
+        assert!(
+            outline_phases(src).is_empty(),
+            "outline must refuse a lossy source instead of listing one of two blocks"
+        );
+    }
+
+    #[test]
+    fn fenced_phase_lines_are_documentation_not_definitions() {
+        // A plan quoting lmd source in a ``` block must not trip the duplicate gate —
+        // a gate that rejects valid docs is a false alarm, not a fix.
+        use super::duplicate_phase;
+        let src = "@phase \"t\"\nreal\n@phase-end\n\n```\n@phase \"t\"\nquoted example\n@phase-end\n```\n";
+        assert!(duplicate_phase(src).is_none(), "fenced @phase is prose");
     }
 
     #[test]
