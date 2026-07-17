@@ -14,8 +14,6 @@
 
 use std::path::{Path, PathBuf};
 
-use sha2::{Digest, Sha256};
-
 fn skills_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("content/skills")
 }
@@ -68,10 +66,7 @@ fn render_manifest() -> String {
     );
     for rel in &rels {
         let bytes = std::fs::read(root.join(rel)).expect("read file");
-        let mut h = Sha256::new();
-        h.update(&bytes);
-        let digest = h.finalize();
-        let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+        let hex = lean_md::hashx::sha256_hex(&bytes);
         out.push_str(&format!("{hex}  {rel}\n"));
     }
     out
@@ -111,4 +106,16 @@ fn every_manifest_entry_names_a_file_that_exists() {
         seen += 1;
     }
     assert!(seen >= 30, "suspiciously few entries: {seen}");
+}
+
+#[test]
+fn manifest_hash_uses_the_library_single_source() {
+    // The gate and the runtime lock must never disagree on "how we hash".
+    // `Digest` must be in scope even for the `Sha256::new()` UFCS call.
+    use sha2::Digest;
+    let bytes = b"lean-md drift probe";
+    let mut h = sha2::Sha256::new();
+    h.update(bytes);
+    let local: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    assert_eq!(local, lean_md::hashx::sha256_hex(bytes));
 }

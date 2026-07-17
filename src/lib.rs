@@ -14,6 +14,7 @@ pub mod crp_schema;
 pub mod engine;
 pub mod fragments;
 mod gloss;
+pub mod hashx;
 pub mod header;
 pub mod macros;
 pub mod node;
