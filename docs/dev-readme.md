@@ -7,7 +7,7 @@ How to ship a change to skill content without releasing a binary.
 | Änderung                                     | Kanal  | Ablauf                                                        |
 |----------------------------------------------|--------|---------------------------------------------------------------|
 | `content/skills/**`                          | Pack   | Bump + `pack create` + `pack publish`. Kein Tag, kein Binary. |
-| `content/core/**`, `content/gloss/**`, `src/**` | Binary | Tag `v*` → 5-leg-Build → `sync-manifest` schreibt die SHA-Pins. |
+| `content/core/**`, `content/gloss/**`, `content/templates/**`, `src/**` | Binary | Tag `v*` → 5-leg-Build → `sync-manifest` schreibt die SHA-Pins. |
 
 Pack und Binary tragen **unabhängige** SemVer-Linien (initial beide `0.2.0`). Publizierte
 Pack-Versionen sind immutable (das Lockfile pinnt `artifact_sha256`), also erzwingt jede

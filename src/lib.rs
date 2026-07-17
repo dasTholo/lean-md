@@ -16,6 +16,7 @@ pub mod fragments;
 mod gloss;
 pub mod hashx;
 pub mod header;
+pub mod lock;
 pub mod macros;
 pub mod node;
 pub mod parser;
