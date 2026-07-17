@@ -43,13 +43,18 @@ Fünf Ausprägungen, aus dem Code belegt:
 Im Dev-Repo selbst (2026-07-17) sind **vier von fünf** materialisierten Seeds veraltet — keine
 davon eine Anpassung, alle schlicht alte Kopien:
 
-| Datei                          | Zustand                                                |
-|--------------------------------|--------------------------------------------------------|
-| `dispatch-contract.ext.lmd.md` | stale — `#`-Zeilen statt `<!-- -->`                    |
-| `lang/rust.lmd.md`             | stale — trägt noch „`@edit` is for non-symbol changes" |
-| `tooling/mcp-tools.lmd.md`     | stale — ohne den anchored-loop                         |
-| `plan-template.lmd.md`         | stale — alte `#498`-Referenz                           |
-| `plan-recipes.lmd.md`          | identisch                                              |
+| Datei                          | Zustand                                                     |
+|--------------------------------|-------------------------------------------------------------|
+| `dispatch-contract.ext.lmd.md` | stale **und wirksam** — `#`-Zeilen statt `<!-- -->`, daher nicht inert |
+| `lang/rust.lmd.md`             | stale — trägt noch „`@edit` is for non-symbol changes"      |
+| `tooling/mcp-tools.lmd.md`     | stale — ohne den anchored-loop                              |
+| `plan-template.lmd.md`         | stale — alte `#498`-Referenz                                |
+| `plan-recipes.lmd.md`          | identisch                                                   |
+
+Nur die erste ist **strukturell** kaputt: sie soll leer sein, sagt es aber in Markdown statt in
+HTML und wird deshalb angehängt (siehe Entscheidung 6). Die anderen drei sind korrekt
+aufgebaut und bloß veraltet. Für den Refresh macht das keinen Unterschied — für die Diagnose
+schon.
 
 `lang/rust` und `tooling/mcp-tools` haben **keinen** Built-in — für sie gewinnt der jailed-File-
 Fallback. Das Repo rendert also real die überholte Edit-Regel statt der aktuellen, die im Seed
@@ -281,6 +286,30 @@ HTML-Kommentar, damit skip-if-inert greift):
 `tooling/mcp-tools` haben keinen Built-in; ihre materialisierte Datei **ist** die Quelle und
 wird direkt editiert. Ein `.ext` wäre dort ein zweiter Weg zum selben Ziel und wird bewusst
 nicht angelegt.
+
+**Die HTML-Kommentar-Form gilt NUR für `.ext`-Seeds — nicht für die übrigen.** Die
+Inert-Prüfung beantwortet genau eine Frage: „ist die Datei leer genug, um sie *nicht*
+anzuhängen?" Sie stellt sich ausschließlich bei `.ext`, weil nur die an ein Built-in angehängt
+werden und ein unveränderter, leerer Seed den Output nicht verändern darf (#498). Bei
+`dispatch-contract.ext` sind die `#`-Zeilen deshalb ein Bug: die Datei *will* leer sein, kann
+es dem Code aber nicht sagen, weil Markdown-Überschriften kein Kommentar sind.
+
+`lang/rust.lmd.md` und `tooling/mcp-tools.lmd.md` durchlaufen die Inert-Prüfung **nie**. Sie
+werden nicht angehängt, sondern aufgelöst; ihr Inhalt *soll* erscheinen, samt der
+`#`-Überschrift, mit der beide beginnen (`# Rust language pack (lmd)`, `# MCP tool pack
+(lmd)`). Eine Umstellung auf HTML-Kommentare würde ihren Inhalt auskommentieren und die
+Fragmente stillschweigend leeren — ein neuer Bug derselben Familie.
+
+| Datei-Art               | Rolle                          | Kommentar-Form                |
+|-------------------------|--------------------------------|-------------------------------|
+| `<name>.ext.lmd.md`     | wird angehängt, darf leer sein | **HTML** — sonst nicht inert  |
+| `lang/*`, `tooling/*`   | echtes Fragment mit Inhalt     | Markdown, wie jeder Content   |
+
+Die vier stale Dateien im Dev-Repo brauchen deshalb **keine** unterschiedliche Behandlung im
+Refresh, wohl aber eine unterschiedliche Diagnose: `dispatch-contract.ext` ist strukturell
+kaputt (`#` statt `<!--`), `lang/rust` und `tooling/mcp-tools` sind bloß veraltete Kopien —
+richtig aufgebaut, nur mit der alten Edit-Regel. P8 heilt beide gleich: der Hash weist sie als
+unberührt aus, der Refresh zieht sie auf den aktuellen Seed.
 
 Beide Doc-Kommentare (`fragments.rs:1-3`, `seeds.rs:1-6`) werden auf die Wahrheit gezogen:
 **extend**, nicht override. Damit ist P5 vollständig aufgelöst.
