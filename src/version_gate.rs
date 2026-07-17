@@ -12,23 +12,26 @@ use std::path::Path;
 /// lean-ctx-addon.toml — kept honest by `const_matches_the_addon_manifest`.
 pub const PACK_VERSION_REQ: &str = "^0.2";
 
-/// The pack this binary depends on. Must match the `name` in the lock's package block.
+/// The pack this binary depends on. Matched case-insensitively against the lock's
+/// package `name` — kept honest by `the_pack_name_matches_the_addon_manifest`.
 const PACK_NAME: &str = "@dastholo/lean-md-skills";
 
 /// Installed pack version from `.lean-ctx/ctxpkg.lock`. READ-ONLY — that file belongs
 /// to lean-ctx (`pack install` generates it). Absent/unparsable → None, never an error.
 pub fn installed_pack_version(project_root: &Path) -> Option<String> {
     let raw = std::fs::read_to_string(project_root.join(".lean-ctx/ctxpkg.lock")).ok()?;
-    let mut in_our_block = false;
+    // Keys are tracked per block rather than assuming `name` precedes `version`: TOML
+    // tables are unordered by spec, so arrival order is lean-ctx's serialisation choice,
+    // not a contract. Deciding as soon as both keys of one block are known keeps a real
+    // violation from going quiet just because the file was written the other way round.
+    let mut name: Option<String> = None;
+    let mut version: Option<String> = None;
     for line in raw.lines() {
         let t = line.trim();
-        if t == "[[package]]" {
-            in_our_block = false;
-            continue;
-        }
         if t.starts_with('[') {
-            // Any other table header ends the package block we might be in.
-            in_our_block = false;
+            // Any table header opens a fresh block — nothing carries across.
+            name = None;
+            version = None;
             continue;
         }
         let Some((key, value)) = t.split_once('=') else {
@@ -36,9 +39,19 @@ pub fn installed_pack_version(project_root: &Path) -> Option<String> {
         };
         let value = value.trim().trim_matches('"');
         match key.trim() {
-            "name" => in_our_block = value == PACK_NAME,
-            "version" if in_our_block => return Some(value.to_string()),
-            _ => {}
+            // Registry namespaces are case-insensitive by intent (the registry
+            // canonicalises to lowercase), and this project has a live casing split:
+            // the ctxpkg token is scoped to `dastholo` while the codebase authors
+            // `@dasTholo`. An exact compare would let a CamelCase lock silence a real
+            // range violation — the gate would go quiet exactly when it must speak.
+            "name" => name = Some(value.to_string()),
+            "version" => version = Some(value.to_string()),
+            _ => continue,
+        }
+        if let (Some(n), Some(v)) = (&name, &version)
+            && n.eq_ignore_ascii_case(PACK_NAME)
+        {
+            return Some(v.clone());
         }
     }
     None
@@ -161,5 +174,84 @@ mod tests {
             manifest.contains(&format!("version_req = \"{PACK_VERSION_REQ}\"")),
             "PACK_VERSION_REQ drifted from lean-ctx-addon.toml"
         );
+    }
+
+    #[test]
+    fn a_camelcase_pack_name_still_finds_the_version() {
+        // The project has a live casing conflict: the ctxpkg token is scoped to
+        // `dastholo` while the codebase authors `@dasTholo`. A case-sensitive compare
+        // turns a real range violation into silence — the defect class this package
+        // removes, rebuilt inside the check meant to remove it.
+        let root = std::env::temp_dir().join(format!("lmd_vg_case_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".lean-ctx")).unwrap();
+        std::fs::write(
+            root.join(".lean-ctx/ctxpkg.lock"),
+            "[[package]]\nname = \"@dasTholo/lean-md-skills\"\nversion = \"0.3.0\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            installed_pack_version(&root).as_deref(),
+            Some("0.3.0"),
+            "a CamelCase namespace must not hide the version"
+        );
+        assert!(
+            drift_warning(&root).is_some(),
+            "0.3.0 is outside ^0.2 — casing must not silence a real violation"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_pack_name_matches_the_addon_manifest() {
+        // Without this, a rename in the manifest silently retires the whole gate:
+        // installed_pack_version would never match again and drift_warning would be
+        // None forever. Same shape as the version_req gate — divergence falls in CI.
+        let manifest = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("lean-ctx-addon.toml"),
+        )
+        .unwrap();
+        assert!(
+            manifest.to_ascii_lowercase().contains(&format!(
+                "name        = \"{}\"",
+                PACK_NAME.to_ascii_lowercase()
+            )),
+            "PACK_NAME drifted from the [[dependencies]] block in lean-ctx-addon.toml"
+        );
+    }
+
+    #[test]
+    fn key_order_inside_the_package_block_does_not_matter() {
+        // TOML tables are unordered by spec, so `version` before `name` is a legal lock.
+        // Relying on arrival order would make a real range violation depend on how
+        // lean-ctx happens to serialise the file — silence by luck.
+        let root = std::env::temp_dir().join(format!("lmd_vg_order_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".lean-ctx")).unwrap();
+        std::fs::write(
+            root.join(".lean-ctx/ctxpkg.lock"),
+            "[[package]]\nversion = \"0.3.0\"\nname = \"@dastholo/lean-md-skills\"\n",
+        )
+        .unwrap();
+        assert_eq!(installed_pack_version(&root).as_deref(), Some("0.3.0"));
+        assert!(drift_warning(&root).is_some(), "0.3.0 is outside ^0.2");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_version_from_a_foreign_package_block_is_never_borrowed() {
+        // The risk of tracking keys per block: leaking another package's version into
+        // ours. A block boundary must drop everything the previous block established.
+        let root = std::env::temp_dir().join(format!("lmd_vg_foreign_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".lean-ctx")).unwrap();
+        std::fs::write(
+            root.join(".lean-ctx/ctxpkg.lock"),
+            "[[package]]\nname = \"@someone/other\"\nversion = \"9.9.9\"\n\
+             \n[[package]]\nname = \"@dastholo/lean-md-skills\"\nversion = \"0.2.0\"\n",
+        )
+        .unwrap();
+        assert_eq!(installed_pack_version(&root).as_deref(), Some("0.2.0"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
