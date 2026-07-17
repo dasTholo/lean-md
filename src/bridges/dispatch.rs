@@ -35,16 +35,17 @@ impl DirectiveBridge for DispatchBridge {
         ctx: &Rc<EngineContext>,
         args: &DirectiveArgs,
     ) -> Result<String, BridgeError> {
+        // The schema is the single source of "what is a valid @dispatch argument" —
+        // `check` reads the same one, so a file that checks ok renders (Spec Decision 7).
+        crate::arg_schema::validate("dispatch", args).map_err(BridgeError::Resolve)?;
+
         // Brief source (Spec Detail 3): exactly one of phase= OR skill=+companion=.
+        // Exclusivity and presence are guaranteed by the schema above; what remains
+        // here is only the choice of body.
         let phase = args.get("phase").or_else(|| args.positional(0));
         let companion = args.get("companion");
         let raw_body: std::borrow::Cow<'_, str> = match (phase, companion) {
-            (Some(_), Some(_)) => {
-                return Err(BridgeError::Resolve(
-                    "use exactly one of phase= or companion=".to_string(),
-                ));
-            }
-            (Some(p), None) => {
+            (Some(p), _) => {
                 // (a) phase-isolated body — lookup in the capture pre-pass (C1).
                 let Some(body) = ctx.phase_body(p) else {
                     return Ok(format!("<!-- lmd: PHASE_NOT_FOUND '{p}' -->\n"));
@@ -62,16 +63,8 @@ impl DirectiveBridge for DispatchBridge {
             (None, None) => return Err(BridgeError::MissingArg("phase")),
         };
 
-        // role: dev|review|test, default dev.
-        let role = match args.get("role") {
-            Some(r @ ("dev" | "review" | "test")) => r,
-            Some(other) => {
-                return Err(BridgeError::Resolve(format!(
-                    "unknown @dispatch role '{other}'. Use: dev|review|test"
-                )));
-            }
-            None => "dev",
-        };
+        // role: validated by the schema, default dev.
+        let role = args.get("role").unwrap_or("dev");
 
         // (b) Contract: substitute placeholders using sentinels BEFORE render_body so
         // that user-controlled bytes never enter the template parser (M-2 guard).
@@ -363,6 +356,16 @@ mod tests {
         assert!(
             out.contains("COMPANION_NOT_FOUND 'lmd-writing-skills/nope'"),
             "unknown companion must yield envelope, not abort: {out}"
+        );
+    }
+
+    #[test]
+    fn the_schema_is_the_only_source_of_validation() {
+        // No second definition of "valid role" may survive in the bridge.
+        let src = include_str!("dispatch.rs");
+        assert!(
+            !src.contains("\"dev\" | \"review\" | \"test\""),
+            "dispatch.rs must not re-declare the role enum — arg_schema owns it"
         );
     }
 

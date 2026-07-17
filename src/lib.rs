@@ -2,6 +2,7 @@
 //! Render core (rushdown/evalexpr) is in-process; code-intel is outbound
 //! via `backend::CodeIntelBackend` (CLI default, MCP opt-in).
 
+pub mod arg_schema;
 pub mod args;
 pub mod audit;
 pub mod auto_findings;

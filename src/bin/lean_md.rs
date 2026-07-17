@@ -9,6 +9,7 @@
 //!   check  <file>
 //!   mcp              — stdio JSON-RPC 2.0 MCP server (line-delimited framing)
 
+use lean_md::args::DirectiveArgs;
 use lean_md::crp_proto::CrpMode;
 use lean_md::header::{Consumer, parse_header};
 use lean_md::skill_install::{Scope, install_skill, remove_skill};
@@ -73,13 +74,28 @@ fn seed_report_line(project_root: &std::path::Path) -> Option<String> {
 /// drops the seed part; the file check is unaffected.
 fn do_check(source: &str, project_root: Option<&std::path::Path>) -> String {
     let (header, body) = parse_header(source);
-    let directives = body
+    let lines: Vec<&str> = body
         .lines()
         .filter(|l| l.trim_start().starts_with('@'))
-        .count();
+        .collect();
+    // Argument validation reads the SAME schema the bridges do — a file that checks
+    // ok is a file that renders. Directives without a schema are counted, not judged.
+    let mut errors = Vec::new();
+    for l in &lines {
+        let rest = l.trim_start().trim_start_matches('@');
+        let (name, argv) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
+        if let Err(e) = lean_md::arg_schema::validate(name, &DirectiveArgs::parse(argv)) {
+            errors.push(e);
+        }
+    }
+    if !errors.is_empty() {
+        return format!("lmd errors:\n{}", errors.join("\n"));
+    }
     let mut out = format!(
         "lmd ok — consumer={:?}, crp={:?}, directives={}",
-        header.consumer, header.crp, directives
+        header.consumer,
+        header.crp,
+        lines.len()
     );
     if let Some(line) = project_root.and_then(seed_report_line) {
         out.push('\n');
@@ -733,6 +749,67 @@ mod tests {
             out.contains("lmd ok"),
             "the file check must survive a missing root: {out}"
         );
+    }
+
+    #[test]
+    fn unknown_argument_is_rejected_and_the_known_ones_are_listed() {
+        // `brief=` was swallowed and dropped — it never existed in src/. So is every future
+        // typo: phse=, to-agent=.
+        let out = do_check(
+            "@lean-md\nconsumer: ai\n\n@dispatch brief=x phase=y\n",
+            None,
+        );
+        assert!(out.contains("unknown argument"), "{out}");
+        assert!(
+            out.contains("brief"),
+            "the offending arg must be named: {out}"
+        );
+        assert!(
+            out.contains("phase") && out.contains("role"),
+            "known args must be listed: {out}"
+        );
+    }
+
+    #[test]
+    fn a_bad_role_fails_in_check_not_only_at_render_time() {
+        // role IS validated today — but at render time (dispatch.rs). check never renders,
+        // so it never saw it. Green check, broken file.
+        let out = do_check(
+            "@lean-md\nconsumer: ai\n\n@dispatch phase=t role=exec\n",
+            None,
+        );
+        assert!(out.contains("role"), "{out}");
+        assert!(
+            !out.contains("lmd ok"),
+            "check must not call this file ok: {out}"
+        );
+    }
+
+    #[test]
+    fn a_dispatch_without_a_brief_source_fails_in_check() {
+        let out = do_check("@lean-md\nconsumer: ai\n\n@dispatch role=dev\n", None);
+        assert!(!out.contains("lmd ok"), "{out}");
+    }
+
+    #[test]
+    fn phase_and_companion_together_fail_in_check() {
+        let out = do_check(
+            "@lean-md\nconsumer: ai\n\n@dispatch phase=x skill=s companion=y\n",
+            None,
+        );
+        assert!(
+            !out.contains("lmd ok"),
+            "exclusive group must be enforced in check: {out}"
+        );
+    }
+
+    #[test]
+    fn a_valid_dispatch_still_checks_ok() {
+        let out = do_check(
+            "@lean-md\nconsumer: ai\n\n@dispatch phase=t role=review\n",
+            None,
+        );
+        assert!(out.contains("lmd ok"), "{out}");
     }
 
     #[test]
