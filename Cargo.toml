@@ -34,7 +34,7 @@ mcp = ["dep:lean-ctx-client"]
 
 [dev-dependencies]
 tiktoken-rs = "0.12"
-sha2 = "0.10"
+sha2 = "0.11"
 
 [[example]]
 name = "skill-token-comparison"

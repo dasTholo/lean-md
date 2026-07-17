@@ -70,7 +70,9 @@ fn render_manifest() -> String {
         let bytes = std::fs::read(root.join(rel)).expect("read file");
         let mut h = Sha256::new();
         h.update(&bytes);
-        out.push_str(&format!("{:x}  {rel}\n", h.finalize()));
+        let digest = h.finalize();
+        let hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+        out.push_str(&format!("{hex}  {rel}\n"));
     }
     out
 }
