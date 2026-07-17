@@ -398,6 +398,28 @@ fn cmd_source(rest: &[String]) {
 
 // ─── ack subcommand ────────────────────────────────────────────────────────
 
+/// The seed paths `ack` was asked to acknowledge — or the reason it may not run.
+///
+/// `ack` knows NO flags: every argument is a seed path. So anything starting with `-`
+/// is unknown, and an unknown argument on a WRITING verb must never be silent. The
+/// filter this replaced dropped it and left an empty list, which reads as "ack
+/// everything" — `lean-md ack --dry-run` then acked the lot. The most cautious intent
+/// must not produce the widest effect; that is the defect class this crate closes.
+///
+/// Message shape follows `arg_schema::validate`: name the offending argument, then say
+/// what is accepted. (That schema itself does not fit here — it validates DIRECTIVE
+/// `key=value` args by directive name, not CLI flags; a second definition there would be
+/// exactly the drift it was built to remove.)
+fn ack_paths(rest: &[String]) -> Result<Vec<String>, String> {
+    if let Some(flag) = rest.iter().find(|a| a.starts_with('-')) {
+        return Err(format!(
+            "unknown argument '{flag}' — ack takes seed paths only, no flags \
+             (`lean-md ack [<seed>…]`; no arguments acks every reported conflict)"
+        ));
+    }
+    Ok(rest.to_vec())
+}
+
 /// `lean-md ack [<seed>…]` — the user's answer to a seed conflict: "I keep mine."
 ///
 /// Records consent for the CURRENT embedded seed and drops the `.new` beside it, so
@@ -409,11 +431,13 @@ fn cmd_source(rest: &[String]) {
 /// One of the three writing verbs (with `skill install` and the `mcp` server start);
 /// `render`/`check` stay purely reading (D-1).
 fn cmd_ack(rest: &[String]) {
-    let filter: Vec<String> = rest
-        .iter()
-        .filter(|a| !a.starts_with('-'))
-        .cloned()
-        .collect();
+    let filter = match ack_paths(rest) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("lean-md ack: {e}");
+            std::process::exit(1);
+        }
+    };
     let Ok(root) = std::env::current_dir() else {
         eprintln!("lean-md ack: cannot resolve the current directory");
         std::process::exit(1);
@@ -1204,6 +1228,35 @@ mod tests {
         assert!(
             !without_prepass.contains("hello"),
             "guard: without the pre-pass a forward reference must NOT resolve: {without_prepass}"
+        );
+    }
+
+    #[test]
+    fn ack_rejects_an_unknown_flag_instead_of_acking_everything() {
+        // `lean-md ack --dry-run` used to drop the flag on the floor and fall through to
+        // "ack everything" — the most cautious intent produced the widest effect. A
+        // writing verb must never treat an argument it does not understand as consent.
+        let e = ack_paths(&["--dry-run".to_string()])
+            .expect_err("an unknown flag must be an error, not an empty filter");
+        assert!(
+            e.contains("--dry-run"),
+            "the offending flag must be named: {e}"
+        );
+        // Discrimination guard: the pre-fix filter returned Ok(vec![]) here, and an empty
+        // filter is exactly what `ack everything` looks like. Naming that: a flag must
+        // never be indistinguishable from "no paths given".
+        assert!(
+            ack_paths(&[]).unwrap().is_empty(),
+            "no args is still the documented ack-everything form"
+        );
+    }
+
+    #[test]
+    fn ack_still_takes_bare_seed_paths() {
+        assert_eq!(
+            ack_paths(&["lang/rust.lmd.md".to_string()]).unwrap(),
+            vec!["lang/rust.lmd.md".to_string()],
+            "the success path must be untouched"
         );
     }
 }
