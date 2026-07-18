@@ -359,6 +359,12 @@ pub fn ack_seeds(
         if !filter.is_empty() && !filter.iter().any(|a| matches(target, a)) {
             continue;
         }
+        // Already acknowledged for exactly this embedded seed: nothing changed, so
+        // there is nothing to report and nothing to write. A verb that says it did
+        // something it did not is the same class of lie as a silent failure.
+        if lock.ack(key) == Some(embedded_hex.as_str()) {
+            continue;
+        }
         lock.set_ack(key, embedded_hex);
         dirty = true;
         let proposal = new_path(target);
@@ -1317,6 +1323,49 @@ consumer: ai
             "reported as preserved"
         );
         assert!(new_path(&target).exists(), "proposal written beside it");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A temp root carrying exactly one user-edited seed → one standing conflict.
+    fn root_with_one_conflict(tag: &str) -> (PathBuf, &'static str, PathBuf) {
+        let root = std::env::temp_dir().join(format!("lmd_ack_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        materialize_contracts(&root, dir, false).unwrap();
+        let target = root.join(dir).join("lang/rust.lmd.md");
+        std::fs::write(&target, b"# hand-written by the user\n").unwrap();
+        refresh_contracts(&root, dir).unwrap(); // writes the .new proposal
+        (root, dir, target)
+    }
+
+    #[test]
+    fn a_second_ack_on_the_same_conflict_is_silent() {
+        let (root, dir, target) = root_with_one_conflict("silent");
+        let first = ack_seeds(&root, dir, &[]).unwrap();
+        assert_eq!(first.acked, vec![target.clone()], "the first ack is news");
+        let second = ack_seeds(&root, dir, &[]).unwrap();
+        assert!(
+            second.acked.is_empty(),
+            "a spent ack says nothing: {:?}",
+            second.acked
+        );
+        assert!(second.unmatched.is_empty(), "no filter → nothing unmatched");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_no_op_ack_does_not_rewrite_the_lock() {
+        // The claim is about the lock's BYTES, not its mtime.
+        let (root, dir, _target) = root_with_one_conflict("noop");
+        let lock_path = root.join(".lean-ctx/lean-md.lock");
+        ack_seeds(&root, dir, &[]).unwrap();
+        let after_first = std::fs::read(&lock_path).expect("lock written by the first ack");
+        ack_seeds(&root, dir, &[]).unwrap();
+        let after_second = std::fs::read(&lock_path).unwrap();
+        assert_eq!(
+            after_first, after_second,
+            "a no-op ack leaves the lock alone"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }
