@@ -18,6 +18,7 @@ Content-Änderung einen **Pack**-Bump — nie einen Binary-Bump. `version_req = 
 
 1. `content/skills/**` editieren.
 2. `LEAN_MD_BLESS=1 cargo nextest run --test pack_drift` — schreibt `content/skills.sha256`.
+   - Seed-Änderung (`content/core/**`, `content/templates/**`): `LEAN_MD_BLESS=1 cargo nextest run --test seed_history` — hängt den neuen Hash an `content/seeds.sha256` an. Anders als der Bless oben (der `content/skills.sha256` ersetzt): dieser Bless **hängt nur an, kürzt die Historie nie** — Installationen ohne Lock heilen sich über diese Datei, eine gekürzte Zeile heilt nie wieder.
 3. `lean-ctx pack create --kind skills --name @dastholo/lean-md-skills --version <neu> --from content/skills --description "lmd skills"`
 4. `content/skills.ctxpkg-hash` aus `<pkg_dir>/manifest.json` (`integrity.content_hash`) aktualisieren.
 5. `lean-ctx pack export @dastholo/lean-md-skills@<neu> --sign --output pack.ctxpkg`
