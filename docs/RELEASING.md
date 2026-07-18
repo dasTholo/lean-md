@@ -38,8 +38,7 @@ maintainer's; an implementing agent stops at the preparation commit.
 
 1. Edit `content/skills/**`.
 2. Bless drift (above). Expected: `content/skills.sha256` updated; `git status` shows it.
-3.
-`lean-ctx pack create --kind skills --name @dastholo/lean-md-skills --version <version> --from content/skills --description "lmd skills"`.
+3. `lean-ctx pack create --kind skills --name @dastholo/lean-md-skills --version <version> --from content/skills --description "lmd skills"`.
 4. Sync `content/skills.ctxpkg-hash` from `<pkg_dir>/manifest.json`
    (`integrity.content_hash`).
 5. `lean-ctx pack export @dastholo/lean-md-skills@<version> --sign --output pack.ctxpkg`.
