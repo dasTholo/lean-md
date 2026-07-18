@@ -6,6 +6,10 @@
 #
 # The skills-pack drift gate runs only when a commit stages skill content or its
 # hash sidecars; it mirrors CI (pack-drift.yml) so drift never reaches origin.
+#
+# Install BOTH the pre-commit and pre-push stages on `pre-commit install`, so the
+# docs/lean-md -> main guard below is active without an extra --hook-type flag.
+default_install_hook_types: [pre-commit, pre-push]
 repos:
   - repo: local
     hooks:
@@ -16,9 +20,28 @@ repos:
         pass_filenames: false
         files: '^content/skills(/|\.sha256$|\.ctxpkg-hash$)'
         description: content/skills.sha256 + skills.ctxpkg-hash must match the skill bytes
+        stages: [pre-commit]
+      - id: no-plans-on-main-commit
+        name: block docs/lean-md on main (commit)
+        entry: .githooks/guard-plans-on-main.sh commit
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+        description: docs/lean-md dev plans/specs must never be committed on main/master
+      - id: no-plans-on-main-push
+        name: block docs/lean-md on main (push)
+        entry: .githooks/guard-plans-on-main.sh push
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+        description: reject any push to main/master whose tree carries docs/lean-md
   - repo: https://github.com/AndrejOrsula/pre-commit-cargo
     rev: 0.5.0
     hooks:
       - id: cargo-fmt
+        stages: [pre-commit]
       - id: cargo-clippy
         args: ["--all-targets", "--all-features"]
+        stages: [pre-commit]
