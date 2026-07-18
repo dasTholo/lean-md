@@ -135,17 +135,43 @@ mod tests {
         assert!(!t.contains_key("Directive"), "header row skipped");
     }
 
+    /// What this gate does NOT test: drift between the embedded table and its file.
+    /// `include_str!` is build-invalidating — edit `content/gloss/directives.lmd.md` and
+    /// the const picks the new bytes up, so both sides of that comparison move together.
+    /// The compiler upholds it; a test cannot.
+    ///
+    /// What it DOES test, and what genuinely breaks: the wiring from the table to its
+    /// consumer. An `include_str!` pointing at the wrong content file, or a `gloss` that
+    /// trims/re-wraps/mutates the template on its way out, land here as a hard failure.
+    /// The on-disk file is the reference for the prose each directive must yield.
     #[test]
-    fn embedded_table_matches_on_disk_file() {
-        // include_str! identity (Spec §6.4): the embedded bytes are the file.
+    fn the_gloss_table_reaches_its_consumer_unmutated() {
         let on_disk = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/content/gloss/directives.lmd.md"
         ))
         .expect("gloss file readable");
-        assert_eq!(
-            GLOSS_TABLE_SRC, on_disk,
-            "embedded gloss drifted from on-disk file"
+        let reference = parse_table(&on_disk);
+        assert!(
+            reference.len() >= 5,
+            "table is substantial: {}",
+            reference.len()
         );
+
+        for (key, template) in &reference {
+            if key.contains(':') {
+                continue;
+            }
+            let expected = substitute(template, &DirectiveArgs::parse("probe"));
+            let got = gloss(key, "probe");
+            assert_eq!(
+                got, expected,
+                "@{key} does not render its own table template — wiring or mutation"
+            );
+            assert!(
+                !got.starts_with("Directive `@"),
+                "@{key} fell through to the generic fallback: the table never reached gloss"
+            );
+        }
     }
 }
