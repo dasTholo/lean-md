@@ -16,14 +16,13 @@ Content-Änderung einen **Pack**-Bump — nie einen Binary-Bump. `version_req = 
 
 ### Skill-Content ändern
 
-1. `content/skills/**` editieren.
-2. `LEAN_MD_BLESS=1 cargo nextest run --test pack_drift` — schreibt `content/skills.sha256`.
-   - Seed-Änderung (`content/core/**`, `content/templates/**`): `LEAN_MD_BLESS=1 cargo nextest run --test seed_history` — hängt den neuen Hash an `content/seeds.sha256` an. Anders als der Bless oben (der `content/skills.sha256` ersetzt): dieser Bless **hängt nur an, kürzt die Historie nie** — Installationen ohne Lock heilen sich über diese Datei, eine gekürzte Zeile heilt nie wieder.
-3. `lean-ctx pack create --kind skills --name @dastholo/lean-md-skills --version <neu> --from content/skills --description "lmd skills"`
-4. `content/skills.ctxpkg-hash` aus `<pkg_dir>/manifest.json` (`integrity.content_hash`) aktualisieren.
-5. `lean-ctx pack export @dastholo/lean-md-skills@<neu> --sign --output pack.ctxpkg`
-6. `lean-ctx pack publish pack.ctxpkg --token ctxp_…` — **von Hand**. CI verifiziert nur;
-   es liegt bewusst kein Publish-Token in der Workflow-Umgebung.
+Die vollständigen, generischen Schritt-für-Schritt-Runbooks — skill-only, binary-only
+und binary+pack — leben jetzt in `docs/RELEASING.md`; diese Datei behält nur die
+Zwei-Regime-Übersicht.
+
+Der Seed-Bless (`content/core/**`, `content/templates/**`) bleibt der Sonderfall:
+`LEAN_MD_BLESS=1 cargo nextest run --test seed_history` **hängt nur an** `content/seeds.sha256`
+an, kürzt die Historie nie — Details im Bless-commands-Abschnitt von `docs/RELEASING.md`.
 
 ### Lokal ohne Pack entwickeln
 
@@ -36,8 +35,9 @@ Content-Änderung einen **Pack**-Bump — nie einen Binary-Bump. `version_req = 
 The skills pack is published and live; the addon itself resolves **once its curated registry
 entry is listed (PR #721)**. From then on `addon add @dastholo/lean-md` picks the highest
 non-yanked version matching `^0.2`, so a fresh install pulls the latest `0.2.x` pack
-automatically. `lean-ctx-addon.toml` is untouched, so the `kind=addon` pack does **not** need
-republishing.
+automatically. For a **skill-only** cut `lean-ctx-addon.toml` is untouched, so the
+`kind=addon` pack does **not** need republishing. The **binary+pack** case is different: it
+DOES require an `addon publish` after `sync-manifest` (see `docs/RELEASING.md`).
 
 Existing installs are pinned by the lockfile and stay on their resolved version until
 `addon update` — that is correct behaviour, not a bug.
