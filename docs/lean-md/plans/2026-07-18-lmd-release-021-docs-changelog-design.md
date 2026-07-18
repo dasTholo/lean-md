@@ -12,7 +12,7 @@ Seit dem einzigen Tag `v0.2.0` haben sich **beide** Release-Linien bewegt:
 - **Skills-Pack** (`content/skills/**`): Stubs geslimt/single-sourced, `lmd-rendering-skills`
   neu, TDD-body, Companion-Edits.
 
-Daraus folgen drei Lücken:
+Daraus folgen vier Lücken:
 
 1. **Kein CHANGELOG** — die Änderungen sind nirgends beschrieben.
 2. **README.md + INSTALL.md referenzieren durchgehend `0.2.0`** und enthalten **keine**
@@ -24,11 +24,16 @@ Daraus folgen drei Lücken:
    Addon-Pack nicht neu published wird, zieht jede neue Session weiter das v0.2.0-Binary.
    Die `dev-readme` dokumentiert nur den skill-only-Fall („addon.toml untouched → kein
    Republish") und schweigt zum Binary+Pack-Fall.
+4. **Kein kanonisches Release-Runbook.** Release-Wissen ist verstreut (dev-readme deckt nur
+   skill-only, CI implizit, die Republish-Sequenz nirgends). Jedes künftige skill-/pack-
+   Update muss es neu rekonstruieren.
 
 ## Ziel
 
 `0.2.1` sauber ausliefern (beide Linien), Docs aktualisieren, die Republish-Lücke
-**beheben und dokumentieren**. Danach findet eine neue Session eindeutig `0.2.1`.
+**beheben und dokumentieren**, und das Release-Wissen in ein dauerhaftes, generisches
+Runbook (`docs/RELEASING.md`) konsolidieren. Danach findet eine neue Session eindeutig
+`0.2.1`, und der nächste Release folgt einem geschriebenen Ablauf.
 
 ## Ausführungsgrenze
 
@@ -61,18 +66,35 @@ Beschreibungen aus den Commit-Betreffen destilliert, nicht erfunden.
   zieht das neue side-by-side-Binary **und** den neuen Skills-Pack (health-gated,
   auto-prune), danach MCP-Client neu starten. Das ist die direkte Antwort auf „wie
   bekommt der Endnutzer die neueste Version".
+- Link auf `docs/RELEASING.md` (im Maintainer-/Contributor-Kontext, z.B. neben dem
+  bestehenden dev-readme-Hinweis).
 
-### C · `docs/dev-readme.md`
+### C · `docs/dev-readme.md` (auf Kurzform reduzieren)
 
-Neuer Abschnitt **„Binary + Pack gleichzeitig"**: die bestehende Zwei-Regime-Tabelle
-deckt nur skill-only ab. Ergänzung — ändert sich das Binary, ändert sich
-`lean-ctx-addon.toml` (version + artifacts), also **muss** der `kind=addon`-Pack via
-`lean-ctx addon publish --namespace dastholo` neu published werden. Harte Sequenz:
-**Tag → CI-Build → `sync-manifest` → dann erst** `addon publish` (braucht die echten
-v0.2.1-sha256). Die bestehende Aussage „addon.toml untouched → kein Republish" bleibt
-korrekt für skill-only, wird aber explizit auf diesen Fall eingegrenzt.
+Die dev-readme bleibt die knappe **Regime-Übersicht** (die Zwei-Regime-Tabelle), aber
+die Schritt-für-Schritt-Abläufe wandern nach `docs/RELEASING.md`. dev-readme verweist
+für die vollständigen Runbooks dorthin (dedupliziert, keine parallele Pflege). Die
+bestehende Aussage „addon.toml untouched → kein Republish" bleibt korrekt, wird aber
+explizit auf den skill-only-Fall eingegrenzt — der Binary+Pack-Fall lebt im RELEASING.md.
 
-### D · Version-Bumps (Repo)
+### D · `docs/RELEASING.md` (neu — kanonisches, generisches Runbook)
+
+Ein auffindbares Dokument, das die **drei Release-Fälle** als Schritt-für-Schritt-Runbook
+mit „Expected:"-Checks führt:
+
+| Fall | Auslöser | Kern |
+|---|---|---|
+| **Skill-only** | nur `content/skills/**` | Pack-Bump → `pack create/export/publish`. Kein Tag, kein Binary. |
+| **Binary-only** | `src/**`, `content/core`, `content/templates`, Cargo/Manifest | Tag `v*` → CI-Build → `sync-manifest` → `addon publish`. |
+| **Binary + Pack** | beides (= 0.2.1) | Pack-Bump **und** Tag; Reihenfolge Tag → CI → `sync-manifest` → Skills-Pack-Publish → `addon publish`. |
+
+Enthält zusätzlich: die Bless-Befehle (`pack_drift`, `seed_history`), die harte
+Republish-Sequenz (warum `addon publish` erst nach `sync-manifest` geht — es braucht die
+echten Artifact-sha256), und die „ohne target-Binary"-Feststellung. Generisch formuliert
+(Versionen als Platzhalter), damit es jeden künftigen Release trägt — 0.2.1 ist nur der
+erste Durchlauf durch den Binary+Pack-Fall.
+
+### E · Version-Bumps (Repo)
 
 - `Cargo.toml` `version = "0.2.1"` (+ `Cargo.lock`).
 - `lean-ctx-addon.toml` `addon.version = "0.2.1"`. **`[artifacts.*]` sha256/url NICHT
@@ -91,21 +113,21 @@ korrekt für skill-only, wird aber explizit auf diesen Fall eingegrenzt.
   lean-md-Binary kommt als GitHub-Release-Asset (url + sha256). Im Runbook als
   Expected-Check verankert.
 
-## F · Runbook (Datei für den Nutzer, nicht ausgeführt)
+## Ausführung (Nutzer, nach dem Vorbereitungs-Commit)
 
-Geordnete Befehlsfolge mit „Expected:"-Checks:
+Der 0.2.1-Release ist der **Fall Binary+Pack** aus `docs/RELEASING.md` — also kein
+separates Wegwerf-Runbook mehr, sondern der erste Durchlauf durch das kanonische:
 
-1. Commit der Vorbereitung auf `feat-lmd-v2`.
-2. `git tag v0.2.1 && git push --tags` → Release-CI (5-leg-Build) → `sync-manifest`
-   patcht `[artifacts.*]` sha256 + committet auf `feat-lmd-v2`.
-3. `git pull` (den sync-manifest-Commit holen).
+1. Vorbereitungs-Commit auf `feat-lmd-v2` (Agent, dieser Auftrag).
+2. `git tag v0.2.1 && git push --tags` → Release-CI → `sync-manifest` committet die
+   `[artifacts.*]`-sha256 auf `feat-lmd-v2`.
+3. `git pull` (sync-manifest-Commit holen).
 4. Skills-Pack: `pack create --version 0.2.1` → `content/skills.ctxpkg-hash` prüfen →
    `pack export --sign` → `pack publish --token ctxp_…`.
-5. Addon-Pack: `lean-ctx addon publish --namespace dastholo` (liest das gepatchte
-   Manifest, published den `kind=addon`-Pack neu).
-6. Smoke: in einem sauberen Kontext `lean-ctx addon update lean-md` → zieht 0.2.1.
+5. Addon-Pack: `lean-ctx addon publish --namespace dastholo`.
+6. Smoke: sauberer Kontext, `lean-ctx addon update lean-md` → zieht 0.2.1.
 
-Jeder Schritt token-/CI-gebunden bleibt beim Nutzer.
+Alles Token-/CI-gebundene bleibt beim Nutzer.
 
 ## Non-Goals
 
