@@ -64,14 +64,14 @@ impl CodeIntelBackend for CliBackend {
 /// requested via `LEAN_MD_BACKEND=mcp` + `LEAN_MD_MCP_ENDPOINT`.
 pub fn default_backend(project_root: &str) -> Box<dyn CodeIntelBackend> {
     #[cfg(feature = "mcp")]
-    if std::env::var("LEAN_MD_BACKEND").as_deref() == Ok("mcp") {
-        if let Ok(endpoint) = std::env::var("LEAN_MD_MCP_ENDPOINT") {
-            // Fall back to the stateless CLI backend if the endpoint is
-            // unreachable/malformed, so a bad LEAN_MD_MCP_ENDPOINT never bricks
-            // rendering — it just loses the warm-connection optimization.
-            if let Ok(be) = mcp::McpBackend::new(endpoint, project_root.to_string()) {
-                return Box::new(be);
-            }
+    if std::env::var("LEAN_MD_BACKEND").as_deref() == Ok("mcp")
+        && let Ok(endpoint) = std::env::var("LEAN_MD_MCP_ENDPOINT")
+    {
+        // Fall back to the stateless CLI backend if the endpoint is
+        // unreachable/malformed, so a bad LEAN_MD_MCP_ENDPOINT never bricks
+        // rendering — it just loses the warm-connection optimization.
+        if let Ok(be) = mcp::McpBackend::new(endpoint, project_root.to_string()) {
+            return Box::new(be);
         }
     }
     Box::new(CliBackend {
