@@ -7,7 +7,7 @@ license = "Apache-2.0"
 description = "Macro/directive markdown renderer for lean-ctx context engineering."
 homepage = "https://github.com/dasTholo/lean-md"
 repository = "https://github.com/dasTholo/lean-md"
-include = ["src/**/*.rs", "content/**/*.lmd.md", "content/**/*.md", "Cargo.toml", "README.md", "INSTALL.md", "CHANGELOG.md", "LICENSE", "docs/CONTRACT.md"]
+include = ["src/**/*.rs", "content/**/*.lmd.md", "content/**/*.md", "Cargo.toml", "README.md", "INSTALL.md", "CHANGELOG.md", "LICENSE"]
 
 [lib]
 name = "lean_md"

@@ -55,6 +55,6 @@ The gate verifies. You publish.
 Binary and pack use **independent SemVer**. They start aligned at `0.2.0` purely as a
 convenient starting point — that alignment is not a contract and is expected to break.
 
-A content-only fix moves the pack to `0.2.1` while the binary stays at `0.2.0`. That
+A content-only fix bumps the pack (say `0.2.x` → `0.2.x+1`) while the binary version holds. That
 divergence *is* the benefit of the cut. Only a pack jump to `0.3.x` requires touching
 `version_req` in `lean-ctx-addon.toml`, which in turn means republishing the addon pack.
