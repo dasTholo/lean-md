@@ -240,7 +240,7 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
     // Even when an outer phase is open on ctx.phase_scope (nested `@call`
     // expansion), a body with no phase directives contributes nothing to the
     // outer scope — skip the line scanner entirely.
-    let has_phase_directives = body.lines().any(|l| {
+    let has_phase_directives = unfenced_lines(body).iter().any(|(_, l)| {
         let t = l.trim_start();
         t.starts_with("@phase") || is_on_complete(t)
     });
@@ -267,12 +267,18 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
     // @phase-end, not a stray one from an outer caller).
     let mut opened_here = false;
 
+    let fenced = fenced_mask(body);
     for (idx, line) in body.lines().enumerate() {
         let src_line = idx + 1; // 1-based; @phase line = 1, first body line = 2
         let trimmed = line.trim_start();
+        // Inside a fence a directive is documentation, not a definition — the rule
+        // `duplicate_phase` has always applied. Nothing is redirected: an unfenced line
+        // takes the branches below, a fenced one falls through to the ordinary-line
+        // path and renders as the text it is.
+        let is_directive = !fenced[idx];
 
         // @phase-end (close) — only meaningful when we opened a scope here.
-        if trimmed.starts_with("@phase-end") {
+        if is_directive && trimmed.starts_with("@phase-end") {
             if opened_here {
                 let sc = ctx.phase_scope.borrow_mut().pop();
                 match sc {
@@ -290,7 +296,7 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
         }
 
         // @phase "name" (open)
-        if let Some(rest) = trimmed.strip_prefix("@phase") {
+        if is_directive && let Some(rest) = trimmed.strip_prefix("@phase") {
             // (rest may start with a space; `@phase-end` already handled above)
             if opened_here || outer_phase_open {
                 out.push_str("<!-- lmd: nested @phase -->\n");
@@ -313,7 +319,7 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
         }
 
         // @on complete (only valid inside an open phase — D-8).
-        if is_on_complete(trimmed) {
+        if is_directive && is_on_complete(trimmed) {
             let has_open = !ctx.phase_scope.borrow().is_empty();
             if has_open {
                 let aborted = ctx
@@ -350,7 +356,9 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
             if aborted {
                 continue; // skip remaining body after abort
             }
-            if let Some((name, args)) = crate::parser::block::parse_directive_line(line.as_bytes())
+            if is_directive
+                && let Some((name, args)) =
+                    crate::parser::block::parse_directive_line(line.as_bytes())
             {
                 // Phase 9: consumer=human glosses Work-directives as prose (no abort path).
                 if ctx.consumer_hint() == 1 {
@@ -457,6 +465,41 @@ fn parse_phase_name(rest: &str) -> String {
     rest.trim().trim_matches('"').trim().to_string()
 }
 
+/// `mask[i] == true` → line `i` (0-based) sits inside a fenced code block.
+/// Same fence rule as `unfenced_lines` — one implementation, so gate and renderer
+/// can never disagree on what a fence is.
+fn fenced_mask(source: &str) -> Vec<bool> {
+    let fence_run = |l: &str| -> Option<(char, usize)> {
+        let t = l.trim_start();
+        let c = t.chars().next().filter(|c| *c == '`' || *c == '~')?;
+        let n = t.chars().take_while(|x| *x == c).count();
+        (n >= 3).then_some((c, n))
+    };
+    let mut open: Option<(char, usize)> = None;
+    let mut out = Vec::new();
+    for l in source.lines() {
+        match open {
+            Some((oc, on)) => {
+                out.push(true); // the closing fence line is itself fenced
+                if let Some((c, n)) = fence_run(l)
+                    && c == oc
+                    && n >= on
+                {
+                    open = None;
+                }
+            }
+            None => match fence_run(l) {
+                Some(f) => {
+                    open = Some(f);
+                    out.push(true); // the opening fence line too
+                }
+                None => out.push(false),
+            },
+        }
+    }
+    out
+}
+
 /// Lines of `source` that are NOT inside a fenced code block, as `(0-based index,
 /// line)`. Plans quote lmd source in ``` blocks, so a `@phase "x"` in a fence is
 /// documentation, not a definition — a duplicate gate that counted it would invent
@@ -466,31 +509,12 @@ fn parse_phase_name(rest: &str) -> String {
 /// opens; a run of the same char, at least as long, closes; an unclosed fence runs to
 /// the end of the document.
 fn unfenced_lines(source: &str) -> Vec<(usize, &str)> {
-    let fence_run = |l: &str| -> Option<(char, usize)> {
-        let t = l.trim_start();
-        let c = t.chars().next().filter(|c| *c == '`' || *c == '~')?;
-        let n = t.chars().take_while(|x| *x == c).count();
-        (n >= 3).then_some((c, n))
-    };
-    let mut open: Option<(char, usize)> = None;
-    let mut out = Vec::new();
-    for (idx, l) in source.lines().enumerate() {
-        match open {
-            Some((oc, on)) => {
-                if let Some((c, n)) = fence_run(l)
-                    && c == oc
-                    && n >= on
-                {
-                    open = None;
-                }
-            }
-            None => match fence_run(l) {
-                Some(f) => open = Some(f),
-                None => out.push((idx, l)),
-            },
-        }
-    }
-    out
+    let mask = fenced_mask(source);
+    source
+        .lines()
+        .enumerate()
+        .filter(|(i, _)| !mask[*i])
+        .collect()
 }
 
 /// First duplicate `@phase` name in `source` → `(name, first definition line,
@@ -549,10 +573,11 @@ pub(crate) fn iter_phase_blocks(source: &str) -> Vec<(String, String)> {
     if duplicate_phase(source).is_some() {
         return Vec::new();
     }
+    let fenced = fenced_mask(source);
     let mut open: Option<(String, Vec<&str>)> = None;
-    for line in source.lines() {
+    for (idx, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
-        if trimmed.starts_with("@phase-end") {
+        if !fenced[idx] && trimmed.starts_with("@phase-end") {
             if let Some((name, lines)) = open.take()
                 && !out.iter().any(|(n, _)| *n == name)
             {
@@ -560,7 +585,9 @@ pub(crate) fn iter_phase_blocks(source: &str) -> Vec<(String, String)> {
             }
             continue;
         }
-        if let Some(rest) = trimmed.strip_prefix("@phase") {
+        if !fenced[idx]
+            && let Some(rest) = trimmed.strip_prefix("@phase")
+        {
             if open.is_none() {
                 open = Some((parse_phase_name(rest), Vec::new()));
             }
@@ -633,6 +660,28 @@ mod tests {
     use crate::header::LeanMdHeader;
 
     use super::render_with_phases;
+    use super::{iter_phase_blocks, outline_phases};
+
+    #[test]
+    fn a_fenced_phase_is_documentation_not_a_definition() {
+        let src = "```\n@phase \"t\"\nFAKE\n@phase-end\n```\n\n@phase \"t\"\nREAL\n@phase-end\n";
+        let blocks = iter_phase_blocks(src);
+        assert_eq!(blocks.len(), 1, "one real phase, not two: {blocks:?}");
+        assert_eq!(blocks[0].0, "t");
+        assert!(blocks[0].1.contains("REAL"), "the real block wins");
+        assert!(
+            !blocks[0].1.contains("FAKE"),
+            "the fenced block is documentation"
+        );
+        let outline = outline_phases(src);
+        assert_eq!(outline.len(), 1, "one addressable phase");
+        assert_eq!(outline[0].name, "t");
+        let doc_only = "```\n@phase \"t\"\nFAKE\n@phase-end\n```\n";
+        assert!(
+            iter_phase_blocks(doc_only).is_empty(),
+            "a fenced phase defines nothing"
+        );
+    }
 
     #[test]
     fn capture_phase_bodies_extracts_raw_body_without_lifecycle() {
