@@ -16,7 +16,7 @@ The `@dastholo/lean-md` addon is **published and live** on ctxpkg
 (<https://ctxpkg.com/@dastholo/lean-md>). This is the recommended install — no Rust
 toolchain and no manual pack step: `addon add` fetches the sha256-pinned prebuilt
 binary into lean-ctx's managed bin dir and pulls in the skills-pack dependency
-`@dastholo/lean-md-skills 0.2.0` automatically via `[[dependencies]]` + `{pack_dir:}`
+`@dastholo/lean-md-skills 0.2.1` automatically via `[[dependencies]]` + `{pack_dir:}`
 expansion.
 
 ```sh
@@ -35,7 +35,7 @@ lean-ctx addon add ./lean-ctx-addon.toml     # wire it into the gateway
 ```
 
 Use this for local development or building from source. **Note on skills:** the published skills-pack
-[`@dastholo/lean-md-skills 0.2.0`](https://ctxpkg.com/@dastholo/lean-md-skills) (on
+[`@dastholo/lean-md-skills 0.2.1`](https://ctxpkg.com/@dastholo/lean-md-skills) (on
 ctxpkg) is the distribution channel — both it and the addon are now live on ctxpkg. A **debug** build
 (`cargo run …`) reads skills straight from `content/skills/` via the debug fallback; a
 **release** binary from `cargo install --path .` has no fallback, so `render --skill`
@@ -47,6 +47,21 @@ needs `LEAN_MD_SKILLS_DIR` pointed at the pack store (else it fails with `PACK_M
 re-reads its catalog and the lean-md tools become reachable through the
 **`ctx_tools`** gateway as `lean-md::lmd_render` / `lean-md::lmd_check` (alias `ctx_md_render` / `ctx_md_check`).
 This is the most common "tool not found" cause.
+
+## Updating
+
+To upgrade an installed addon to the latest release:
+
+```sh
+lean-ctx addon update lean-md
+```
+
+This fetches the newest side-by-side binary **and** skills-pack from ctxpkg
+(health-gated, with automatic prune of the superseded version). Restart the MCP
+client/server afterwards so the gateway re-reads its catalog.
+
+Maintainers cutting a release: see [`docs/RELEASING.md`](docs/RELEASING.md) for the
+canonical runbook.
 
 ## Install the skill stubs (local default / global)
 
@@ -103,7 +118,7 @@ at the pack store first. Resolve the exact path `addon add` recorded, then expor
 ```sh
 grep LEAN_MD_SKILLS_DIR ~/.config/lean-ctx/config.toml
 # e.g. ~/.local/share/lean-ctx/packages/skills/@dastholo__lean-md-skills/<version>
-export LEAN_MD_SKILLS_DIR="…/@dastholo__lean-md-skills/<version>"   # <version> = the installed pack (0.2.0)
+export LEAN_MD_SKILLS_DIR="…/@dastholo__lean-md-skills/<version>"   # <version> = the installed pack (0.2.1)
 lean-md skill install lmd-brainstorm --global
 ```
 

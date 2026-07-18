@@ -150,6 +150,18 @@ lean-ctx addon add ./lean-ctx-addon.toml
 > **After `addon add`:** restart your MCP client/server so the gateway catalog
 > is re-read and the lean-md tools become visible.
 
+### Updating
+
+Upgrade an installed addon to the latest release:
+
+```sh
+lean-ctx addon update lean-md
+```
+
+This pulls the newest side-by-side binary **and** skills-pack (health-gated, with
+automatic prune of the superseded version); restart your MCP client/server
+afterwards. Maintainers cutting a release: see [`docs/RELEASING.md`](docs/RELEASING.md).
+
 The gateway aggregates the addon under the **`ctx_tools`** downstream gateway as
 `lean-md::lmd_render` / `lean-md::lmd_check` (alias `lean-md::ctx_md_render` /
 `lean-md::ctx_md_check`) — **not** on the `ctx_call` / `ctx_discover_tools` router
