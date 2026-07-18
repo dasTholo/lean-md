@@ -19,8 +19,8 @@ You MUST create a task for each of these items and complete them in order:
 1. **Explore project context** — check files, docs, recent commits
 2. **Offer the visual companion just-in-time** — NOT upfront. The first time a
    question would genuinely be clearer shown than described, offer it then (its
-   own message). On approval, render the companion:
-   `ctx_md_render(skill="lmd-brainstorm", companion="visual-companion")`. If no
+   own message). On approval, render the `visual-companion` companion of
+   `lmd-brainstorm` (call form: see the `lmd-rendering-skills` skill). If no
    visual question ever arises, never offer it.
 3. **Ask clarifying questions** — one at a time, understand
    purpose/constraints/success criteria
@@ -122,8 +122,8 @@ question or other content.
 Suggested offer wording:
 > "This next part might be easier if I show you — I can put together mockups, diagrams, and comparisons in a browser tab as we go. It's still new and can be token-intensive. Want me to? I'll open it for you."
 
-If the user accepts, render the detailed guide:
-`ctx_md_render(skill="lmd-brainstorm", companion="visual-companion")`. If they
+If the user accepts, render the detailed guide — the `visual-companion` companion of
+`lmd-brainstorm` (call form: see the `lmd-rendering-skills` skill). If they
 decline, continue text-only and don't offer again unless they raise it.
 
 next: render phase "approaches".

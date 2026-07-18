@@ -16,7 +16,7 @@ You run scenarios without the skill (RED - watch agent fail), write skill addres
 
 **REQUIRED BACKGROUND:** You MUST understand lmd-test-driven-development before using this skill. That skill defines the fundamental RED-GREEN-REFACTOR cycle. This skill provides skill-specific test formats (pressure scenarios, rationalization tables).
 
-**Complete worked example:** render the companion: ctx_md_render(skill="lmd-writing-skills", companion="claude-md-testing-example") for a full test campaign testing CLAUDE.md documentation variants.
+**Complete worked example:** render the `claude-md-testing-example` companion of `lmd-writing-skills` (call form: see the `lmd-rendering-skills` skill) for a full test campaign testing CLAUDE.md documentation variants.
 
 ## When to Use
 
@@ -143,7 +143,7 @@ Forces explicit choice.
 
 **Best tests combine 3+ pressures.**
 
-**Why this works:** render the companion: ctx_md_render(skill="lmd-writing-skills", companion="persuasion-principles") for research on how authority, scarcity, and commitment principles increase compliance pressure.
+**Why this works:** render the `persuasion-principles` companion of `lmd-writing-skills` (call form: see the `lmd-rendering-skills` skill) for research on how authority, scarcity, and commitment principles increase compliance pressure.
 
 ### Key Elements of Good Scenarios
 

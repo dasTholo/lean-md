@@ -85,6 +85,9 @@ pub enum SkillRenderError {
     UnknownSkill(String),
     PhaseNotFound(String),
     CompanionNotFound(String),
+    /// A source with duplicate `@phase` names — the message names both sites
+    /// (`crate::phases::duplicate_phase_error`).
+    DuplicatePhase(String),
     Source(crate::skill_source::SourceError),
 }
 
@@ -94,6 +97,7 @@ impl std::fmt::Display for SkillRenderError {
             SkillRenderError::UnknownSkill(s) => write!(f, "UNKNOWN_SKILL '{s}'"),
             SkillRenderError::PhaseNotFound(p) => write!(f, "PHASE_NOT_FOUND '{p}'"),
             SkillRenderError::CompanionNotFound(c) => write!(f, "COMPANION_NOT_FOUND '{c}'"),
+            SkillRenderError::DuplicatePhase(m) => write!(f, "{m}"),
             SkillRenderError::Source(e) => write!(f, "{e}"),
         }
     }
@@ -110,6 +114,12 @@ pub fn render_skill(
     jail_root: PathBuf,
 ) -> Result<String, SkillRenderError> {
     let owned = skill_source(name, &jail_root)?;
+    // Duplicate @phase names → refuse before rendering: only the first block per name is
+    // addressable, so any output would silently omit the second one. Source-relative
+    // lines (the header is still attached here) point the author at both sites.
+    if let Some(m) = crate::phases::duplicate_phase_error(&owned) {
+        return Err(SkillRenderError::DuplicatePhase(m));
+    }
     let (mut header, body) = parse_header(&owned);
     if let Some(c) = consumer {
         header.consumer = c;
@@ -152,6 +162,11 @@ pub fn render_source_with_phase(
     crp: Option<CrpMode>,
     jail_root: PathBuf,
 ) -> Result<String, SkillRenderError> {
+    // See `render_skill`: a duplicated @phase name makes the source lossy, so no render
+    // of it can be honest. Both sites are named, 1-based in `source`.
+    if let Some(m) = crate::phases::duplicate_phase_error(source) {
+        return Err(SkillRenderError::DuplicatePhase(m));
+    }
     let (mut header, body) = parse_header(source);
     if let Some(c) = consumer {
         header.consumer = c;
@@ -1148,19 +1163,20 @@ mod tests {
         ));
         // Orientation layer (E6).
         assert!(stub.contains("NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"));
-        assert!(stub.contains("Where this runs"));
-        for call in [
-            "phase=\"red\"",
-            "phase=\"green\"",
-            "phase=\"refactor\"",
-            "phase=\"rationalizations\"",
-            "companion=\"testing-anti-patterns\"",
+        // The render handle is single-sourced in lmd-rendering-skills; the stub only
+        // names its phases and companions.
+        assert!(stub.contains("lmd-rendering-skills"));
+        for name in [
+            "**red**",
+            "**green**",
+            "**refactor**",
+            "**rationalizations**",
+            "`testing-anti-patterns`",
         ] {
-            assert!(stub.contains(call), "stub missing render call '{call}'");
+            assert!(stub.contains(name), "stub missing phase/companion '{name}'");
         }
-        // Companion trigger (E7, upstream wording) + final rule + XOR.
+        // Companion trigger (E7, upstream wording) + final rule.
         assert!(stub.contains("When adding mocks or test utilities"));
-        assert!(stub.contains("never both"));
         assert!(stub.contains("Otherwise → not TDD"));
     }
 
@@ -1208,8 +1224,12 @@ mod tests {
         )
         .unwrap();
         assert!(
-            out.contains("companion=\"testing-anti-patterns\""),
-            "rationalizations must carry the concrete companion render call: {out}"
+            out.contains("`testing-anti-patterns` companion of `lmd-test-driven-development`"),
+            "rationalizations must name the concrete companion to render: {out}"
+        );
+        assert!(
+            out.contains("lmd-rendering-skills"),
+            "…and must point at the skill that carries the render call form: {out}"
         );
         assert!(
             !out.contains("ported in Spec #2"),
@@ -1591,10 +1611,103 @@ mod tests {
             stub.contains("You MUST use this before any creative work"),
             "stub description must carry the original MUST auto-trigger (spec §SKILL.md-Stub)"
         );
+    }
+
+    /// Every installable stub except the bootstrap skill itself must be free of the
+    /// `ctx_md_render` handle — it is single-sourced in `lmd-rendering-skills`.
+    #[test]
+    fn no_installable_stub_mentions_ctx_md_render() {
+        let jail = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for name in crate::skill_install::INSTALLABLE_SKILLS {
+            if *name == "lmd-rendering-skills" {
+                continue;
+            }
+            let stub =
+                crate::skill_source::read_skill_file(&format!("{name}/SKILL.md"), &jail).unwrap();
+            assert!(
+                !stub.contains("ctx_md_render"),
+                "stub {name} still carries the ctx_md_render handle — it belongs \
+                 exclusively in lmd-rendering-skills"
+            );
+        }
+    }
+
+    /// No pack content file may INSTRUCT the bare `ctx_md_render(skill=…)` call form.
+    /// In the lean-ctx addon topology that call cannot succeed (lean-md is a separate
+    /// stdio server behind the gateway) — bodies and companions must address the render
+    /// by skill+phase/companion and defer the call form to `lmd-rendering-skills`.
+    /// Unlike the stub guards above this walks EVERY content file, because bodies are
+    /// read at phase-render time and companions by `@dispatch`'d subagents that never
+    /// saw a stub.
+    #[test]
+    fn no_pack_content_instructs_the_bare_ctx_md_render_call() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else {
+                    out.push(path);
+                }
+            }
+        }
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("content");
+        let mut files = Vec::new();
+        walk(&root, &mut files);
         assert!(
-            stub.contains("ctx_md_render"),
-            "stub description/body must keep the lmd render-on-invoke pointer"
+            files.len() > 20,
+            "content walk found suspiciously few files"
         );
+
+        let mut offenders = Vec::new();
+        for path in &files {
+            let Ok(text) = std::fs::read_to_string(path) else {
+                continue; // binary / non-utf8 asset
+            };
+            for (idx, line) in text.lines().enumerate() {
+                // The bare call form: `ctx_md_render(` followed by the `skill` argument.
+                // The gateway form (`tool="lean-md::ctx_md_render", arguments={…}`) and a
+                // prose mention of the tool name both stay legal.
+                for (pos, _) in line.match_indices("ctx_md_render") {
+                    let rest = line[pos + "ctx_md_render".len()..].trim_start();
+                    let Some(args) = rest.strip_prefix('(') else {
+                        continue;
+                    };
+                    if args.trim_start().starts_with("skill") {
+                        offenders.push(format!(
+                            "{}:{}",
+                            path.strip_prefix(&root).unwrap().display(),
+                            idx + 1
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "pack content instructs the bare ctx_md_render(skill=…) call form at {offenders:?} \
+             — it cannot succeed behind the lean-ctx gateway; address the render by \
+             skill+phase/companion and point at the lmd-rendering-skills skill instead"
+        );
+    }
+
+    /// …and each of them must point at the skill that does carry it.
+    #[test]
+    fn every_installable_stub_points_at_lmd_rendering_skills() {
+        let jail = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        for name in crate::skill_install::INSTALLABLE_SKILLS {
+            if *name == "lmd-rendering-skills" {
+                continue;
+            }
+            let stub =
+                crate::skill_source::read_skill_file(&format!("{name}/SKILL.md"), &jail).unwrap();
+            assert!(
+                stub.contains("lmd-rendering-skills"),
+                "stub {name} must point at the lmd-rendering-skills skill for \
+                 rendering, diagnosis and fallback"
+            );
+        }
     }
 
     #[test]

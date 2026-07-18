@@ -1,7 +1,7 @@
 [addon]
 name = "lean-md"
 display_name = "lean-md"
-version = "0.2.0"
+version = "0.2.1"
 description = "Macro/directive markdown renderer for lean-ctx context engineering."
 author = "dasTholo"
 homepage = "https://github.com/dasTholo/lean-md"
@@ -19,28 +19,28 @@ min_lean_ctx = "3.9.6"
 
 [artifacts.x86_64-unknown-linux-gnu]
 filename = "lean-md-x86_64-unknown-linux-gnu"
-url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.0/lean-md-x86_64-unknown-linux-gnu"
-sha256   = "af5642d77c956363e8b6b5b5b438a69ab38f686a8aebb2e3765f88147cb496c8"
+url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.1/lean-md-x86_64-unknown-linux-gnu"
+sha256   = "316c1dfb8eafe90b305ad93553b67f65cd4a522216a9b9d38680597fba734f55"
 
 [artifacts.aarch64-unknown-linux-gnu]
 filename = "lean-md-aarch64-unknown-linux-gnu"
-url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.0/lean-md-aarch64-unknown-linux-gnu"
-sha256   = "3a3b0e6edbb70943a610a312dd8e1eaa1cd59d2984282f0a3a6f185caea20517"
+url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.1/lean-md-aarch64-unknown-linux-gnu"
+sha256   = "30e875c304050a53d909d6529c1defaa3a0a22337b21b571a74bb289d8483fb3"
 
 [artifacts.x86_64-apple-darwin]
 filename = "lean-md-x86_64-apple-darwin"
-url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.0/lean-md-x86_64-apple-darwin"
-sha256   = "9e3800e99fcb762eea2770158b53e433f89d589860aac863b50e80de352c117a"
+url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.1/lean-md-x86_64-apple-darwin"
+sha256   = "af7c05dfc2bb55333a7b277904bd8e2a29b59e1690c3c69e366024edd0d4ff19"
 
 [artifacts.aarch64-apple-darwin]
 filename = "lean-md-aarch64-apple-darwin"
-url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.0/lean-md-aarch64-apple-darwin"
-sha256   = "365dee0f8313a8d405622b79afa12403dbe7375ebde03255d3bc625b6dc87c16"
+url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.1/lean-md-aarch64-apple-darwin"
+sha256   = "4b06b93460f43feed93ea0773065263e541e207f3c8e2aa5b035d927fe2741e9"
 
 [artifacts.x86_64-pc-windows-msvc]
 filename = "lean-md-x86_64-pc-windows-msvc.exe"
-url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.0/lean-md-x86_64-pc-windows-msvc.exe"
-sha256   = "1b092ff475d16e5a24027f3e4a978dcd4bf190b09dd227a274438b41b645d1cb"
+url      = "https://github.com/dasTholo/lean-md/releases/download/v0.2.1/lean-md-x86_64-pc-windows-msvc.exe"
+sha256   = "add6b85bfa559152fff91b0a412eded2b6e392ad8edecb9e771b42e5e14ceaf7"
 
 # Skill-Content lebt seit P3 (#727) im Pack, nicht im Binary. Der Resolver löst
 # `version_req` depth-1 gegen den Registry-Index auf; ein Pack, das nur als

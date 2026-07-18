@@ -19,15 +19,15 @@ MCP opt-in), so lean-md never parses code locally.
 ```sh
 lean-md render <file.lmd.md> [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md]
 lean-md check  <file.lmd.md>
-lean-md mcp                      # stdio JSON-RPC 2.0 MCP server (ctx_md_render / ctx_md_check)
+lean-md mcp                      # stdio JSON-RPC 2.0 MCP server (lmd_render / lmd_check; alias ctx_md_render / ctx_md_check)
 ```
 
 - `render` evaluates the document and prints Markdown (`-o` writes to a file).
   `--consumer=human` narrates directives as prose; `--crp` selects the output
   density (token-compressed rendering protocol).
 - `check` parse-checks a source and reports header config + directive count.
-- `mcp` serves `ctx_md_render` / `ctx_md_check` over stdio — this is the entry
-  point the addon wiring spawns (`command = "lean-md"`, `args = ["mcp"]`).
+- `mcp` serves `lmd_render` / `lmd_check` over stdio (alias `ctx_md_render` / `ctx_md_check`)
+  — this is the entry point the addon wiring spawns (`command = "lean-md"`, `args = ["mcp"]`).
 
 ## Directives (overview)
 
@@ -56,11 +56,13 @@ lean-md render demo.lmd.md
 
 ## Skills
 
-lean-md embeds **8 skills** — native ports of the superpowers process skills —
-rendered on demand, one phase at a time (the −88…−95 % token lever). Each
-`SKILL.md` is a delegation stub; the MCP server renders the body/companion via
-`ctx_md_render` with `skill=<name>` / `phase=<name>` (or `companion=<name>`)
-addressing.
+lean-md embeds **9 skills**: 8 native ports of the superpowers process skills — rendered on
+demand, one phase at a time (the −88…−95 % token lever) — plus `lmd-rendering-skills`, a
+single bootstrap skill that documents the render call itself (not renderable; it has no
+body and is a plain SKILL.md, see below). Each
+process-skill `SKILL.md` is a delegation stub; the MCP server renders the body/companion via
+`lmd_render` (alias `ctx_md_render`) with `skill=<name>` / `phase=<name>` (or
+`companion=<name>`) addressing.
 
 | Stage | Skill | Purpose |
 |---|---|---|
@@ -82,10 +84,12 @@ Two levels:
 - **End-user entry:** in an agent host (e.g. Claude Code) skills auto-trigger via
   their `description`, or you invoke `/lmd-<skill>` as a slash command; the host
   agent walks the phases.
-- **Render mechanics:** every `SKILL.md` is a stub; the body/companion is fetched
-  phase by phase via `ctx_md_render(skill="<name>", phase="<phase>")` (CLI:
-  `lean-md render --skill <name> --phase <phase> --consumer=ai`). Phase isolation is
-  where the token saving comes from.
+- **Render mechanics:** every `SKILL.md` is a stub; the body/companion is fetched phase by
+  phase through the gateway's `lmd_render` tool (alias `ctx_md_render`) — see "Why
+  `ctx_md_render` Is Regularly Misdiagnosed as a Broken Gateway" below for the exact call
+  form (a bare `lmd_render(...)` call is not it). CLI equivalent:
+  `lean-md render --skill <name> --phase <phase> --consumer=ai`. Phase isolation is where
+  the token saving comes from.
 
 ### Making the skills discoverable (install the `SKILL.md` stubs)
 
@@ -101,21 +105,24 @@ lean-md skill install lmd-brainstorm --global   # → ~/.claude/skills/…   (ev
 lean-md skill remove  lmd-brainstorm [--global] # mirror uninstall
 ```
 
-Install all eight at once (the canonical `INSTALLABLE_SKILLS` set):
+Install all nine at once (the canonical `INSTALLABLE_SKILLS` set):
 
 ```sh
 for s in lmd-brainstorm lmd-writing-plans lmd-executing-plans \
          lmd-subagent-driven-development lmd-dispatching-parallel-agents \
          lmd-finishing-a-development-branch lmd-test-driven-development \
-         lmd-writing-skills; do
+         lmd-writing-skills lmd-rendering-skills; do
   lean-md skill install "$s"          # --local is default; append --global for user-wide
 done
 ```
 
+`lmd-rendering-skills` is listed here only for completeness — every `skill install` call
+already pulls it in as a dependency, so installing it explicitly is never required.
+
 Beyond the stub, `install` also materializes any skill assets **and** the project
 seeds into `<repo>/.lean-ctx/lean-md/` (dispatch-contract, plan templates — required
 by `@dispatch` and the plan recipes). A bare `SKILL.md` symlink would skip those
-seeds, so always use the installer. Full flow, the eight skill names, and the
+seeds, so always use the installer. Full flow, the nine skill names, and the
 standalone `LEAN_MD_SKILLS_DIR` requirement: [`INSTALL.md`](INSTALL.md).
 
 ## Install as a lean-ctx addon
@@ -143,16 +150,63 @@ lean-ctx addon add ./lean-ctx-addon.toml
 > **After `addon add`:** restart your MCP client/server so the gateway catalog
 > is re-read and the lean-md tools become visible.
 
+### Updating
+
+Upgrade an installed addon to the latest release:
+
+```sh
+lean-ctx addon update lean-md
+```
+
+This pulls the newest side-by-side binary **and** skills-pack (health-gated, with
+automatic prune of the superseded version); restart your MCP client/server
+afterwards. Maintainers cutting a release: see [`docs/RELEASING.md`](docs/RELEASING.md).
+
 The gateway aggregates the addon under the **`ctx_tools`** downstream gateway as
-`lean-md::ctx_md_render` / `lean-md::ctx_md_check` — **not** on the `ctx_call` /
-`ctx_discover_tools` router (those list only lean-ctx's own tools). From an MCP
-client:
+`lean-md::lmd_render` / `lean-md::lmd_check` (alias `lean-md::ctx_md_render` /
+`lean-md::ctx_md_check`) — **not** on the `ctx_call` / `ctx_discover_tools` router
+(those list only lean-ctx's own tools). From an MCP client:
 
 ```jsonc
-ctx_tools {"action":"list"}     // → lean-md [stdio, enabled] — 2 tool(s)
-ctx_tools {"action":"call","tool":"lean-md::ctx_md_render",
+ctx_tools {"action":"list"}     // → lean-md [stdio, enabled] — 4 tool(s)
+ctx_tools {"action":"call","tool":"lean-md::lmd_render",
            "arguments":{"path":"demo.lmd.md"}}   // byte-identical to `lean-md render demo.lmd.md`
 ```
+
+## Why `ctx_md_render` Is Regularly Misdiagnosed as a Broken Gateway
+
+`lean-md` is a separate stdio MCP server; the lean-ctx gateway spawns and aggregates it, but
+neither `ctx_md_render(...)` nor its alias `lmd_render(...)` is a directly callable tool — every
+call must go through the `ctx_tools` wrapper shown above. A bare, unwrapped call fails, and the
+failure reads exactly like "the gateway is down," which sends people straight into the shell
+fallback for the rest of the session. The fallback works and reports no error, so the
+misdiagnosis conceals itself.
+
+Work through this order before concluding the gateway is broken:
+
+1. `ctx_tools(action="list")` — does it show `lean-md [stdio, enabled]`? Then the server is fine
+   and the call was simply misaddressed; fix the call, don't fall back.
+2. Got `Transport closed`? Retry once — sporadic, the gateway respawns the server.
+3. Only once the server is genuinely absent: fall back to the shell (`lean_md_bin` +
+   `LEAN_MD_SKILLS_DIR`, see INSTALL.md's "Standalone requirement") — same binary,
+   byte-identical output.
+
+**Step 3 is for consumers of the installed addon.** If you are developing *inside the lean-md
+repo itself*, the shell fallback is the *normal* path, not a last resort — that repo's
+`CLAUDE.md` documents why: the gateway carries the lean-md catalog, but does not hand the tool
+to the dev agent directly, so step 3 is the default entry point there, not an escape hatch.
+Reading step 3 in isolation and applying it backwards is the exact failure mode this section
+exists to prevent.
+
+`lmd_render` / `lmd_check` are the recommended tool names going forward; `ctx_md_render` /
+`ctx_md_check` remain supported aliases with identical behavior. Rendered skill *pack* content
+(the `SKILL.md` bodies fetched at runtime) intentionally keeps citing `ctx_md_render` /
+`ctx_md_check` — the pack has no lean-md-minimum-version gate to enforce a rename
+(`min_lean_ctx` in `lean-ctx-addon.toml` pins the *lean-ctx* version, not lean-md's), so pack
+content stays on the name every lean-md version is guaranteed to understand.
+
+The agent-facing counterpart of this section — same diagnosis order, written for an LLM to
+follow the moment a render call fails — is the `lmd-rendering-skills` skill.
 
 ## Backend selection
 

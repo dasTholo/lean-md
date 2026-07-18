@@ -25,7 +25,7 @@ Skills that enforce discipline (like TDD) need to resist rationalization. Agents
 
 **Scope:** this toolkit is for discipline failures — an agent that knows the rule and skips it under pressure. For wrong-shaped output or omitted elements, prohibition-based bulletproofing backfires; use the forms in Match the Form to the Failure instead.
 
-**Psychology note:** Understanding WHY persuasion techniques work helps you apply them systematically. render the companion: ctx_md_render(skill="lmd-writing-skills", companion="persuasion-principles") for research foundation (Cialdini, 2021; Meincke et al., 2025) on authority, commitment, scarcity, social proof, and unity principles.
+**Psychology note:** Understanding WHY persuasion techniques work helps you apply them systematically. render the `persuasion-principles` companion of `lmd-writing-skills` (call form: see the `lmd-rendering-skills` skill) for research foundation (Cialdini, 2021; Meincke et al., 2025) on authority, commitment, scarcity, social proof, and unity principles.
 
 ### Close Every Loophole Explicitly
 
@@ -61,7 +61,7 @@ This cuts off entire class of "I'm following the spirit" rationalizations.
 
 ### Build Rationalization Table
 
-Capture rationalizations from baseline testing (render the companion: ctx_md_render(skill="lmd-writing-skills", companion="testing/methodology")). Every excuse agents make goes in the table:
+Capture rationalizations from baseline testing (render the `testing/methodology` companion of `lmd-writing-skills` — call form: see the `lmd-rendering-skills` skill). Every excuse agents make goes in the table:
 
 ```markdown
 | Excuse | Reality |

@@ -16,7 +16,13 @@ pub const INSTALLABLE_SKILLS: &[&str] = &[
     "lmd-executing-plans",
     "lmd-finishing-a-development-branch",
     "lmd-dispatching-parallel-agents",
+    "lmd-rendering-skills",
 ];
+
+/// The one skill with an inline `SKILL.md` instead of a delegation stub: it is what
+/// teaches the gateway render call, so it cannot itself require knowing it (chicken
+/// and egg). It has no body — `skills::SKILLS` deliberately does not list it.
+const BOOTSTRAP_SKILL: &str = "lmd-rendering-skills";
 
 /// Non-rendered helper files materialized verbatim into the installed skill dir
 /// (skill, pack-relative filename). Read from the content cascade at install time.
@@ -72,10 +78,10 @@ fn target_dir(name: &str, scope: Scope, project_root: &Path) -> PathBuf {
 }
 
 /// Materialize a skill's `SKILL.md` into the chosen scope. Atomic-ish,
-/// idempotent (overwrites the stub — byte-stable content, #498). `force=true`
-/// additionally refreshes the project-level seeds even when they already exist
-/// (a stale derived seed after an embedded-seed edit); `force=false` keeps the
-/// seeds absent-only so user edits are never clobbered.
+/// idempotent (overwrites the stub — byte-stable content, #498). `force=false` runs
+/// the lock-based seed refresh (heals stale-but-untouched seeds, preserves user edits
+/// and drops the embedded copy beside them as `.new`); `force=true` overwrites the
+/// project-level seeds unconditionally.
 pub fn install_skill(
     name: &str,
     scope: Scope,
@@ -114,11 +120,30 @@ pub fn install_skill(
             std::fs::set_permissions(&asset_path, perm)?;
         }
     }
+    // The 8 delegation stubs point at lmd-rendering-skills instead of carrying the
+    // gateway call themselves — it is load-bearing, so every install pulls it along
+    // (Spec 2026-07-16, decision 5). Best-effort, NOT `?`: `skill_md()` reads SKILL.md
+    // from the pack, never from the binary, so a newer binary against an older pack
+    // would otherwise fail EVERY install with SKILL_FILE_NOT_FOUND. The requested skill
+    // keeps precedence; the reference dangles in that transitional case instead.
+    if name != BOOTSTRAP_SKILL {
+        let _ = install_skill(BOOTSTRAP_SKILL, scope, project_root, force);
+    }
     // Materialize the project-level seeds (plan-recipes/plan-template, lang/*,
-    // tooling/*, dispatch-contract.ext) into the project root — absent-only unless
-    // `force`, so user edits are never overwritten by a plain reinstall (Spec §6);
-    // `--force` refreshes a stale derived seed after an embedded-seed edit.
-    crate::seeds::materialize_contracts(project_root, ".lean-ctx/lean-md", force)?;
+    // tooling/*, dispatch-contract.ext) into the project root. Two of the three seed
+    // modes (Spec §6):
+    //
+    // * `force=false` (the default install) → `refresh_contracts`: the lock separates a
+    //   stale-but-untouched seed (healed silently) from a user-edited one (never
+    //   touched, embedded copy dropped beside it as `.new`). Absent-only would let a
+    //   seed age forever; this heals it without ever clobbering local work.
+    // * `force=true` → `materialize_contracts(force)`: the deliberate hammer, overwrites
+    //   unconditionally, local changes included.
+    if force {
+        crate::seeds::materialize_contracts(project_root, ".lean-ctx/lean-md", true)?;
+    } else {
+        crate::seeds::refresh_contracts(project_root, ".lean-ctx/lean-md")?;
+    }
     Ok(target)
 }
 
@@ -639,5 +664,110 @@ mod tests {
         .unwrap();
         assert_eq!(again, skill_md, "install must be idempotent");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn bootstrap_skill_without_body_installs_cleanly() {
+        // `lmd-rendering-skills` carries an inline SKILL.md and NO body.lmd.md: it is the
+        // one skill that cannot be a delegation stub (chicken-and-egg — it is what teaches
+        // the gateway call). `install_skill` only ever reads `<name>/SKILL.md`, so the
+        // missing body must not matter here.
+        let root =
+            std::env::temp_dir().join(format!("lmd_bootstrap_install_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let skill_md = install_skill(BOOTSTRAP_SKILL, Scope::Local, &root, false).unwrap();
+        assert!(skill_md.exists(), "SKILL.md must be written");
+        let written = std::fs::read_to_string(&skill_md).unwrap();
+        assert!(
+            written.contains("name: lmd-rendering-skills"),
+            "stub frontmatter missing"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn install_any_lmd_skill_materializes_lmd_rendering_skills() {
+        // The 8 delegation stubs point at lmd-rendering-skills for the gateway call, so it
+        // is load-bearing: every install must pull it along (Spec 2026-07-16, decision 5).
+        let root = std::env::temp_dir().join(format!("lmd_bootstrap_pull_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        install_skill("lmd-brainstorm", Scope::Local, &root, false).unwrap();
+        assert!(
+            root.join(".claude/skills/lmd-rendering-skills/SKILL.md")
+                .exists(),
+            "installing any lmd skill must also materialize the bootstrap skill"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn installing_bootstrap_skill_does_not_recurse() {
+        let root =
+            std::env::temp_dir().join(format!("lmd_bootstrap_norecurse_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        let target = install_skill(BOOTSTRAP_SKILL, Scope::Local, &root, false).unwrap();
+        assert_eq!(
+            target,
+            root.join(".claude/skills/lmd-rendering-skills/SKILL.md")
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn bootstrap_skill_is_the_only_holder_of_the_gateway_handle() {
+        // Positive half: the bootstrap skill carries the gateway-qualified handle.
+        // (The negative half — no other stub mentions it — lives with the stub rewrite.)
+        let jail = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let body = skill_md(BOOTSTRAP_SKILL, &jail).expect("bootstrap SKILL.md resolves");
+        assert!(
+            body.contains("lean-md::ctx_md_render"),
+            "the bootstrap skill must carry the gateway-qualified render handle"
+        );
+    }
+
+    #[test]
+    fn missing_bootstrap_skill_in_pack_does_not_fail_the_requested_install() {
+        // A newer binary against an older pack does not know `lmd-rendering-skills` there.
+        // The requested skill takes precedence: the co-install is best-effort, so the
+        // reference dangles in that transitional case instead of blowing up every install.
+        // `lmd-writing-plans` is used because it declares no ASSETS — those are read with
+        // `?` and would mask the effect under test.
+        let root =
+            std::env::temp_dir().join(format!("lmd_bootstrap_oldpack_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let pack = std::env::temp_dir().join(format!("lmd_oldpack_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&pack);
+        std::fs::create_dir_all(pack.join("lmd-writing-plans")).unwrap();
+        std::fs::write(
+            pack.join("lmd-writing-plans/SKILL.md"),
+            "---\nname: lmd-writing-plans\ndescription: old pack\n---\nbody\n",
+        )
+        .unwrap();
+
+        unsafe { std::env::set_var("LEAN_MD_SKILLS_DIR", &pack) };
+        let res = install_skill("lmd-writing-plans", Scope::Local, &root, false);
+        unsafe { std::env::remove_var("LEAN_MD_SKILLS_DIR") };
+
+        assert!(
+            res.is_ok(),
+            "a pack without the bootstrap skill must not fail the requested install: {res:?}"
+        );
+        assert!(
+            !root.join(".claude/skills/lmd-rendering-skills").exists(),
+            "the bootstrap skill cannot be materialized from a pack that lacks it"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&pack);
     }
 }

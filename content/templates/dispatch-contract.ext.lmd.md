@@ -1,3 +1,3 @@
-# Dispatch-contract extension (project seed)
-# Materialized into <contracts_dir>; @dispatch composes core-first, then this.
-# Add project-specific subagent rules below. Empty by default.
+<!-- Dispatch-contract extension (project seed).
+     Auto-composed by @dispatch after the built-in contract.
+     Add project-specific subagent rules below. Empty by default. -->

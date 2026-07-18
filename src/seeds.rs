@@ -1,9 +1,19 @@
 //! Project materialization of lang/tooling/.ext seeds (Spec §5.4, layer B).
-//! Seeds are binary-embedded (`include_str!`); `materialize_contracts` copies
-//! them into the project's `contracts_dir`. Absent-only by default, so a user's
-//! edits are never clobbered; an explicit `force` refresh overwrites a stale
-//! derived seed after the embedded copy changed. Resolution order: project file
-//! overrides the embedded seed (handled by FragmentRegistry's jailed file fallback).
+//! Seeds are binary-embedded (`include_str!`) and copied into the project's
+//! `contracts_dir` in one of three modes:
+//!
+//! * absent-only (`materialize_contracts(.., force=false)`) — the install default
+//!   for a fresh target; never touches an existing file, so seeds age silently.
+//! * `force` (`materialize_contracts(.., force=true)`) — the deliberate hammer:
+//!   overwrites unconditionally, local changes included.
+//! * lock-based (`refresh_contracts`) — uses `.lean-ctx/lean-md.lock` to tell a
+//!   stale-but-untouched seed (heal it) from a user-edited one (`.new` beside it).
+//!
+//! Materializing a seed does not by itself decide what a render resolves to —
+//! for the resolution order (built-in vs. project file) see `fragments.rs`. The
+//! `*.ext.lmd.md` seeds EXTEND their built-in fragment: `FragmentRegistry::resolve`
+//! appends the `.ext` after the built-in body, it never replaces it. They ship inert
+//! (HTML comments only) so an untouched seed keeps every render byte-stable (#498).
 
 use std::path::{Path, PathBuf};
 
@@ -30,9 +40,59 @@ pub const PROJECT_SEEDS: &[(&str, &str)] = &[
         "dispatch-contract.ext.lmd.md",
         include_str!("../content/templates/dispatch-contract.ext.lmd.md"),
     ),
+    (
+        "hard-rules.ext.lmd.md",
+        include_str!("../content/templates/hard-rules.ext.lmd.md"),
+    ),
+    (
+        "parallel-dispatch.ext.lmd.md",
+        include_str!("../content/templates/parallel-dispatch.ext.lmd.md"),
+    ),
     ("plan-recipes.lmd.md", PLAN_RECIPES),
     ("plan-template.lmd.md", PLAN_TEMPLATE),
 ];
+
+/// Every sha256 each seed has ever shipped with (oldest first, current last),
+/// checked in as `content/seeds.sha256` and parsed at runtime.
+///
+/// Why a checked-in manifest and not a third `PROJECT_SEEDS` field: the history
+/// must outlive the bytes it describes. `include_str!` is build-invalidating —
+/// edit a seed and no compiled code can see the OLD version any more. A manifest
+/// is a snapshot the compiler does not drag along, which is exactly what makes
+/// the append-only gate in `tests/seed_history.rs` able to bite (#498).
+const SEED_HISTORY_SRC: &str = include_str!("../content/seeds.sha256");
+
+/// Parse `sha256sum`-format lines (`<hex>  <rel>`) into `rel → [hex]`, order
+/// preserved. Comment and blank lines are skipped. Shared with the gate so both
+/// sides read the manifest through one parser.
+pub(crate) fn parse_history(src: &str) -> std::collections::HashMap<String, Vec<String>> {
+    let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for line in src.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        let Some((hex, rel)) = t.split_once("  ") else {
+            continue;
+        };
+        map.entry(rel.trim().to_string())
+            .or_default()
+            .push(hex.trim().to_string());
+    }
+    map
+}
+
+/// The history of one seed, by its `PROJECT_SEEDS` target key. Empty slice for an
+/// unknown key — an unlisted seed simply has no history, never a panic.
+fn seed_history(rel: &str) -> &'static [String] {
+    static HISTORY: std::sync::OnceLock<std::collections::HashMap<String, Vec<String>>> =
+        std::sync::OnceLock::new();
+    HISTORY
+        .get_or_init(|| parse_history(SEED_HISTORY_SRC))
+        .get(rel)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+}
 
 /// Materialize embedded project seeds into `<project_root>/<contracts_dir>`.
 /// `force=false` is absent-only (idempotent, never clobbers user edits); `force=true`
@@ -57,6 +117,271 @@ pub fn materialize_contracts(
         written.push(target);
     }
     Ok(written)
+}
+
+/// What a `refresh_contracts` run did that the user may want to know about.
+#[derive(Default)]
+pub struct RefreshReport {
+    /// Stale but untouched seeds that were silently updated to the embedded copy.
+    pub healed: Vec<PathBuf>,
+    /// Seeds carrying local changes (or unknown provenance) that the user has NOT
+    /// acknowledged: left alone, embedded copy written beside them as `<target>.new`.
+    /// This is the only conflict list worth a word — see `acked` for the rest.
+    pub preserved: Vec<PathBuf>,
+    /// Conflicts the user already acknowledged for exactly this embedded seed. Still
+    /// preserved, still diverging — but there is nothing NEW to say, so they carry no
+    /// `.new` file and no report line. Kept as a field because `ack` needs to see the
+    /// standing conflicts, not because anyone should print them.
+    pub acked: Vec<PathBuf>,
+}
+
+impl RefreshReport {
+    /// Nothing happened that is worth a word to the user. An acknowledged conflict is
+    /// deliberately quiet: the user answered this exact proposal already.
+    pub fn is_quiet(&self) -> bool {
+        self.healed.is_empty() && self.preserved.is_empty()
+    }
+}
+
+/// `<target>.new` — the standing proposal beside a preserved seed.
+fn new_path(target: &Path) -> PathBuf {
+    let mut name = target.file_name().unwrap_or_default().to_os_string();
+    name.push(".new");
+    target.with_file_name(name)
+}
+
+/// The conflict for `key` is gone (reverted or healed): drop the standing proposal and
+/// the consent that answered it. Leaving either behind makes lean-md lie later — a
+/// stale `.new` keeps `check` reporting "your local copies were kept" about a conflict
+/// that no longer exists, and a spent ack would silence the user's NEXT edit.
+/// Returns whether the lock changed.
+fn resolve_conflict(
+    lock: &mut crate::lock::Lock,
+    key: &str,
+    target: &Path,
+) -> std::io::Result<bool> {
+    let stale = new_path(target);
+    if stale.exists() {
+        std::fs::remove_file(&stale)?;
+    }
+    Ok(lock.clear_ack(key))
+}
+
+/// Lock key for a seed: paths in the lock are relative to `.lean-ctx/`, the
+/// directory `sha256sum -c` runs in.
+fn lock_key(contracts_dir: &str, rel: &str) -> String {
+    let dir = contracts_dir
+        .strip_prefix(".lean-ctx/")
+        .unwrap_or(contracts_dir)
+        .trim_end_matches('/');
+    if dir.is_empty() {
+        rel.to_string()
+    } else {
+        format!("{dir}/{rel}")
+    }
+}
+
+/// Provenance verdict for one seed: did WE write these bytes, or did the user?
+///
+/// Two sources, and the second is what part A is about. The lock is the precise
+/// answer, but it only exists for projects materialized after it was introduced —
+/// every older installation has NO lock entry and would read as "unknown
+/// provenance", i.e. never heal again. The history says "these bytes are a version
+/// we shipped", which is the same claim the lock makes, just without the lock.
+///
+/// A real user edit matches neither and stays protected — that is the invariant
+/// this function must never lose.
+fn is_ours(lock: &crate::lock::Lock, key: &str, rel: &str, local_hex: &str) -> bool {
+    lock.get(key) == Some(local_hex) || seed_history(rel).iter().any(|h| h == local_hex)
+}
+
+/// Lock-based refresh — the third mode beside absent-only and `force`.
+///
+/// Absent-only lets seeds age; `force` clobbers real local work. The lock records
+/// the seed hash this project was materialized with, which is what separates
+/// "stale but untouched" (heal it) from "the user changed it" (never touch it,
+/// drop the new copy beside it as `.new` and say so). A seed with no lock entry
+/// has unknown provenance and is treated as user-owned.
+///
+/// A conflict the user acknowledged (`lean-md ack`) stays preserved but goes silent:
+/// no `.new`, no report line. The lock's *provenance* entry is untouched either way,
+/// so the seed can still heal the moment the user reverts.
+pub fn refresh_contracts(
+    project_root: &Path,
+    contracts_dir: &str,
+) -> std::io::Result<RefreshReport> {
+    let base = project_root.join(contracts_dir);
+    let mut lock = crate::lock::Lock::load(project_root);
+    let mut report = RefreshReport::default();
+    let mut lock_dirty = false;
+
+    for (rel, content) in PROJECT_SEEDS {
+        let target = base.join(rel);
+        let key = lock_key(contracts_dir, rel);
+        let embedded_hex = crate::hashx::sha256_hex(content.as_bytes());
+
+        let Ok(local) = std::fs::read(&target) else {
+            // Absent target: an install, not a user edit — write it and record it.
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&target, content)?;
+            lock.set(&key, &embedded_hex);
+            // A seed that was deleted outright takes its conflict with it.
+            resolve_conflict(&mut lock, &key, &target)?;
+            lock_dirty = true;
+            continue;
+        };
+        let local_hex = crate::hashx::sha256_hex(&local);
+
+        if local_hex == embedded_hex {
+            // Already current — whatever conflict existed here is over (the user
+            // reverted, or replaced their copy with the .new). Record provenance if the
+            // lock did not know it yet, and clean up after the conflict.
+            if lock.get(&key) != Some(embedded_hex.as_str()) {
+                lock.set(&key, &embedded_hex);
+                lock_dirty = true;
+            }
+            lock_dirty |= resolve_conflict(&mut lock, &key, &target)?;
+            continue;
+        }
+
+        if is_ours(&lock, &key, rel, &local_hex) {
+            // Local matches what we ever wrote (lock or history) → untouched, only stale → heal it. Any
+            // `.new`/ack from an earlier, since-reverted conflict is spent too.
+            std::fs::write(&target, content)?;
+            lock.set(&key, &embedded_hex);
+            resolve_conflict(&mut lock, &key, &target)?;
+            lock_dirty = true;
+            report.healed.push(target);
+            continue;
+        }
+
+        // Local edit, or no lock entry (unknown provenance): never overwrite.
+        //
+        // Consent decides whether this is worth saying. `ack` records the EMBEDDED hash
+        // the user answered; while it still matches, the divergence is old news and we
+        // keep quiet — a report the user cannot switch off becomes wallpaper, and then
+        // the real ones get scrolled past too. The moment the embedded seed moves on,
+        // the ack no longer matches and the proposal is genuinely new again.
+        //
+        // Note what is NOT done here: the lock entry is never set to `local_hex`. That
+        // would silence the report by declaring the user's edit our own provenance, and
+        // this seed could then never heal again. Consent and provenance are two
+        // questions; `Lock` answers them on two channels (see `lock.rs`).
+        if lock.ack(&key) == Some(embedded_hex.as_str()) {
+            // Acknowledged: the proposal was seen and declined. `ack` already removed the
+            // `.new`; do not resurrect it.
+            report.acked.push(target);
+            continue;
+        }
+
+        // Unacknowledged → the user gets the current embedded copy beside their own,
+        // but only when that actually says something new. Rewriting an identical `.new`
+        // on every server start makes it look freshly changed each time. Written only
+        // when missing (nothing there to read yet) or when it differs (the embedded seed
+        // moved on, so the standing proposal is out of date).
+        let new_target = new_path(&target);
+        let up_to_date = std::fs::read(&new_target)
+            .map(|existing| existing == content.as_bytes())
+            .unwrap_or(false);
+        if !up_to_date {
+            std::fs::write(&new_target, content)?;
+        }
+        report.preserved.push(target);
+    }
+
+    if lock_dirty {
+        lock.save(project_root)?;
+    }
+    Ok(report)
+}
+
+/// Which seeds `lean-md ack` would act on: preserved conflicts, acknowledged or not.
+/// Pure read — `cmd_ack` uses it to resolve the user's filter arguments.
+fn standing_conflicts(project_root: &Path, contracts_dir: &str) -> Vec<(String, PathBuf, String)> {
+    let base = project_root.join(contracts_dir);
+    let lock = crate::lock::Lock::load(project_root);
+    let mut out = Vec::new();
+    for (rel, content) in PROJECT_SEEDS {
+        let target = base.join(rel);
+        let embedded_hex = crate::hashx::sha256_hex(content.as_bytes());
+        let Ok(local) = std::fs::read(&target) else {
+            continue;
+        };
+        let local_hex = crate::hashx::sha256_hex(&local);
+        if local_hex == embedded_hex {
+            continue; // no conflict
+        }
+        let key = lock_key(contracts_dir, rel);
+        if is_ours(&lock, &key, rel, &local_hex) {
+            continue; // untouched + stale → heals, never a conflict
+        }
+        out.push((key, target, embedded_hex));
+    }
+    out
+}
+
+/// Outcome of an `ack` run.
+#[derive(Default)]
+pub struct AckReport {
+    /// Seeds whose conflict is now acknowledged (`.new` removed, consent recorded).
+    pub acked: Vec<PathBuf>,
+    /// Filter arguments that matched no standing conflict — the user asked about
+    /// something that is not (or no longer) in conflict, and deserves to hear so
+    /// rather than get a silent success.
+    pub unmatched: Vec<String>,
+}
+
+/// Acknowledge seed conflicts: record the user's consent for the CURRENT embedded seed
+/// and drop the `.new` beside it. `filter` empty → every standing conflict; otherwise a
+/// path per entry, matched loosely (full path, path under the contracts dir, or bare
+/// file name; a trailing `.new` is stripped, since that is the name `check` prints).
+///
+/// Writes (lock + `.new` removal), so it belongs to a verb the user invokes — never to
+/// `render`/`check`, which stay purely reading (D-1).
+pub fn ack_seeds(
+    project_root: &Path,
+    contracts_dir: &str,
+    filter: &[String],
+) -> std::io::Result<AckReport> {
+    let conflicts = standing_conflicts(project_root, contracts_dir);
+    let matches = |target: &Path, arg: &str| -> bool {
+        let arg = arg.strip_suffix(".new").unwrap_or(arg);
+        let arg = Path::new(arg);
+        target == arg || target.ends_with(arg)
+    };
+
+    let mut lock = crate::lock::Lock::load(project_root);
+    let mut report = AckReport::default();
+    let mut dirty = false;
+    for (key, target, embedded_hex) in &conflicts {
+        if !filter.is_empty() && !filter.iter().any(|a| matches(target, a)) {
+            continue;
+        }
+        // Already acknowledged for exactly this embedded seed: nothing changed, so
+        // there is nothing to report and nothing to write. A verb that says it did
+        // something it did not is the same class of lie as a silent failure.
+        if lock.ack(key) == Some(embedded_hex.as_str()) {
+            continue;
+        }
+        lock.set_ack(key, embedded_hex);
+        dirty = true;
+        let proposal = new_path(target);
+        if proposal.exists() {
+            std::fs::remove_file(&proposal)?;
+        }
+        report.acked.push(target.clone());
+    }
+    for arg in filter {
+        if !conflicts.iter().any(|(_, t, _)| matches(t, arg)) {
+            report.unmatched.push(arg.clone());
+        }
+    }
+    if dirty {
+        lock.save(project_root)?;
+    }
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -176,6 +501,489 @@ mod tests {
             "force=true must refresh the stale seed to the embedded content"
         );
 
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn refresh_heals_a_stale_untouched_seed_silently() {
+        let root = std::env::temp_dir().join(format!("lmd_refresh_heal_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        materialize_contracts(&root, dir, false).unwrap();
+        // First refresh writes the lock for the pristine tree.
+        refresh_contracts(&root, dir).unwrap();
+
+        // Simulate "the embedded seed moved on": pin an OLD hash in the lock and put the
+        // matching old content on disk. Local == lock → untouched → may heal.
+        let target = root.join(dir).join("plan-recipes.lmd.md");
+        let old = "# an older embedded copy\n";
+        std::fs::write(&target, old).unwrap();
+        let mut lock = crate::lock::Lock::load(&root);
+        lock.set(
+            "lean-md/plan-recipes.lmd.md",
+            &crate::hashx::sha256_hex(old.as_bytes()),
+        );
+        lock.save(&root).unwrap();
+
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            PLAN_RECIPES,
+            "stale + untouched must heal to the embedded seed"
+        );
+        assert!(
+            report
+                .healed
+                .iter()
+                .any(|p| p.ends_with("plan-recipes.lmd.md"))
+        );
+        assert!(report.preserved.is_empty(), "no .new for an untouched seed");
+        assert!(
+            !target.with_extension("md.new").exists(),
+            "must not litter a .new"
+        );
+        // The lock followed along, so the next run is a no-op.
+        assert!(refresh_contracts(&root, dir).unwrap().is_quiet());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn refresh_never_overwrites_a_user_edit_and_writes_new_beside_it() {
+        let root = std::env::temp_dir().join(format!("lmd_refresh_edit_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        materialize_contracts(&root, dir, false).unwrap();
+        refresh_contracts(&root, dir).unwrap(); // lock now matches the pristine tree
+
+        let target = root.join(dir).join("lang/rust.lmd.md");
+        let edit = "# my project rule\n";
+        std::fs::write(&target, edit).unwrap(); // local != lock → user edit
+
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            edit,
+            "a user edit must NEVER be clobbered"
+        );
+        let new_file = root.join(dir).join("lang/rust.lmd.md.new");
+        assert!(
+            new_file.exists(),
+            ".new must be written beside the edited seed"
+        );
+        assert!(report.preserved.iter().any(|p| p.ends_with("rust.lmd.md")));
+        assert!(report.healed.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Drive a tree into the preserve case: seeds materialized, lock written for the
+    /// pristine tree, then one seed locally edited. Returns (root, edited target).
+    fn tree_with_a_user_edited_seed(tag: &str) -> (PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!("lmd_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        materialize_contracts(&root, dir, false).unwrap();
+        refresh_contracts(&root, dir).unwrap();
+        let target = root.join(dir).join("lang/rust.lmd.md");
+        std::fs::write(&target, "# my project rule\n").unwrap();
+        (root, target)
+    }
+
+    fn new_path_of(target: &Path) -> PathBuf {
+        let mut name = target.file_name().unwrap().to_os_string();
+        name.push(".new");
+        target.with_file_name(name)
+    }
+
+    #[test]
+    fn an_unchanged_new_file_is_not_rewritten() {
+        // Rewriting an identical .new on every server start is what turns a real signal
+        // into wallpaper: the file's mtime keeps saying "brand new" when nothing changed.
+        // Proof: pin an old mtime, refresh, and require the mtime to survive.
+        let (root, target) = tree_with_a_user_edited_seed("new_stable");
+        let dir = ".lean-ctx/lean-md";
+        refresh_contracts(&root, dir).unwrap();
+        let new_file = new_path_of(&target);
+        assert!(new_file.exists(), "preserve must drop a .new first");
+
+        let pinned = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        std::fs::File::options()
+            .write(true)
+            .open(&new_file)
+            .unwrap()
+            .set_modified(pinned)
+            .unwrap();
+
+        refresh_contracts(&root, dir).unwrap();
+        assert_eq!(
+            std::fs::metadata(&new_file).unwrap().modified().unwrap(),
+            pinned,
+            "an identical .new must not be touched again"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_stale_new_file_is_refreshed_to_the_current_seed() {
+        // The user must see the CURRENT proposal, not one from three binaries ago.
+        let (root, target) = tree_with_a_user_edited_seed("new_stale");
+        let dir = ".lean-ctx/lean-md";
+        let new_file = new_path_of(&target);
+        std::fs::write(&new_file, "# a proposal from an older binary\n").unwrap();
+
+        refresh_contracts(&root, dir).unwrap();
+        let embedded = PROJECT_SEEDS
+            .iter()
+            .find(|(p, _)| *p == "lang/rust.lmd.md")
+            .map(|(_, c)| *c)
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&new_file).unwrap(),
+            embedded,
+            "a stale .new must be refreshed to the embedded seed"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_preserved_user_edit_never_becomes_the_new_provenance() {
+        // Option (b) — adopting the local hash as provenance — was explicitly rejected:
+        // it silences the report forever but also disables healing for good. The lock
+        // entry must keep pointing at what WE last wrote.
+        let (root, target) = tree_with_a_user_edited_seed("new_prov");
+        let dir = ".lean-ctx/lean-md";
+        let before = crate::lock::Lock::load(&root)
+            .get("lean-md/lang/rust.lmd.md")
+            .map(str::to_string);
+        let local_hex = crate::hashx::sha256_hex(&std::fs::read(&target).unwrap());
+
+        refresh_contracts(&root, dir).unwrap();
+
+        let after = crate::lock::Lock::load(&root)
+            .get("lean-md/lang/rust.lmd.md")
+            .map(str::to_string);
+        assert_ne!(
+            after.as_deref(),
+            Some(local_hex.as_str()),
+            "preserve must not adopt the user edit as provenance"
+        );
+        assert_eq!(after, before, "preserve must leave the lock entry alone");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_deleted_new_file_comes_back_because_the_divergence_did_not_go_away() {
+        // Deleting the .new is not a resolution, it is a dismissal: the seed still
+        // diverges from the binary, so the proposal is still standing. Saying "I keep
+        // mine" is what `ack` is for — and it is the ONLY thing that silences this.
+        let (root, target) = tree_with_a_user_edited_seed("new_revive");
+        let dir = ".lean-ctx/lean-md";
+        refresh_contracts(&root, dir).unwrap();
+        let new_file = new_path_of(&target);
+        std::fs::remove_file(&new_file).unwrap();
+
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert!(
+            new_file.exists(),
+            "the divergence persists, so the proposal must reappear"
+        );
+        assert!(report.preserved.iter().any(|p| p.ends_with("rust.lmd.md")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_acked_conflict_goes_quiet() {
+        // The whole point: the user must be able to say "I keep mine" and be believed.
+        // A report that cannot be switched off becomes wallpaper, and then the real ones
+        // get scrolled past too.
+        let (root, target) = tree_with_a_user_edited_seed("ack_quiet");
+        let dir = ".lean-ctx/lean-md";
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert!(
+            report.preserved.iter().any(|p| p.ends_with("rust.lmd.md")),
+            "precondition: the conflict must speak before it is acked"
+        );
+        assert!(new_path_of(&target).exists());
+
+        let ack = ack_seeds(&root, dir, &[]).unwrap();
+        assert!(ack.acked.iter().any(|p| p.ends_with("rust.lmd.md")));
+        assert!(ack.unmatched.is_empty());
+        assert!(
+            !new_path_of(&target).exists(),
+            "ack must clear the standing proposal — the user has seen it"
+        );
+
+        // And it stays quiet across any number of further runs.
+        for _ in 0..3 {
+            let report = refresh_contracts(&root, dir).unwrap();
+            assert!(report.is_quiet(), "an acked conflict must not speak again");
+            assert!(report.preserved.is_empty());
+            assert!(
+                report.acked.iter().any(|p| p.ends_with("rust.lmd.md")),
+                "still preserved, just silent"
+            );
+            assert!(
+                !new_path_of(&target).exists(),
+                "an acked conflict must not resurrect its .new"
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "# my project rule\n",
+            "ack must never touch the user's copy"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_acked_conflict_speaks_again_when_the_seed_moves_on() {
+        // Consent is for THIS proposal, not for every future one. Once the embedded seed
+        // moves on there is something genuinely new to say, so the report must return.
+        let (root, target) = tree_with_a_user_edited_seed("ack_moves_on");
+        let dir = ".lean-ctx/lean-md";
+        refresh_contracts(&root, dir).unwrap();
+        ack_seeds(&root, dir, &[]).unwrap();
+        assert!(refresh_contracts(&root, dir).unwrap().is_quiet());
+
+        // Simulate a newer binary: the ack now names a hash the embedded seed no longer
+        // has. (The lock's ack channel is the only moving part — the seed content is
+        // compiled in, so we rewrite the recorded consent to an older hash instead.)
+        let key = "lean-md/lang/rust.lmd.md";
+        let mut lock = crate::lock::Lock::load(&root);
+        lock.set_ack(
+            key,
+            &crate::hashx::sha256_hex(b"a seed from an older binary\n"),
+        );
+        lock.save(&root).unwrap();
+
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert!(
+            report.preserved.iter().any(|p| p.ends_with("rust.lmd.md")),
+            "a moved-on seed is a NEW proposal and must speak again"
+        );
+        assert!(!report.is_quiet());
+        assert!(
+            new_path_of(&target).exists(),
+            "the new proposal must be laid down for the user to read"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn acking_does_not_become_the_new_provenance() {
+        // Option (b) stays rejected: the lock must NOT take the local hash, or the seed
+        // could never heal again. Ack is consent, the lock is provenance.
+        let (root, target) = tree_with_a_user_edited_seed("ack_prov");
+        let dir = ".lean-ctx/lean-md";
+        let key = "lean-md/lang/rust.lmd.md";
+        let before = crate::lock::Lock::load(&root).get(key).map(str::to_string);
+        let local_hex = crate::hashx::sha256_hex(&std::fs::read(&target).unwrap());
+
+        refresh_contracts(&root, dir).unwrap();
+        ack_seeds(&root, dir, &[]).unwrap();
+
+        let lock = crate::lock::Lock::load(&root);
+        assert_ne!(
+            lock.get(key),
+            Some(local_hex.as_str()),
+            "ack must not adopt the user's edit as provenance"
+        );
+        assert_eq!(
+            lock.get(key).map(str::to_string),
+            before,
+            "ack must leave the provenance entry exactly as it was"
+        );
+
+        // Proof that healing still works: revert to what we last wrote, and the seed
+        // heals to the embedded copy — which option (b) would have made impossible.
+        let provenance = before.expect("the pristine tree must have a lock entry");
+        let embedded = PROJECT_SEEDS
+            .iter()
+            .find(|(p, _)| *p == "lang/rust.lmd.md")
+            .map(|(_, c)| *c)
+            .unwrap();
+        assert_eq!(
+            provenance,
+            crate::hashx::sha256_hex(embedded.as_bytes()),
+            "provenance still names the embedded seed"
+        );
+        std::fs::write(&target, embedded).unwrap();
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert!(report.is_quiet());
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            embedded,
+            "the seed can still be healed/reverted after an ack"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_reverted_edit_cleans_up_its_orphaned_new_file() {
+        // Reporting "your local copies were kept" about a conflict that no longer exists
+        // is a false statement — worse than silence.
+        let (root, target) = tree_with_a_user_edited_seed("ack_revert");
+        let dir = ".lean-ctx/lean-md";
+        refresh_contracts(&root, dir).unwrap();
+        let new_file = new_path_of(&target);
+        assert!(new_file.exists(), "precondition: a proposal is standing");
+
+        // The user reverts to the embedded seed — the conflict is settled.
+        let embedded = PROJECT_SEEDS
+            .iter()
+            .find(|(p, _)| *p == "lang/rust.lmd.md")
+            .map(|(_, c)| *c)
+            .unwrap();
+        std::fs::write(&target, embedded).unwrap();
+
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert!(
+            !new_file.exists(),
+            "the orphaned .new must go — its conflict is over"
+        );
+        assert!(report.is_quiet());
+        assert!(report.preserved.is_empty() && report.acked.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_spent_ack_does_not_silence_the_next_edit() {
+        // An ack answers one conflict. Once that conflict is settled the consent is
+        // spent — leaving it behind would silence a later, unrelated edit that the user
+        // has never seen a proposal for.
+        let (root, target) = tree_with_a_user_edited_seed("ack_spent");
+        let dir = ".lean-ctx/lean-md";
+        refresh_contracts(&root, dir).unwrap();
+        ack_seeds(&root, dir, &[]).unwrap();
+        assert!(refresh_contracts(&root, dir).unwrap().is_quiet());
+
+        // Revert (conflict settled) …
+        let embedded = PROJECT_SEEDS
+            .iter()
+            .find(|(p, _)| *p == "lang/rust.lmd.md")
+            .map(|(_, c)| *c)
+            .unwrap();
+        std::fs::write(&target, embedded).unwrap();
+        refresh_contracts(&root, dir).unwrap();
+        assert_eq!(
+            crate::lock::Lock::load(&root).ack("lean-md/lang/rust.lmd.md"),
+            None,
+            "a settled conflict must not leave consent behind"
+        );
+
+        // … then edit again. This is a fresh conflict and must be reported.
+        std::fs::write(&target, "# a different rule\n").unwrap();
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert!(
+            report.preserved.iter().any(|p| p.ends_with("rust.lmd.md")),
+            "a new edit must speak — the old ack was spent"
+        );
+        assert!(new_path_of(&target).exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn ack_takes_a_path_filter_and_names_what_it_did_not_match() {
+        // The user acks one seed by the name `check` printed (with or without `.new`);
+        // the others keep speaking. An argument that matches nothing must say so rather
+        // than report a silent success.
+        let (root, target) = tree_with_a_user_edited_seed("ack_filter");
+        let dir = ".lean-ctx/lean-md";
+        let other = root.join(dir).join("tooling/mcp-tools.lmd.md");
+        std::fs::write(&other, "# my tool notes\n").unwrap();
+        refresh_contracts(&root, dir).unwrap();
+
+        let ack = ack_seeds(&root, dir, &["lang/rust.lmd.md.new".to_string()]).unwrap();
+        assert_eq!(ack.acked.len(), 1, "only the named seed is acked");
+        assert!(ack.acked[0].ends_with("rust.lmd.md"));
+        assert!(ack.unmatched.is_empty());
+        assert!(!new_path_of(&target).exists());
+        assert!(
+            new_path_of(&other).exists(),
+            "an un-named conflict keeps its proposal"
+        );
+
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert!(
+            report
+                .preserved
+                .iter()
+                .any(|p| p.ends_with("mcp-tools.lmd.md")),
+            "the un-acked conflict must still speak"
+        );
+        assert!(!report.preserved.iter().any(|p| p.ends_with("rust.lmd.md")));
+
+        let miss = ack_seeds(&root, dir, &["lang/nope.lmd.md".to_string()]).unwrap();
+        assert!(miss.acked.is_empty());
+        assert_eq!(miss.unmatched, vec!["lang/nope.lmd.md".to_string()]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+    #[test]
+    fn legacy_tree_without_a_lock_is_treated_conservatively() {
+        // Today's state: 4 stale seeds, no lock, provenance unknown. We must not guess
+        // "untouched" — that would clobber whatever the user did before locks existed.
+        let root = std::env::temp_dir().join(format!("lmd_refresh_legacy_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        materialize_contracts(&root, dir, false).unwrap();
+        let target = root.join(dir).join("tooling/mcp-tools.lmd.md");
+        std::fs::write(&target, "# a pre-lock local copy\n").unwrap();
+        assert!(!root.join(".lean-ctx/lean-md.lock").exists());
+
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            "# a pre-lock local copy\n",
+            "unknown provenance must never be overwritten"
+        );
+        assert!(root.join(dir).join("tooling/mcp-tools.lmd.md.new").exists());
+        assert!(
+            report
+                .preserved
+                .iter()
+                .any(|p| p.ends_with("mcp-tools.lmd.md"))
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn refresh_of_a_current_tree_is_a_silent_noop() {
+        let root = std::env::temp_dir().join(format!("lmd_refresh_noop_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        materialize_contracts(&root, dir, false).unwrap();
+        refresh_contracts(&root, dir).unwrap();
+
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert!(
+            report.is_quiet(),
+            "a current tree must produce no report at all"
+        );
+        assert!(report.healed.is_empty() && report.preserved.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_newly_registered_seed_materializes_without_a_new_file() {
+        // task-5 adds two seeds AFTER locks exist in the field. An absent target is not a
+        // user edit — it must just appear, silently.
+        let root = std::env::temp_dir().join(format!("lmd_refresh_fresh_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        materialize_contracts(&root, dir, false).unwrap();
+        refresh_contracts(&root, dir).unwrap();
+
+        let (rel, _) = PROJECT_SEEDS[0];
+        std::fs::remove_file(root.join(dir).join(rel)).unwrap();
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert!(
+            root.join(dir).join(rel).exists(),
+            "absent seed must be (re)written"
+        );
+        assert!(
+            report.preserved.is_empty(),
+            "an absent target is not a user edit"
+        );
+        assert!(!root.join(dir).join(format!("{rel}.new")).exists());
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -437,5 +1245,127 @@ consumer: ai
             seed.contains("@edit"),
             "rust pack must scope @edit to non-symbol changes"
         );
+    }
+
+    #[test]
+    fn history_parses_and_lists_hashes_oldest_first() {
+        let h = seed_history("lang/rust.lmd.md");
+        assert!(h.len() >= 2, "rust seed has a real history: {}", h.len());
+        // Current embedded copy is the LAST entry — the invariant the heal path relies on.
+        let embedded = crate::hashx::sha256_hex(
+            PROJECT_SEEDS
+                .iter()
+                .find(|(p, _)| *p == "lang/rust.lmd.md")
+                .unwrap()
+                .1
+                .as_bytes(),
+        );
+        assert_eq!(h.last().unwrap(), &embedded, "current hash is last");
+        // A hash the project shipped earlier is still in the list.
+        assert!(
+            h.iter().any(|x| x.starts_with("48dd2f30a4461244")),
+            "the stale-in-the-wild rust hash is remembered"
+        );
+        assert!(
+            seed_history("nope.lmd.md").is_empty(),
+            "unknown key → empty"
+        );
+        // Comment lines never leak in as keys.
+        assert!(!parse_history(SEED_HISTORY_SRC).contains_key("#"));
+    }
+
+    #[test]
+    fn is_ours_accepts_a_shipped_version_without_any_lock() {
+        let empty = crate::lock::Lock::load(&std::env::temp_dir().join("lmd_no_lock_here"));
+        let rel = "lang/rust.lmd.md";
+        let history = seed_history(rel);
+        let shipped = history.first().expect("rust seed has history");
+        assert!(
+            is_ours(&empty, "lean-md/lang/rust.lmd.md", rel, shipped),
+            "a version we shipped is ours even with no lock entry"
+        );
+        let current = history.last().unwrap();
+        assert!(is_ours(&empty, "lean-md/lang/rust.lmd.md", rel, current));
+        let user_edit = crate::hashx::sha256_hex(b"the user rewrote this seed");
+        assert!(
+            !is_ours(&empty, "lean-md/lang/rust.lmd.md", rel, &user_edit),
+            "a user edit is never ours"
+        );
+        let mut locked = crate::lock::Lock::load(&std::env::temp_dir().join("lmd_no_lock_here"));
+        locked.set("lean-md/unknown.lmd.md", &user_edit);
+        assert!(
+            is_ours(
+                &locked,
+                "lean-md/unknown.lmd.md",
+                "unknown.lmd.md",
+                &user_edit
+            ),
+            "a lock entry is provenance even without a history line"
+        );
+    }
+
+    #[test]
+    fn a_user_edited_seed_is_still_preserved_with_a_new_beside_it() {
+        let root = std::env::temp_dir().join(format!("lmd_hist_preserve_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        let target = root.join(dir).join("lang/rust.lmd.md");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, b"# my own rules, hand-written\n").unwrap();
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert_eq!(
+            std::fs::read(&target).unwrap(),
+            b"# my own rules, hand-written\n",
+            "user bytes untouched"
+        );
+        assert!(
+            report.preserved.iter().any(|p| p == &target),
+            "reported as preserved"
+        );
+        assert!(new_path(&target).exists(), "proposal written beside it");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A temp root carrying exactly one user-edited seed → one standing conflict.
+    fn root_with_one_conflict(tag: &str) -> (PathBuf, &'static str, PathBuf) {
+        let root = std::env::temp_dir().join(format!("lmd_ack_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        materialize_contracts(&root, dir, false).unwrap();
+        let target = root.join(dir).join("lang/rust.lmd.md");
+        std::fs::write(&target, b"# hand-written by the user\n").unwrap();
+        refresh_contracts(&root, dir).unwrap(); // writes the .new proposal
+        (root, dir, target)
+    }
+
+    #[test]
+    fn a_second_ack_on_the_same_conflict_is_silent() {
+        let (root, dir, target) = root_with_one_conflict("silent");
+        let first = ack_seeds(&root, dir, &[]).unwrap();
+        assert_eq!(first.acked, vec![target.clone()], "the first ack is news");
+        let second = ack_seeds(&root, dir, &[]).unwrap();
+        assert!(
+            second.acked.is_empty(),
+            "a spent ack says nothing: {:?}",
+            second.acked
+        );
+        assert!(second.unmatched.is_empty(), "no filter → nothing unmatched");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_no_op_ack_does_not_rewrite_the_lock() {
+        // The claim is about the lock's BYTES, not its mtime.
+        let (root, dir, _target) = root_with_one_conflict("noop");
+        let lock_path = root.join(".lean-ctx/lean-md.lock");
+        ack_seeds(&root, dir, &[]).unwrap();
+        let after_first = std::fs::read(&lock_path).expect("lock written by the first ack");
+        ack_seeds(&root, dir, &[]).unwrap();
+        let after_second = std::fs::read(&lock_path).unwrap();
+        assert_eq!(
+            after_first, after_second,
+            "a no-op ack leaves the lock alone"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

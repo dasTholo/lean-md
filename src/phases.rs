@@ -240,12 +240,19 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
     // Even when an outer phase is open on ctx.phase_scope (nested `@call`
     // expansion), a body with no phase directives contributes nothing to the
     // outer scope — skip the line scanner entirely.
-    let has_phase_directives = body.lines().any(|l| {
+    let has_phase_directives = unfenced_lines(body).iter().any(|(_, l)| {
         let t = l.trim_start();
         t.starts_with("@phase") || is_on_complete(t)
     });
     if !has_phase_directives {
         return render_markdown(ctx, body); // fast path, nothing to do
+    }
+
+    // Duplicate @phase names are a silent content loss (only the first block per name
+    // is ever addressable) — refuse the body visibly instead of rendering a lie.
+    // Lines are body-relative here, the same convention as the PHASE_ABORTED envelope.
+    if let Some(msg) = duplicate_phase_error(body) {
+        return format!("<!-- lmd: {msg} -->\n");
     }
 
     // Nested call (e.g. from @call body): outer phase is open on the stack.
@@ -260,12 +267,18 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
     // @phase-end, not a stray one from an outer caller).
     let mut opened_here = false;
 
+    let fenced = fenced_mask(body);
     for (idx, line) in body.lines().enumerate() {
         let src_line = idx + 1; // 1-based; @phase line = 1, first body line = 2
         let trimmed = line.trim_start();
+        // Inside a fence a directive is documentation, not a definition — the rule
+        // `duplicate_phase` has always applied. Nothing is redirected: an unfenced line
+        // takes the branches below, a fenced one falls through to the ordinary-line
+        // path and renders as the text it is.
+        let is_directive = !fenced[idx];
 
         // @phase-end (close) — only meaningful when we opened a scope here.
-        if trimmed.starts_with("@phase-end") {
+        if is_directive && trimmed.starts_with("@phase-end") {
             if opened_here {
                 let sc = ctx.phase_scope.borrow_mut().pop();
                 match sc {
@@ -283,7 +296,7 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
         }
 
         // @phase "name" (open)
-        if let Some(rest) = trimmed.strip_prefix("@phase") {
+        if is_directive && let Some(rest) = trimmed.strip_prefix("@phase") {
             // (rest may start with a space; `@phase-end` already handled above)
             if opened_here || outer_phase_open {
                 out.push_str("<!-- lmd: nested @phase -->\n");
@@ -306,7 +319,7 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
         }
 
         // @on complete (only valid inside an open phase — D-8).
-        if is_on_complete(trimmed) {
+        if is_directive && is_on_complete(trimmed) {
             let has_open = !ctx.phase_scope.borrow().is_empty();
             if has_open {
                 let aborted = ctx
@@ -343,7 +356,9 @@ pub fn render_with_phases(ctx: &Rc<EngineContext>, body: &str) -> String {
             if aborted {
                 continue; // skip remaining body after abort
             }
-            if let Some((name, args)) = crate::parser::block::parse_directive_line(line.as_bytes())
+            if is_directive
+                && let Some((name, args)) =
+                    crate::parser::block::parse_directive_line(line.as_bytes())
             {
                 // Phase 9: consumer=human glosses Work-directives as prose (no abort path).
                 if ctx.consumer_hint() == 1 {
@@ -450,6 +465,93 @@ fn parse_phase_name(rest: &str) -> String {
     rest.trim().trim_matches('"').trim().to_string()
 }
 
+/// `mask[i] == true` → line `i` (0-based) sits inside a fenced code block.
+/// Same fence rule as `unfenced_lines` — one implementation, so gate and renderer
+/// can never disagree on what a fence is.
+fn fenced_mask(source: &str) -> Vec<bool> {
+    let fence_run = |l: &str| -> Option<(char, usize)> {
+        let t = l.trim_start();
+        let c = t.chars().next().filter(|c| *c == '`' || *c == '~')?;
+        let n = t.chars().take_while(|x| *x == c).count();
+        (n >= 3).then_some((c, n))
+    };
+    let mut open: Option<(char, usize)> = None;
+    let mut out = Vec::new();
+    for l in source.lines() {
+        match open {
+            Some((oc, on)) => {
+                out.push(true); // the closing fence line is itself fenced
+                if let Some((c, n)) = fence_run(l)
+                    && c == oc
+                    && n >= on
+                {
+                    open = None;
+                }
+            }
+            None => match fence_run(l) {
+                Some(f) => {
+                    open = Some(f);
+                    out.push(true); // the opening fence line too
+                }
+                None => out.push(false),
+            },
+        }
+    }
+    out
+}
+
+/// Lines of `source` that are NOT inside a fenced code block, as `(0-based index,
+/// line)`. Plans quote lmd source in ``` blocks, so a `@phase "x"` in a fence is
+/// documentation, not a definition — a duplicate gate that counted it would invent
+/// errors in valid docs.
+///
+/// Fence rule (CommonMark-shaped, same as `check`): a run of 3+ backticks or tildes
+/// opens; a run of the same char, at least as long, closes; an unclosed fence runs to
+/// the end of the document.
+fn unfenced_lines(source: &str) -> Vec<(usize, &str)> {
+    let mask = fenced_mask(source);
+    source
+        .lines()
+        .enumerate()
+        .filter(|(i, _)| !mask[*i])
+        .collect()
+}
+
+/// First duplicate `@phase` name in `source` → `(name, first definition line,
+/// duplicate line)`, 1-based lines of `source`. `None` when every name is unique.
+///
+/// A duplicate name is a SILENT content loss: phase capture and the outline keep the
+/// first block per name, so the second one renders nowhere and is listed nowhere.
+/// This is the parser-level gate every surface reads (`check`, `render`,
+/// `--list-phases`, MCP, CLI) — the loss is structurally impossible instead of being
+/// reported by a linter one can skip. Byte-stable (#498).
+pub fn duplicate_phase(source: &str) -> Option<(String, usize, usize)> {
+    let mut seen: Vec<(String, usize)> = Vec::new();
+    for (idx, line) in unfenced_lines(source) {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("@phase-end") {
+            continue; // `@phase-end` also starts with `@phase` — not a definition
+        }
+        let Some(rest) = trimmed.strip_prefix("@phase") else {
+            continue;
+        };
+        let name = parse_phase_name(rest);
+        if let Some((n, first)) = seen.iter().find(|(n, _)| *n == name) {
+            return Some((n.clone(), *first, idx + 1));
+        }
+        seen.push((name, idx + 1));
+    }
+    None
+}
+
+/// Human-readable form of [`duplicate_phase`] — names BOTH sites, so the author does
+/// not have to hunt through a long file for the second definition.
+pub fn duplicate_phase_error(source: &str) -> Option<String> {
+    duplicate_phase(source).map(|(name, first, dup)| {
+        format!("duplicate @phase \"{name}\" — first defined at line {first}, again at line {dup}")
+    })
+}
+
 /// True for an `@on complete …` line (name `on`, first arg token `complete`).
 fn is_on_complete(trimmed: &str) -> bool {
     if let Some(rest) = trimmed.strip_prefix("@on") {
@@ -464,10 +566,18 @@ fn is_on_complete(trimmed: &str) -> bool {
 /// consume this — no second parser. Byte-stable (#498).
 pub(crate) fn iter_phase_blocks(source: &str) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
+    // A lossy source has no correct block list: the second block of a duplicated name
+    // would silently drop out here. Refuse instead — `outline_phases` (→ --list-phases)
+    // and `capture_phase_bodies` (→ --phase) both read this, so neither surface can
+    // present one of two blocks as if it were the whole file.
+    if duplicate_phase(source).is_some() {
+        return Vec::new();
+    }
+    let fenced = fenced_mask(source);
     let mut open: Option<(String, Vec<&str>)> = None;
-    for line in source.lines() {
+    for (idx, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
-        if trimmed.starts_with("@phase-end") {
+        if !fenced[idx] && trimmed.starts_with("@phase-end") {
             if let Some((name, lines)) = open.take()
                 && !out.iter().any(|(n, _)| *n == name)
             {
@@ -475,7 +585,9 @@ pub(crate) fn iter_phase_blocks(source: &str) -> Vec<(String, String)> {
             }
             continue;
         }
-        if let Some(rest) = trimmed.strip_prefix("@phase") {
+        if !fenced[idx]
+            && let Some(rest) = trimmed.strip_prefix("@phase")
+        {
             if open.is_none() {
                 open = Some((parse_phase_name(rest), Vec::new()));
             }
@@ -548,6 +660,28 @@ mod tests {
     use crate::header::LeanMdHeader;
 
     use super::render_with_phases;
+    use super::{iter_phase_blocks, outline_phases};
+
+    #[test]
+    fn a_fenced_phase_is_documentation_not_a_definition() {
+        let src = "```\n@phase \"t\"\nFAKE\n@phase-end\n```\n\n@phase \"t\"\nREAL\n@phase-end\n";
+        let blocks = iter_phase_blocks(src);
+        assert_eq!(blocks.len(), 1, "one real phase, not two: {blocks:?}");
+        assert_eq!(blocks[0].0, "t");
+        assert!(blocks[0].1.contains("REAL"), "the real block wins");
+        assert!(
+            !blocks[0].1.contains("FAKE"),
+            "the fenced block is documentation"
+        );
+        let outline = outline_phases(src);
+        assert_eq!(outline.len(), 1, "one addressable phase");
+        assert_eq!(outline[0].name, "t");
+        let doc_only = "```\n@phase \"t\"\nFAKE\n@phase-end\n```\n";
+        assert!(
+            iter_phase_blocks(doc_only).is_empty(),
+            "a fenced phase defines nothing"
+        );
+    }
 
     #[test]
     fn capture_phase_bodies_extracts_raw_body_without_lifecycle() {
@@ -1048,6 +1182,77 @@ trailing prose
     fn outline_is_byte_stable() {
         let src = "@phase \"task-1\"\n## T1\n@phase-end\n@phase \"task-2\"\n## T2\n@phase-end\n";
         assert_eq!(super::outline_phases(src), super::outline_phases(src));
+    }
+
+    #[test]
+    fn duplicate_phase_is_reported_with_both_sites() {
+        use super::duplicate_phase;
+        let src = "@lean-md\nconsumer: ai\n\n@phase \"t\"\nfirst\n@phase-end\n@phase \"t\"\nsecond\n@phase-end\n";
+        let (name, first, dup) = duplicate_phase(src).unwrap();
+        assert_eq!(name, "t");
+        assert_eq!((first, dup), (4, 7), "both sites, 1-based");
+    }
+
+    #[test]
+    fn distinct_phases_are_not_a_duplicate() {
+        use super::duplicate_phase;
+        let src =
+            "@lean-md\nconsumer: ai\n\n@phase \"a\"\nx\n@phase-end\n@phase \"b\"\ny\n@phase-end\n";
+        assert!(duplicate_phase(src).is_none());
+    }
+
+    #[test]
+    fn duplicate_phase_aborts_render_visibly() {
+        // Today the second block vanishes without a trace. Silence is the bug.
+        let src = "@lean-md\nconsumer: ai\n\n@phase \"t\"\nfirst\n@phase-end\n@phase \"t\"\nsecond\n@phase-end\n";
+        let out = crate::skills::render_source_with_phase(
+            src,
+            Some("t"),
+            None,
+            None,
+            std::path::PathBuf::from("."),
+        );
+        let text = format!("{out:?}");
+        assert!(
+            text.contains("duplicate"),
+            "render must surface the duplicate: {text}"
+        );
+        assert!(
+            text.contains("line 4") && text.contains("line 7"),
+            "both sites: {text}"
+        );
+    }
+
+    #[test]
+    fn duplicate_phase_refusal_is_available_to_every_surface() {
+        // Library half of the contract: the parser REFUSES a lossy source (empty outline)
+        // and offers the message every surface prints. Refusing is not the same as being
+        // visible — an empty outline printed verbatim IS the silence this package removes.
+        // The visible half is asserted where the surface lives:
+        // `list_phases_refuses_a_duplicate_out_loud` in src/bin/lean_md.rs.
+        use super::{duplicate_phase, duplicate_phase_error, outline_phases};
+        let src = "@lean-md\nconsumer: ai\n\n@phase \"t\"\nfirst\n@phase-end\n@phase \"t\"\nsecond\n@phase-end\n";
+        assert!(
+            duplicate_phase(src).is_some(),
+            "the parser-level gate every surface reads"
+        );
+        assert!(
+            outline_phases(src).is_empty(),
+            "outline must refuse a lossy source instead of listing one of two blocks"
+        );
+        // The refusal must come with words a surface can print — an empty list alone
+        // leaves the caller nothing to say.
+        let msg = duplicate_phase_error(src).expect("the refusal must be speakable");
+        assert!(msg.contains("duplicate @phase \"t\""), "{msg}");
+    }
+
+    #[test]
+    fn fenced_phase_lines_are_documentation_not_definitions() {
+        // A plan quoting lmd source in a ``` block must not trip the duplicate gate —
+        // a gate that rejects valid docs is a false alarm, not a fix.
+        use super::duplicate_phase;
+        let src = "@phase \"t\"\nreal\n@phase-end\n\n```\n@phase \"t\"\nquoted example\n@phase-end\n```\n";
+        assert!(duplicate_phase(src).is_none(), "fenced @phase is prose");
     }
 
     #[test]
