@@ -60,13 +60,11 @@ pub const PROJECT_SEEDS: &[(&str, &str)] = &[
 /// edit a seed and no compiled code can see the OLD version any more. A manifest
 /// is a snapshot the compiler does not drag along, which is exactly what makes
 /// the append-only gate in `tests/seed_history.rs` able to bite (#498).
-#[allow(dead_code)] // only `seed_history` (below) reads it until Task 3 wires the heal path.
 const SEED_HISTORY_SRC: &str = include_str!("../content/seeds.sha256");
 
 /// Parse `sha256sum`-format lines (`<hex>  <rel>`) into `rel → [hex]`, order
 /// preserved. Comment and blank lines are skipped. Shared with the gate so both
 /// sides read the manifest through one parser.
-#[allow(dead_code)] // pub(crate): only `seed_history` (below) and the unit test call it until Task 3 wires it into the heal path.
 pub(crate) fn parse_history(src: &str) -> std::collections::HashMap<String, Vec<String>> {
     let mut map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
     for line in src.lines() {
@@ -86,7 +84,6 @@ pub(crate) fn parse_history(src: &str) -> std::collections::HashMap<String, Vec<
 
 /// The history of one seed, by its `PROJECT_SEEDS` target key. Empty slice for an
 /// unknown key — an unlisted seed simply has no history, never a panic.
-#[allow(dead_code)] // wired into the refresh_contracts heal path in a later task (#498 Part A, Task 3); Task 1 only wires the manifest + parser and covers it from the unit test below.
 fn seed_history(rel: &str) -> &'static [String] {
     static HISTORY: std::sync::OnceLock<std::collections::HashMap<String, Vec<String>>> =
         std::sync::OnceLock::new();
@@ -184,6 +181,20 @@ fn lock_key(contracts_dir: &str, rel: &str) -> String {
     }
 }
 
+/// Provenance verdict for one seed: did WE write these bytes, or did the user?
+///
+/// Two sources, and the second is what part A is about. The lock is the precise
+/// answer, but it only exists for projects materialized after it was introduced —
+/// every older installation has NO lock entry and would read as "unknown
+/// provenance", i.e. never heal again. The history says "these bytes are a version
+/// we shipped", which is the same claim the lock makes, just without the lock.
+///
+/// A real user edit matches neither and stays protected — that is the invariant
+/// this function must never lose.
+fn is_ours(lock: &crate::lock::Lock, key: &str, rel: &str, local_hex: &str) -> bool {
+    lock.get(key) == Some(local_hex) || seed_history(rel).iter().any(|h| h == local_hex)
+}
+
 /// Lock-based refresh — the third mode beside absent-only and `force`.
 ///
 /// Absent-only lets seeds age; `force` clobbers real local work. The lock records
@@ -235,8 +246,8 @@ pub fn refresh_contracts(
             continue;
         }
 
-        if lock.get(&key) == Some(local_hex.as_str()) {
-            // Local matches what we last wrote → untouched, only stale → heal it. Any
+        if is_ours(&lock, &key, rel, &local_hex) {
+            // Local matches what we ever wrote (lock or history) → untouched, only stale → heal it. Any
             // `.new`/ack from an earlier, since-reverted conflict is spent too.
             std::fs::write(&target, content)?;
             lock.set(&key, &embedded_hex);
@@ -303,7 +314,7 @@ fn standing_conflicts(project_root: &Path, contracts_dir: &str) -> Vec<(String, 
             continue; // no conflict
         }
         let key = lock_key(contracts_dir, rel);
-        if lock.get(&key) == Some(local_hex.as_str()) {
+        if is_ours(&lock, &key, rel, &local_hex) {
             continue; // untouched + stale → heals, never a conflict
         }
         out.push((key, target, embedded_hex));
@@ -1255,5 +1266,57 @@ consumer: ai
         );
         // Comment lines never leak in as keys.
         assert!(!parse_history(SEED_HISTORY_SRC).contains_key("#"));
+    }
+
+    #[test]
+    fn is_ours_accepts_a_shipped_version_without_any_lock() {
+        let empty = crate::lock::Lock::load(&std::env::temp_dir().join("lmd_no_lock_here"));
+        let rel = "lang/rust.lmd.md";
+        let history = seed_history(rel);
+        let shipped = history.first().expect("rust seed has history");
+        assert!(
+            is_ours(&empty, "lean-md/lang/rust.lmd.md", rel, shipped),
+            "a version we shipped is ours even with no lock entry"
+        );
+        let current = history.last().unwrap();
+        assert!(is_ours(&empty, "lean-md/lang/rust.lmd.md", rel, current));
+        let user_edit = crate::hashx::sha256_hex(b"the user rewrote this seed");
+        assert!(
+            !is_ours(&empty, "lean-md/lang/rust.lmd.md", rel, &user_edit),
+            "a user edit is never ours"
+        );
+        let mut locked = crate::lock::Lock::load(&std::env::temp_dir().join("lmd_no_lock_here"));
+        locked.set("lean-md/unknown.lmd.md", &user_edit);
+        assert!(
+            is_ours(
+                &locked,
+                "lean-md/unknown.lmd.md",
+                "unknown.lmd.md",
+                &user_edit
+            ),
+            "a lock entry is provenance even without a history line"
+        );
+    }
+
+    #[test]
+    fn a_user_edited_seed_is_still_preserved_with_a_new_beside_it() {
+        let root = std::env::temp_dir().join(format!("lmd_hist_preserve_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = ".lean-ctx/lean-md";
+        let target = root.join(dir).join("lang/rust.lmd.md");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, b"# my own rules, hand-written\n").unwrap();
+        let report = refresh_contracts(&root, dir).unwrap();
+        assert_eq!(
+            std::fs::read(&target).unwrap(),
+            b"# my own rules, hand-written\n",
+            "user bytes untouched"
+        );
+        assert!(
+            report.preserved.iter().any(|p| p == &target),
+            "reported as preserved"
+        );
+        assert!(new_path(&target).exists(), "proposal written beside it");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
