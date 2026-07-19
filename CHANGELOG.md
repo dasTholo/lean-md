@@ -8,6 +8,19 @@ lean-md ships **two independently-versioned release lines** from one repo — th
 `Cargo.toml`) and the **skills-pack** (`content/skills/**`). Each carries its own
 SemVer; the sections below track them separately.
 
+## [binary 0.2.2] — 2026-07-19
+
+### Fixed
+- Re-release to repair the stale **published** addon manifest. The 0.2.1
+  `addon publish` shipped with `[artifacts.*].url` still pointing at the v0.2.0
+  release asset, so every install pulled a pre-`0a3aebc` binary that lacked
+  `lmd-rendering-skills` in `INSTALLABLE_SKILLS` (and its co-install) — `skill
+  install lmd-rendering-skills` failed with `unknown installable skill` and no
+  other install pulled it in. The in-repo manifest was fixed in `2de0701`/`ffbdc7a`
+  but never re-published; this version bump forces clients to refetch it. Binary
+  content is byte-identical to 0.2.1 (`git diff v0.2.1..HEAD -- src content/core
+  content/templates content/gloss Cargo.toml` is empty).
+
 ## [binary 0.2.1] — 2026-07-18
 
 ### Added
