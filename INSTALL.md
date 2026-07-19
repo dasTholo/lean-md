@@ -95,6 +95,10 @@ Each `install` writes, per invocation:
 The nine installable skills:
 
 ```sh
+# A release `lean-md` needs the skills pack on the env (see "Standalone requirement" below);
+# the gateway injects it only into the MCP process, so a bare shell call needs it set here.
+# (Skip this line if your PATH `lean-md` is a shim that resolves the pack itself.)
+export LEAN_MD_SKILLS_DIR="$(find ~/.local/share/lean-ctx/packages/skills/@dastholo__lean-md-skills -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
 for s in lmd-brainstorm lmd-writing-plans lmd-executing-plans \
          lmd-subagent-driven-development lmd-dispatching-parallel-agents \
          lmd-finishing-a-development-branch lmd-test-driven-development \
