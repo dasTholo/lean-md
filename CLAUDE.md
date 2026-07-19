@@ -34,6 +34,15 @@
   `cargo run` genügt (nach dem ersten Compile gecached).
 - **`.lmd.md` lesen**: `ctx_read` liefert **Roh-Source** wie bei jeder anderen Datei;
   Rendern ist explizit und opt-in (CLI oben bzw. `ctx_md_render`).
+- **PATH-`lean-md` ist ein Shim aufs *released* Addon-Binary**: `~/.local/bin/lean-md`
+  löst das lean-ctx-managed Binary auf (`…/addons/bin/lean-md/<version>/…`) und folgt
+  `addon update` automatisch — kein cargo-Drift. Es spiegelt daher **nur den
+  veröffentlichten Stand**, nicht deine ungecommitteten `src/**`-/Seed-Änderungen.
+  **Sobald du am Binary etwas änderst, gilt für JEDE Verifikation (render / skill /
+  source / check) das lokale cargo-Target** — `cargo run -q --bin lean-md -- …` bzw.
+  `./target/…` —, nie das PATH-`lean-md`. Shim = Consumer-/Released-Pfad, cargo-Target =
+  Dev-Pfad. (Ein `cargo install` gehört bewusst NICHT auf den PATH: es würde still
+  altern und genau den Versions-Skew erzeugen, den der Shim vermeidet.)
 
   > **Nur diese Dev-Umgebung:** ein lokal aus dem lean-ctx-Branch `pr-rebuild` gebautes Binary
   > trägt eine Auto-Render-Delegation — `try_lmd_addon_render`
