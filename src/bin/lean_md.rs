@@ -760,6 +760,9 @@ fn cmd_skill_vars(rest: &[String]) {
 }
 
 fn cmd_mcp() {
+    // Gateway mode: the sinks would recurse back into the server that is waiting for
+    // this render (design 2026-08-31 §2.3 C3).
+    lean_md::phases::disable_session_sinks();
     use std::io::{BufRead, Write};
 
     // Seed refresh — server start is the ONLY hook that runs in every session: the addon

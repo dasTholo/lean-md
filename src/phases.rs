@@ -9,6 +9,28 @@ use std::rc::Rc;
 
 use crate::engine::{EngineContext, render_markdown};
 
+/// Process-wide kill-switch for the outbound session/knowledge/agent sinks.
+/// `lean-md mcp` sets it at start-up: on the gateway path every sink is a
+/// `lean-ctx call` back INTO the lean-ctx server that is waiting for our answer
+/// (`Gateway → lean-md → lean-ctx call ctx_session → Gateway`), which kills the
+/// render with `downstream tools/call failed: Transport closed`. Deliberate
+/// divergence from the CLI path, where the sinks keep firing.
+static SINKS_DISABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Switch the session/knowledge/agent sinks off for this process (MCP server mode).
+pub fn disable_session_sinks() {
+    set_session_sinks_disabled(true);
+}
+
+/// Test seam: flip the switch either way. Production only ever turns it on.
+pub fn set_session_sinks_disabled(disabled: bool) {
+    SINKS_DISABLED.store(disabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn sinks_disabled() -> bool {
+    SINKS_DISABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// A failing body directive that aborted its phase (spec §3.3, D-9). Self-
 /// describing: which directive failed, where, why. The single source for all
 /// three abort sinks (envelope + decision + gotcha). Populated in Task 5.
@@ -115,6 +137,9 @@ fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
 /// (task/finding/decision) handled here; knowledge sink (Task 8) wired.
 /// Team (Task 9), capture/checkpoint (Task 10) extend this match in later tasks.
 fn fire_action(ctx: &Rc<EngineContext>, scope: &PhaseScope, action: &OnComplete) {
+    if sinks_disabled() {
+        return;
+    }
     let value = if action.value.contains("{{") {
         crate::macros::eval_string(ctx, &action.value)
     } else {
@@ -197,6 +222,9 @@ fn fire_agent(
     category: Option<&str>,
     to_agent: Option<&str>,
 ) {
+    if sinks_disabled() {
+        return;
+    }
     let mut payload = serde_json::Map::new();
     payload.insert("action".into(), action.into());
     payload.insert("message".into(), message.into());
@@ -212,6 +240,9 @@ fn fire_agent(
 }
 
 fn session_set_task(ctx: &Rc<EngineContext>, value: &str) {
+    if sinks_disabled() {
+        return;
+    }
     let _ = ctx.backend.call(
         "ctx_session",
         serde_json::json!({ "action": "task", "value": value }),
@@ -219,6 +250,9 @@ fn session_set_task(ctx: &Rc<EngineContext>, value: &str) {
 }
 
 fn session_add_finding(ctx: &Rc<EngineContext>, value: &str) {
+    if sinks_disabled() {
+        return;
+    }
     let _ = ctx.backend.call(
         "ctx_session",
         serde_json::json!({ "action": "finding", "value": value }),
@@ -228,6 +262,9 @@ fn session_add_finding(ctx: &Rc<EngineContext>, value: &str) {
 /// Session `decision` sink (open + abort narrative) → outbound `ctx_session`.
 /// Headless backend → discarded BACKEND_REQUIRED envelope (#498: not rendered).
 pub(crate) fn session_decision(ctx: &Rc<EngineContext>, summary: &str) {
+    if sinks_disabled() {
+        return;
+    }
     let _ = ctx.backend.call(
         "ctx_session",
         serde_json::json!({ "action": "decision", "value": summary }),
@@ -438,6 +475,9 @@ fn finalize_phase(ctx: &Rc<EngineContext>, out: &mut String, scope: &PhaseScope)
 /// lean-md (no local GotchaStore — routed via ctx.backend or degraded to no-op
 /// when no backend is wired). Decision: no-op for now; backend routing deferred
 /// to a future task when ctx_knowledge exposes a `gotcha` action in the appendix.
+/// C3 (2026-08-31 §2.3): still a no-op today, so no gateway-recursion risk yet —
+/// but if this ever gains a real `ctx.backend.call`, it MUST guard on
+/// `sinks_disabled()` first, exactly like the other four sinks below.
 fn report_phase_gotcha(_ctx: &Rc<EngineContext>, _err: &PhaseError) {}
 
 /// Deterministic cause → GotchaCategory loose-name mapping (spec §3.5).
@@ -660,6 +700,7 @@ mod tests {
     use crate::header::LeanMdHeader;
 
     use super::render_with_phases;
+    use super::set_session_sinks_disabled;
     use super::{iter_phase_blocks, outline_phases};
 
     #[test]
@@ -1542,5 +1583,41 @@ trailing prose
              not an earlier author error (e.g. Resolve/jail) that never reaches the backend: {:?}",
             calls.borrow()
         );
+    }
+
+    #[test]
+    fn mcp_mode_silences_the_session_sinks_and_cli_mode_keeps_them() {
+        let src = "@phase \"t1\"\nBODY\n@on complete decision=\"done\"\n@phase-end\n";
+        let ctx_for = |calls: &std::rc::Rc<RefCell<Vec<(String, serde_json::Value)>>>| {
+            Rc::new(EngineContext::with_backend(
+                LeanMdHeader::default(),
+                PathBuf::from("."),
+                Box::new(Recorder {
+                    calls: calls.clone(),
+                    fail: "",
+                }),
+            ))
+        };
+
+        // CLI mode (default): the sink fires.
+        let cli = std::rc::Rc::new(RefCell::new(Vec::new()));
+        let _ = render_with_phases(&ctx_for(&cli), src);
+        assert!(
+            cli.borrow().iter().any(|(t, _)| t == "ctx_session"),
+            "CLI path must keep its sinks: {:?}",
+            cli.borrow()
+        );
+
+        // MCP mode: no outbound call at all, body unchanged.
+        set_session_sinks_disabled(true);
+        let mcp = std::rc::Rc::new(RefCell::new(Vec::new()));
+        let out = render_with_phases(&ctx_for(&mcp), src);
+        set_session_sinks_disabled(false); // never leak the switch into another test
+        assert!(
+            mcp.borrow().is_empty(),
+            "no sink call in MCP mode: {:?}",
+            mcp.borrow()
+        );
+        assert!(out.contains("BODY"), "{out}");
     }
 }
