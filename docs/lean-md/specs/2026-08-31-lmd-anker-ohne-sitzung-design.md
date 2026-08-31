@@ -144,6 +144,15 @@ als HTML-Kommentar:
   `render_source_with_phase(.., None, ..)` festverdrahtet. Empirisch: ein Aufruf mit
   `phase: "t1"` rendert t1 **und** t2. Fix: `phase` durchreichen, `PhaseNotFound`
   als `-32602` melden.
+  - **Nachzug I-3 (gefixt 2026-08-31).** Der isolierte Render (`Some(p)`-Arm von
+    `render_source_with_phase`) rendert den Body, den `capture_phase_bodies`
+    **ohne** `@phase`/`@phase-end` ablegt. Bare gerendert verlor jedes `@on complete`
+    darin seinen Scope: Sink feuerte nicht, und der Renderer schrieb
+    `<!-- lmd: @on complete outside @phase -->` — eine Falschaussage über einen
+    wohlgeformten Plan, obendrein vor dem Body. Fix: der isolierte Body wird für
+    genau diesen Render wieder in `@phase "p"` / `@phase-end` gewickelt. Die
+    Rohform in `ctx.phase_bodies` bleibt unangetastet — `@dispatch phase=` splict
+    sie weiterhin markerfrei in den Subagent-Brief.
 - **C2 `jail_root` = Projektroot, gehärtet.** `mcp_load_source` (`:570`) sucht künftig vom
   Verzeichnis der Plandatei aufwärts nach `.lean-ctx/` bzw. `.git/` und nimmt den
   Fund als Jail-Wurzel; ohne Fund bleibt das Elternverzeichnis. Damit löst

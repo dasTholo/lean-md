@@ -194,7 +194,16 @@ pub fn render_source_with_phase(
             let isolated = ctx
                 .phase_body(p)
                 .ok_or_else(|| SkillRenderError::PhaseNotFound(p.to_string()))?;
-            Ok(render_body(&ctx, &isolated))
+            // Re-wrap the captured body in its own `@phase` / `@phase-end`. The
+            // capture pre-pass stores every body WITHOUT those markers on purpose —
+            // `@dispatch phase=` splices that raw form into a subagent brief, where a
+            // `@phase` line would be noise. Rendering the raw form here, however,
+            // leaves the phase's own `@on complete` without an open scope: the sink
+            // never fires, and the renderer reports `@on complete outside @phase` —
+            // a false statement about a well-formed plan. Wrapping restores the
+            // scope for THIS render only; `ctx.phase_bodies` keeps the raw form.
+            let wrapped = format!("@phase \"{p}\"\n{isolated}\n@phase-end\n");
+            Ok(render_body(&ctx, &wrapped))
         }
     }
 }
@@ -1753,6 +1762,52 @@ SECOND TASK BODY
         // Unknown phase → PhaseNotFound.
         let err = render_source_with_phase(src, Some("task-9"), None, None, jail).unwrap_err();
         assert!(matches!(err, SkillRenderError::PhaseNotFound(_)));
+    }
+
+    #[test]
+    fn an_isolated_phase_keeps_the_scope_its_on_complete_needs() {
+        // `capture_phase_bodies` stores a phase body STRIPPED of its `@phase` /
+        // `@phase-end` markers — deliberately, because that raw form is what
+        // `@dispatch phase=` hands to a subagent. Rendering it bare left every
+        // `@on complete` inside it without an open scope: the sink silently
+        // disappeared, and the renderer injected
+        // `<!-- lmd: @on complete outside @phase -->` — a diagnosis that is FALSE
+        // for a well-formed plan, and one that landed BEFORE the body text (the
+        // note goes straight to `out` while prose is still buffered). The isolated
+        // body therefore has to be re-wrapped in its own phase before it renders.
+        //
+        // Process-global switch, and nextest gives one process per test: no other
+        // test sees it. Off here only so the assertion below is about the RENDER,
+        // not about a live `lean-ctx call` this unit test has no business making.
+        crate::phases::set_session_sinks_disabled(true);
+        let src = "\
+@lean-md
+consumer: ai
+
+@phase \"task-1\"
+FIRST TASK BODY
+@on complete decision=\"task-1 done\"
+@phase-end
+@phase \"task-2\"
+SECOND TASK BODY
+@phase-end
+";
+        let out =
+            render_source_with_phase(src, Some("task-1"), None, None, PathBuf::from(".")).unwrap();
+        crate::phases::set_session_sinks_disabled(false);
+
+        assert!(
+            !out.contains("outside @phase"),
+            "a well-formed plan must never be told its own `@on complete` is misplaced: {out}"
+        );
+        assert!(
+            out.contains("FIRST TASK BODY"),
+            "the phase body still renders: {out}"
+        );
+        assert!(
+            !out.contains("SECOND TASK BODY"),
+            "phase isolation still holds: {out}"
+        );
     }
 
     #[test]

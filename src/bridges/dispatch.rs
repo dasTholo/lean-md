@@ -326,6 +326,16 @@ mod tests {
         let out = render(doc);
         assert!(out.contains("role=dev"), "phase path regressed: {out}");
         assert!(out.contains("@read a.rs"), "work directive verbatim: {out}");
+        // The brief carries the RAW captured body — `capture_phase_bodies` strips
+        // `@phase`/`@phase-end`, and a subagent brief must not grow a lifecycle
+        // marker it cannot act on. `render_source_with_phase` re-wraps its own copy
+        // for the isolated CLI/MCP render (so `@on complete` keeps its scope); that
+        // wrapping must never migrate into the capture itself, which is what this
+        // assertion pins.
+        assert!(
+            !out.contains("@phase"),
+            "the dispatch brief must keep the raw phase body, markers stripped: {out}"
+        );
     }
 
     #[test]
