@@ -8,6 +8,47 @@ lean-md ships **two independently-versioned release lines** from one repo — th
 `Cargo.toml`) and the **skills-pack** (`content/skills/**`). Each carries its own
 SemVer; the sections below track them separately.
 
+## [binary 0.2.3] — 2026-08-31
+
+Repairs `@read` and its sibling code-intel anchors on a session-less backend,
+and the three ways an MCP-hosted render diverged from the CLI.
+
+**Anchors need lean-ctx ≥ 3.10.1.** `lean-ctx call` only began opening a session
+in 3.10.1; below that the degradation path below is what you get. `min_lean_ctx`
+deliberately stays at `3.9.6` — the fallback is a feature, not a defect, so an
+older lean-ctx is not locked out.
+
+### Added
+- Read-only bridges degrade instead of aborting the enclosing phase: a failing
+  `@read` now renders a visible note and the phase continues. Write bridges keep
+  the abort semantics.
+- `@read` falls back to `ctx_outline`, then to a visible self-read order, when
+  `ctx_read` answers without a session — the anchors are gone, but the render
+  states what it could not resolve instead of silently thinning out.
+- `render <file> --phase P` on the CLI, and the matching `phase` argument on the
+  MCP `path`/`content` branch.
+
+### Fixed
+- MCP `ctx_md_render` ignored `phase` on the `path`/`content` branch and answered
+  with a whole-document render; `companion` was swallowed there the same way and
+  now errors with `-32602` when no `skill` accompanies it.
+- A `@phase` killed every gateway render: the automatic `session_decision` sink
+  spawned `lean-ctx call ctx_session` back into the server waiting for the answer
+  (`Transport closed`). `lean-md mcp` now silences the automatic phase side
+  effects — the per-phase narrative and the fire-and-forget `@on complete` sinks.
+  Authored `@remember`/`@handoff`/`@checkpoint`/`@compress` still fire, since
+  their backend text IS the rendered output and dropping it would make an MCP
+  render disagree with a CLI render of the same source (#498).
+- The render jail is the project root (`.lean-ctx/` wins over `.git/`, never above
+  `$HOME`), so project-relative `@import` resolves under MCP as it does on the CLI.
+- Rendering one isolated phase kept the phase scope; without it a phase's own
+  `@on complete` never fired and the renderer printed a false `@on complete
+  outside @phase`. Both isolated-phase renders share one wrap now.
+- `looks_like_a_deliberate_refusal` no longer treats a substring `outside`/`denied`
+  anywhere in tool output as a refusal and reroutes around a perfectly good read.
+- The MCP error note interpolated `{e:?}` unsanitized — a `@phase` name containing
+  `-->` closed the HTML comment early and spilled into the body.
+
 ## [binary 0.2.2] — 2026-07-19
 
 ### Fixed
