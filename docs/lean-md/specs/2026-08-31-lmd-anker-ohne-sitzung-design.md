@@ -144,18 +144,29 @@ als HTML-Kommentar:
   `render_source_with_phase(.., None, ..)` festverdrahtet. Empirisch: ein Aufruf mit
   `phase: "t1"` rendert t1 **und** t2. Fix: `phase` durchreichen, `PhaseNotFound`
   als `-32602` melden.
-- **C2 `jail_root` = Projektroot.** `mcp_load_source` (`:566`) sucht künftig vom
+- **C2 `jail_root` = Projektroot, gehärtet.** `mcp_load_source` (`:570`) sucht künftig vom
   Verzeichnis der Plandatei aufwärts nach `.lean-ctx/` bzw. `.git/` und nimmt den
   Fund als Jail-Wurzel; ohne Fund bleibt das Elternverzeichnis. Damit löst
   `@import .lean-ctx/lean-md/plan-recipes` auf, und CLI- und Gateway-Render laufen
   auf derselben Wurzel. **Der Jail wächst dadurch nach oben** — gehört als
-  Entscheidung in Spec §7 vermerkt.
+  Entscheidung in Spec §7 vermerkt. Zwei Härtungen (nachträglich, vom Menschen
+  entschieden — der ursprüngliche Plan-Codeblock kannte sie noch nicht):
+  - `.lean-ctx/` schlägt `.git/` unabhängig vom Abstand: erst wird der nächste
+    Vorfahre mit `.lean-ctx/` gesucht, nur wenn keiner existiert der nächste mit
+    `.git/`. Der speziellere Marker gewinnt also immer, nicht der nähere.
+  - Der Jail überschreitet nie `$HOME`: ein Marker auf `$HOME`-Ebene oder darüber
+    wird verworfen (`None`, Aufrufer behält das Elternverzeichnis). Grund, den der
+    ursprüngliche Plan nicht auf dem Schirm hatte — `jail_root` geht 1:1 als
+    `--project-root` an **jeden** `ctx_*`-Backend-Call (`CodeIntelBackend`, nicht
+    nur `@import`); ein Dotfiles-Repo direkt in `$HOME` (`~/.git`) würde sonst
+    jeden Backend-Call auf das gesamte Home-Verzeichnis aufziehen.
 
   **Entscheidung (umgesetzt).** Der Gateway-Jail wandert vom Plan-Verzeichnis auf den
-  Projektroot (erster Vorfahre mit `.lean-ctx/` oder `.git/`). Er wächst damit nach
-  oben; das ist der Preis dafür, daß CLI- und Gateway-Render dieselbe Wurzel sehen und
-  `@import .lean-ctx/lean-md/…` überhaupt auflöst. Ohne Marker bleibt es beim
-  Elternverzeichnis.
+  Projektroot (nächster Vorfahre mit `.lean-ctx/`, sonst nächster Vorfahre mit
+  `.git/`, gedeckelt bei `$HOME`). Er wächst damit nach oben; das ist der Preis
+  dafür, daß CLI- und Gateway-Render dieselbe Wurzel sehen und
+  `@import .lean-ctx/lean-md/…` überhaupt auflöst. Ohne Marker — oder wenn der
+  einzige Marker bei/über `$HOME` liegt — bleibt es beim Elternverzeichnis.
 - **C3 Sinks im MCP-Modus abschalten (Auto-Erkennung).** Läuft die Binary als
   `lean-md mcp`, werden `ctx_session`/`ctx_knowledge`/`ctx_agent`-Sinks zu No-ops
   (`session_decision`, `session_set_task`, `session_add_finding`, `@on complete`).

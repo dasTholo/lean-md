@@ -554,16 +554,48 @@ fn tool_defs() -> Value {
     ])
 }
 
-/// Walk up from `start` to the first directory carrying a `.lean-ctx/` or `.git/`
-/// marker: that is the project root, the same root the CLI path jails on (cwd). No
-/// marker → `None`, and the caller keeps the file's parent. The jail deliberately
-/// grows upwards (design 2026-08-31 §2.3 C2) so a project-relative
-/// `@import .lean-ctx/lean-md/…` resolves on the MCP path too.
+/// Walk up from `start` to the nearest ancestor carrying a `.lean-ctx/` or
+/// `.git/` marker: that is the project root, the same root the CLI path jails
+/// on (cwd). `.lean-ctx/` is the more specific marker and always wins over
+/// `.git/`, regardless of which one is nearer to `start` — the nearest
+/// `.lean-ctx/` ancestor is tried first, and only when there is none does the
+/// nearest `.git/` ancestor apply. No marker at all → `None`, and the caller
+/// keeps the file's parent. The jail deliberately grows upwards (design
+/// 2026-08-31 §2.3 C2) so a project-relative `@import .lean-ctx/lean-md/…`
+/// resolves on the MCP path too — but never past `$HOME` (see
+/// `exceeds_home_bound`): a marker at or above `$HOME` is rejected outright.
 fn project_root_of(start: &std::path::Path) -> Option<std::path::PathBuf> {
-    start
+    let root = start
         .ancestors()
-        .find(|d| d.join(".lean-ctx").is_dir() || d.join(".git").is_dir())
-        .map(std::path::Path::to_path_buf)
+        .find(|d| d.join(".lean-ctx").is_dir())
+        .or_else(|| start.ancestors().find(|d| d.join(".git").is_dir()))
+        .map(std::path::Path::to_path_buf)?;
+    if exceeds_home_bound(&root) {
+        None
+    } else {
+        Some(root)
+    }
+}
+
+/// True when `candidate` sits at or above `$HOME` — i.e. `$HOME` equals
+/// `candidate` or is nested under it. This is the upper bound `project_root_of`
+/// enforces: `jail_root` is threaded into `--project-root` on *every* outbound
+/// backend call, not just `@import`, so a marker at or above `$HOME` (e.g. a
+/// dotfiles repo's `~/.git`) would jail every call onto the whole home
+/// directory — exactly the case this excludes. A missing or empty `$HOME`
+/// disables the bound (returns `false`): there is nothing to compare against.
+/// Both sides are canonicalized before comparing so a relative `candidate`
+/// (the marker search runs against the process cwd, same as `ancestors()`)
+/// lines up correctly with the always-absolute `$HOME`; if canonicalization
+/// fails (e.g. a race between the marker check and this call) the raw path is
+/// used as a best-effort fallback rather than panicking or skipping the bound.
+fn exceeds_home_bound(candidate: &std::path::Path) -> bool {
+    let Some(home) = std::env::home_dir().filter(|h| !h.as_os_str().is_empty()) else {
+        return false;
+    };
+    let home = std::fs::canonicalize(&home).unwrap_or(home);
+    let candidate = std::fs::canonicalize(candidate).unwrap_or_else(|_| candidate.to_path_buf());
+    home.starts_with(&candidate)
 }
 
 /// Resolve lmd source from MCP params: `content` (inline) or `path` (file read).
@@ -1434,6 +1466,59 @@ mod tests {
             "a project-relative @import must resolve: {out}"
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn lean_ctx_marker_wins_over_a_nearer_git_marker() {
+        // `.lean-ctx/` is the more specific marker and must win over `.git/`
+        // regardless of which one sits closer to `start` — a nested repo
+        // (`.git` a few levels down) must not shadow an outer `.lean-ctx/`.
+        let root = std::env::temp_dir().join(format!("lmd_marker_prec_{}_a", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let nested_git_dir = root.join("sub/nested/.git");
+        std::fs::create_dir_all(&nested_git_dir).unwrap();
+        std::fs::create_dir_all(root.join(".lean-ctx")).unwrap();
+        let start = root.join("sub/nested/deep");
+        std::fs::create_dir_all(&start).unwrap();
+
+        let found = project_root_of(&start);
+        assert_eq!(
+            found,
+            Some(root.clone()),
+            "the farther .lean-ctx/ marker must win over the nearer .git/ marker"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_marker_at_home_level_is_rejected_so_the_jail_never_exceeds_home() {
+        // `jail_root` feeds `--project-root` into every outbound backend call
+        // (not only `@import`), so a marker sitting AT `$HOME` (e.g. a
+        // dotfiles repo's `~/.git`) must never become the jail — that would
+        // widen every call onto the whole home directory. Mutating `$HOME`
+        // is safe here: `cargo nextest` runs one process per test, so this
+        // does not race other tests reading/writing the real env var.
+        let fake_home = std::env::temp_dir().join(format!("lmd_fake_home_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&fake_home);
+        std::fs::create_dir_all(fake_home.join(".git")).unwrap();
+        let start = fake_home.join("sub/deep");
+        std::fs::create_dir_all(&start).unwrap();
+
+        let real_home = std::env::var_os("HOME");
+        unsafe {
+            std::env::set_var("HOME", &fake_home);
+        }
+        let found = project_root_of(&start);
+        match real_home {
+            Some(h) => unsafe { std::env::set_var("HOME", h) },
+            None => unsafe { std::env::remove_var("HOME") },
+        }
+
+        assert_eq!(
+            found, None,
+            "a marker at $HOME itself must be rejected, not jailed on"
+        );
+        let _ = std::fs::remove_dir_all(&fake_home);
     }
 
     #[test]
