@@ -334,3 +334,62 @@ fn the_mcp_server_silences_the_sinks_while_the_cli_still_fires_them() {
          recursion C3 removes: {mcp_log:?}"
     );
 }
+
+#[test]
+fn the_mcp_kill_switch_stops_at_the_sinks_and_authored_directives_still_fire() {
+    // I-5, pinned as a decision. `SINKS_DISABLED` covers the AUTOMATIC phase
+    // side effects (the per-phase `session_decision`, every `@on complete`
+    // sink); an authored `@remember`/`@handoff`/`@checkpoint`/`@compress` in a
+    // phase body keeps calling out, in MCP mode too.
+    //
+    // That is on purpose, not an oversight. `lean-ctx call <tool>` dispatches
+    // in-process (`cli/call_cmd.rs::run_call` → `oneshot_ctx` →
+    // `build_registry()`), so no ctx_* tool re-enters the waiting server and
+    // "guard the session-family tools" has no mechanism behind it. What the
+    // sinks and the body directives really differ in is visibility: a sink is
+    // fire-and-forget and renders nothing, so silencing it keeps CLI and MCP
+    // output byte-identical, while a directive's backend text IS the rendered
+    // output at that spot. Guarding those would make the two surfaces disagree
+    // and silently drop an author's explicit instruction.
+    //
+    // If this test ever has to change, the doc comment on `SINKS_DISABLED`
+    // (src/phases.rs) and design §4 have to change with it.
+    let cwd = scratch("mcp_sink_boundary_e2e");
+    let stub_bin = cwd.join("stub-bin");
+    let log = cwd.join("lean-ctx-calls.log");
+    stub_lean_ctx(&stub_bin, &log);
+
+    let plan = cwd.join("p.lmd.md");
+    std::fs::write(
+        &plan,
+        "@lean-md\nconsumer: ai\n\n\
+         @phase \"t1\"\n\
+         @remember content=\"an authored fact\" category=decision\n\
+         @on complete decision=\"t1 done\"\n\
+         @phase-end\n",
+    )
+    .expect("write plan");
+    let plan_arg = plan.to_str().expect("utf-8 plan path");
+
+    let responses = mcp_roundtrip_in(
+        &cwd,
+        Some(&stub_bin),
+        &[json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": "ctx_md_render",
+                        "arguments": { "path": plan_arg, "phase": "t1" } }
+        })],
+    );
+    let _ = text_of(&responses[0]);
+
+    let calls = read_log(&log);
+    assert!(
+        calls.contains("ctx_knowledge"),
+        "an authored @remember is not a sink — it must still reach the backend \
+         in MCP mode: {calls:?}"
+    );
+    assert!(
+        !calls.contains("ctx_session"),
+        "the @on complete sink must stay silenced in MCP mode: {calls:?}"
+    );
+}

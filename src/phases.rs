@@ -9,21 +9,61 @@ use std::rc::Rc;
 
 use crate::engine::{EngineContext, render_markdown};
 
-/// Process-wide kill-switch for the outbound session/knowledge/agent sinks.
-/// `lean-md mcp` sets it at start-up: on the gateway path every sink is a
-/// `lean-ctx call` back INTO the lean-ctx server that is waiting for our answer
-/// (`Gateway → lean-md → lean-ctx call ctx_session → Gateway`), which kills the
-/// render with `downstream tools/call failed: Transport closed`. Deliberate
-/// divergence from the CLI path, where the sinks keep firing.
+/// Process-wide kill-switch for the automatic phase side effects: the
+/// per-phase `session_decision` narrative and every `@on complete` sink.
+/// `lean-md mcp` sets it at start-up. Deliberate divergence from the CLI path,
+/// where they keep firing.
+///
+/// Why exactly these, and nothing else (I-5). The original justification —
+/// "on the gateway path every sink is a `lean-ctx call` back INTO the lean-ctx
+/// server that is waiting for our answer" — does not survive reading lean-ctx.
+/// `lean-ctx call <tool>` (`rust/src/cli/call_cmd.rs::run_call`) builds a local
+/// in-process `ToolContext` through `oneshot_ctx` and dispatches it against
+/// `build_registry()`; there is no MCP client and no socket anywhere in that
+/// path. So NO ctx_* tool reached through `CliBackend` re-enters the waiting
+/// server — `ctx_session` included. Measured against lean-ctx 3.10.0 with a
+/// live server up, `ctx_session`, `ctx_knowledge`, `ctx_checkpoint`,
+/// `ctx_compress` and `ctx_handoff` each return in under 10 ms; none blocks.
+/// The failure C3 removes is real and pinned by `tests/mcp_phase_and_sinks.rs`
+/// (a phase used to kill the gateway render with `Transport closed`); the
+/// re-entrancy story told about it was not, so it cannot be used to decide
+/// what else belongs behind this switch.
+///
+/// The boundary is therefore NOT "the session family of tools" but the CALL
+/// SITE:
+///
+/// - Guarded — automatic, output-invisible side effects. A `@phase` fires
+///   `session_decision` by itself, and `@on complete` sinks are
+///   fire-and-forget (`let _ = …`). Nothing they return is spliced into the
+///   document, so silencing them keeps a CLI render and an MCP render of the
+///   same source byte-identical (#498).
+///
+/// - Not guarded — authored directives whose output IS the document.
+///   `@remember`, `@handoff`, `@checkpoint` and `@compress` written into a
+///   phase body still reach `ctx_knowledge`/`ctx_handoff`/`ctx_checkpoint`/
+///   `ctx_compress`. Their backend text is what renders at that spot;
+///   suppressing it would make the MCP render differ from the CLI render and
+///   turn an author's explicit instruction into a silent no-op — trading a
+///   proven property for an unproven mechanism.
+///
+/// Known limit (design 2026-08-31 §4): those four directives are outside the
+/// C3 mitigation, and — not being `read_only()` — a backend failure in one
+/// still aborts the enclosing phase, in MCP mode exactly as on the CLI. That
+/// is the deliberate I2 write semantics, not an MCP-specific defect.
 static SINKS_DISABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Switch the session/knowledge/agent sinks off for this process (MCP server mode).
+/// Switch the automatic phase side effects off for this process (MCP server
+/// mode). One-way on purpose: nothing in production turns them back on.
 pub fn disable_session_sinks() {
-    set_session_sinks_disabled(true);
+    SINKS_DISABLED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// Test seam: flip the switch either way. Production only ever turns it on.
-pub fn set_session_sinks_disabled(disabled: bool) {
+/// Test-only seam: flip the switch either way. Deliberately NOT public API
+/// (M-5) — as a `pub fn` any embedder could silence another crate's sinks
+/// process-wide, and `disable_session_sinks` is the only direction production
+/// ever needs.
+#[cfg(test)]
+pub(crate) fn set_session_sinks_disabled(disabled: bool) {
     SINKS_DISABLED.store(disabled, std::sync::atomic::Ordering::Relaxed);
 }
 
