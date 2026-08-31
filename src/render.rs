@@ -27,7 +27,11 @@ pub(crate) const LMD_NOTE_PREFIX: &str = "<!-- lmd:@";
 /// line (spec §9 F-2; newline handling added for `read_fallback`'s blockquote
 /// use, C1 review). Phase-1 target is the AI ctx, not a browser DOM, so a
 /// minimal delimiter/newline escape is sufficient.
-pub(crate) fn sanitize_comment(s: &str) -> String {
+///
+/// `pub` because the `lean-md` binary wraps `SkillRenderError` values — which
+/// carry `@phase` names straight from the source document — in an HTML comment
+/// of its own (M-6). One escaper, not two that can drift.
+pub fn sanitize_comment(s: &str) -> String {
     s.replace("-->", "--&gt;")
         .replace("<!--", "&lt;!--")
         .replace('\r', "\\r")

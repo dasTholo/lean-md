@@ -5,7 +5,7 @@
 //! (the `CliBackend` default shells out to it).
 //!
 //! Subcommands:
-//!   render <file> [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md]
+//!   render <file> [--phase P] [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md]
 //!   check  <file>
 //!   mcp              — stdio JSON-RPC 2.0 MCP server (line-delimited framing)
 
@@ -248,7 +248,8 @@ fn main() {
         _ => {
             eprintln!(
                 "Usage: lean-md <render|check|mcp|skill|source|ack> [args]\n\
-                 \n  render <file.lmd.md|--skill NAME [--phase P | --companion C]> [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md] [--list-phases]\
+                 \n  render <file.lmd.md> [--phase P] [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md] [--list-phases]\
+                 \n  render --skill NAME [--phase P | --companion C] [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md] [--list-phases]\
                  \n  check  <file.lmd.md>\
                  \n  source <file.lmd.md>  (raw file bytes, no rendering — for edit anchors)\
                  \n  ack    [<seed>…]      (keep your edited seeds; stop reporting them until the seed changes)\
@@ -344,6 +345,13 @@ fn cmd_render(rest: &[String]) {
             }
         }
         return;
+    }
+    // Same verdict as the MCP `path`/`content` branch (I-6): a companion is an
+    // embedded skill asset, so `--companion` without `--skill` has no target.
+    // Ignoring it rendered the whole document with no hint the flag was dropped.
+    if a.companion.is_some() {
+        eprintln!("lean-md render: --companion requires --skill NAME");
+        std::process::exit(1);
     }
     let Some(file) = a.file else {
         eprintln!("lean-md render: missing <file.lmd.md>");
@@ -902,6 +910,15 @@ fn cmd_mcp() {
                                     Err(e) => rpc_err(&id, -32602, &format!("{e}")),
                                 }
                             }
+                        } else if args.get("companion").is_some() {
+                            // I-6: `companion` only means anything next to
+                            // `skill` — a companion is an embedded skill asset,
+                            // not a section of an arbitrary document. Reading it
+                            // here and refusing is the same verdict the `skill`
+                            // branch gives `phase` + `companion`; ignoring it (the
+                            // behaviour before) answered with a full whole-document
+                            // render and no hint that the argument was dropped.
+                            rpc_err(&id, -32602, "companion requires skill")
                         } else {
                             match mcp_load_source(&args) {
                                 Ok((source, jail)) => {
@@ -929,10 +946,15 @@ fn cmd_mcp() {
                                             e @ lean_md::skills::SkillRenderError::PhaseNotFound(_),
                                         ) => rpc_err(&id, -32602, &format!("{e}")),
                                         // Everything else stays a note in the RESULT (#498).
+                                        // `DuplicatePhase` carries the `@phase` name
+                                        // verbatim from the source, so `{e:?}` can close
+                                        // this comment early (M-6) — sanitize it through
+                                        // the same escaper every other note uses.
                                         Err(e) => rpc_ok(
                                             &id,
                                             json!({ "content": [{ "type": "text", "text":
-                                                format!("<!-- lmd render error: {e:?} -->") }] }),
+                                                format!("<!-- lmd render error: {} -->",
+                                                    lean_md::render::sanitize_comment(&format!("{e:?}"))) }] }),
                                         ),
                                     }
                                 }

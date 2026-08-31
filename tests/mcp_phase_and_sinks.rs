@@ -166,6 +166,106 @@ fn mcp_tools_call_renders_only_the_named_phase_and_refuses_an_unknown_one() {
 }
 
 #[test]
+fn the_path_branch_refuses_a_companion_instead_of_silently_ignoring_it() {
+    // I-6: the `skill` branch rejects `phase` + `companion` with -32602, but the
+    // `path`/`content` branch never read `companion` at all — a call carrying it
+    // got a full whole-document render back with no hint that the argument was
+    // dropped. Same defect class C1 just fixed for `phase`, and the schema text
+    // that now advertises both arguments makes it easy to hit.
+    let cwd = scratch("mcp_companion_e2e");
+    let plan = cwd.join("p.lmd.md");
+    std::fs::write(&plan, TWO_PHASE_PLAN).expect("write plan");
+    let plan_arg = plan.to_str().expect("utf-8 plan path");
+
+    let responses = mcp_roundtrip_in(
+        &cwd,
+        None,
+        &[
+            json!({
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": { "name": "ctx_md_render",
+                            "arguments": { "path": plan_arg, "companion": "reviewing" } }
+            }),
+            json!({
+                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                "params": { "name": "ctx_md_render",
+                            "arguments": { "content": TWO_PHASE_PLAN, "companion": "reviewing" } }
+            }),
+        ],
+    );
+    for r in &responses {
+        assert_eq!(
+            r["error"]["code"].as_i64(),
+            Some(-32602),
+            "a companion without a skill is a caller error, not a whole-doc render: {r:?}"
+        );
+        let msg = r["error"]["message"].as_str().unwrap_or_default();
+        assert!(
+            msg.contains("companion"),
+            "the error must name the offending argument: {msg}"
+        );
+    }
+
+    // The CLI carried the identical swallow (`--companion` without `--skill`
+    // fell through to the whole-document branch), and the project rules send
+    // agents to the CLI to verify a render — so both surfaces refuse it.
+    let cli = Command::new(BIN)
+        .arg("render")
+        .arg(&plan)
+        .arg("--companion")
+        .arg("reviewing")
+        .current_dir(&cwd)
+        .output()
+        .expect("run lean-md render");
+    assert!(
+        !cli.status.success(),
+        "the CLI must refuse a companion without --skill, not render the whole doc: {}",
+        String::from_utf8_lossy(&cli.stdout)
+    );
+    assert!(
+        String::from_utf8_lossy(&cli.stderr).contains("--companion requires --skill"),
+        "stderr must name the offending flag: {}",
+        String::from_utf8_lossy(&cli.stderr)
+    );
+}
+
+#[test]
+fn a_render_error_note_cannot_break_out_of_its_own_html_comment() {
+    // M-6: `format!("<!-- lmd render error: {e:?} -->")` interpolates
+    // `SkillRenderError::DuplicatePhase`, which carries the phase name straight
+    // from the source document. A name containing `-->` closes the comment early
+    // and the rest of the message lands in the rendered body as content — the
+    // breakout Task 2 hardened `render::sanitize_comment` against everywhere
+    // else.
+    let cwd = scratch("mcp_note_breakout_e2e");
+    let breakout = "@phase \"a-->b<!--c\"\nONE\n@phase-end\n\
+                    @phase \"a-->b<!--c\"\nTWO\n@phase-end\n";
+
+    let responses = mcp_roundtrip_in(
+        &cwd,
+        None,
+        &[json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": "ctx_md_render", "arguments": { "content": breakout } }
+        })],
+    );
+    let text = text_of(&responses[0]);
+    assert_eq!(
+        text.matches("-->").count(),
+        1,
+        "the note must close exactly once — its own delimiter: {text:?}"
+    );
+    assert!(
+        text.trim_end().ends_with("-->"),
+        "the note must end with its own delimiter: {text:?}"
+    );
+    assert!(
+        text.contains("a--&gt;b&lt;!--c"),
+        "the phase name must be escaped, not dropped: {text:?}"
+    );
+}
+
+#[test]
 fn the_mcp_server_silences_the_sinks_while_the_cli_still_fires_them() {
     // C3 over the wire. The unit test flips the kill-switch itself through the
     // test seam, so it stays green even with `cmd_mcp`'s own
