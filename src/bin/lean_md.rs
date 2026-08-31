@@ -645,19 +645,29 @@ fn mcp_load_source(params: &Value) -> Result<(String, std::path::PathBuf), Strin
     // ancestor at all would jail on `$HOME` itself — `project_root_of` correctly
     // returns `None` here (no marker to find), but the old `unwrap_or(parent)` took
     // `parent` unchecked. Falling back further to cwd (`.`) mirrors the bare-filename
-    // fallback just below: it is a strictly narrower default than `$HOME` in the
-    // ordinary case (server launched from inside a project directory), and there is
-    // no narrower directory left to prefer once even `parent` is rejected — we
-    // deliberately do not chase this further (e.g. re-checking cwd itself against the
-    // bound), since that would only matter for the degenerate case of a server
-    // launched with cwd at or above `$HOME`, out of scope here.
-    let jail = project_root_of(&parent).unwrap_or_else(|| {
-        if exceeds_home_bound(&parent) {
-            std::path::PathBuf::from(".")
-        } else {
-            parent
+    // fallback just below — but `.` is the process cwd, and a server started from a
+    // login shell has cwd == `$HOME`, so the substitute is only narrower than the
+    // parent it replaces while the cwd is itself inside the bound. It is checked
+    // (I-2): once neither the plan's parent nor the cwd is below `$HOME` there is no
+    // bounded jail left to pick, and `jail_root` goes verbatim into `--project-root`
+    // on EVERY outbound backend call — so the call is refused instead of quietly
+    // widening onto the whole home directory. Deterministic (#498): the message is a
+    // function of `path` alone.
+    let jail = match project_root_of(&parent) {
+        Some(root) => root,
+        None if !exceeds_home_bound(&parent) => parent,
+        None => {
+            let cwd = std::path::PathBuf::from(".");
+            if exceeds_home_bound(&cwd) {
+                return Err(format!(
+                    "ctx_md: refusing to render {path}: no project root below $HOME — \
+                     neither the file's directory nor the working directory is inside it \
+                     (a jail at or above $HOME would widen every outbound tool call)"
+                ));
+            }
+            cwd
         }
-    });
+    };
     // `Path::parent` of a bare filename is "" — keep the cwd form the renderer expects.
     let jail = if jail.as_os_str().is_empty() {
         std::path::PathBuf::from(".")
@@ -1706,28 +1716,58 @@ mod tests {
 
     #[test]
     fn the_fallback_jail_is_bounded_too_not_only_a_discovered_marker() {
-        // I-1: `project_root_of` returning `None` (no `.lean-ctx`/`.git` ancestor at
+        // `project_root_of` returning `None` (no `.lean-ctx`/`.git` ancestor at
         // all) used to fall straight through to the plan's own parent directory
         // UNCHECKED. A plan sitting directly in `$HOME` with no project marker
         // anywhere hits exactly that path and used to jail on `$HOME` itself — the
         // same widening the marker bound above exists to prevent, just reached
         // through the fallback instead of a found marker.
+        //
+        // I-2: the substitute for a rejected parent is `.` — the process cwd — so
+        // it is only narrower than `$HOME` while the cwd itself is. Asserting
+        // `jail != $HOME` says nothing about that: the literal `.` passes it in
+        // both cases. Both cases are therefore pinned here, cwd included.
         let fake_home =
             std::env::temp_dir().join(format!("lmd_home_fallback_{}", std::process::id()));
+        let elsewhere =
+            std::env::temp_dir().join(format!("lmd_home_fallback_cwd_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&fake_home);
+        let _ = std::fs::remove_dir_all(&elsewhere);
         std::fs::create_dir_all(&fake_home).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
         let plan = fake_home.join("p.lmd.md");
         std::fs::write(&plan, "@lean-md\nconsumer: ai\n\nhi\n").unwrap();
+        let args = json!({ "path": plan.to_str().unwrap() });
 
-        let guard = HomeGuard::set(&fake_home);
-        let (_source, jail) = mcp_load_source(&json!({ "path": plan.to_str().unwrap() })).unwrap();
-        drop(guard);
-
-        assert_ne!(
-            jail, fake_home,
-            "the fallback jail must never be $HOME either: {jail:?}"
+        // (a) cwd below the bound: `.` is genuinely narrower than `$HOME`.
+        let cwd_guard = CwdGuard::set(&elsewhere);
+        let home_guard = HomeGuard::set(&fake_home);
+        let (_source, jail) = mcp_load_source(&args).unwrap();
+        drop(home_guard);
+        drop(cwd_guard);
+        assert_eq!(
+            jail,
+            std::path::PathBuf::from("."),
+            "with a bounded cwd the rejected parent falls back to the cwd form `.`: {jail:?}"
         );
+
+        // (b) cwd AT the bound — a server started from a login shell. `.` now
+        // resolves to `$HOME` itself, so there is no narrower directory left to
+        // fall back to: refuse the call instead of jailing every outbound
+        // `--project-root` onto the whole home directory.
+        let cwd_guard = CwdGuard::set(&fake_home);
+        let home_guard = HomeGuard::set(&fake_home);
+        let err = mcp_load_source(&args)
+            .expect_err("a cwd at $HOME leaves no bounded jail — that must be an error");
+        drop(home_guard);
+        drop(cwd_guard);
+        assert!(
+            err.contains("$HOME"),
+            "the refusal must name the bound it protects: {err}"
+        );
+
         let _ = std::fs::remove_dir_all(&fake_home);
+        let _ = std::fs::remove_dir_all(&elsewhere);
     }
 
     #[test]

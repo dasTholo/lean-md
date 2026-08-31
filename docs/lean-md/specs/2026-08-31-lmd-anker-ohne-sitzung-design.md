@@ -177,7 +177,11 @@ als HTML-Kommentar:
   `.git/`, gedeckelt bei `$HOME`). Er wächst damit nach oben; das ist der Preis
   dafür, daß CLI- und Gateway-Render dieselbe Wurzel sehen und
   `@import .lean-ctx/lean-md/…` überhaupt auflöst. Ohne Marker — oder wenn der
-  einzige Marker bei/über `$HOME` liegt — bleibt es beim Elternverzeichnis.
+  einzige Marker bei/über `$HOME` liegt — bleibt es beim Elternverzeichnis; liegt
+  auch das bei/über `$HOME`, weicht der Aufrufer auf den cwd (`.`) aus. Ist selbst
+  der cwd nicht mehr unterhalb der Bound (Server aus der Login-Shell gestartet,
+  cwd = `$HOME`), gibt es keinen gedeckelten Jail mehr: `mcp_load_source`
+  **scheitert** dann mit `-32602`, statt still auf `$HOME` zu jailen (I-2).
 - **C3 Sinks im MCP-Modus abschalten (Auto-Erkennung).** Läuft die Binary als
   `lean-md mcp`, werden `ctx_session`/`ctx_knowledge`/`ctx_agent`-Sinks zu No-ops
   (`session_decision`, `session_set_task`, `session_add_finding`, `@on complete`).
@@ -201,6 +205,7 @@ als HTML-Kommentar:
 | C2 (Härtung) | Marker auf einem Vorfahren von `$HOME` (nicht nur exakt `$HOME`) wird ebenso verworfen |
 | C2 (Härtung) | `.lean-ctx/` auf `$HOME`-Ebene + `.git/` im Projekt darunter → der `.git/`-Root gewinnt, die Suche bricht nicht ab (I-1) |
 | C2 (Härtung) | Kein Marker gefunden, Plan liegt direkt in `$HOME` → Fallback-Jail weicht auf `.` aus, nie `$HOME` (I-1) |
+| C2 (Härtung) | Kein Marker, Plan in `$HOME` UND cwd = `$HOME` → `mcp_load_source` scheitert (`-32602`), kein `$HOME`-Jail (I-2) |
 | C3 | Sink-zählendes Fake-Backend im `mcp`-Modus → 0 Calls; im CLI-Modus unverändert |
 
 Alle Tests über `cargo nextest run` (nie `cargo test`).
