@@ -16,6 +16,9 @@ impl DirectiveBridge for FindBridge {
     fn name(&self) -> &'static str {
         "find"
     }
+    fn read_only(&self) -> bool {
+        true
+    }
 
     fn execute(
         &self,

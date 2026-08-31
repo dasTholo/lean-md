@@ -15,6 +15,9 @@ impl DirectiveBridge for OutlineBridge {
     fn name(&self) -> &'static str {
         "outline"
     }
+    fn read_only(&self) -> bool {
+        true
+    }
 
     fn execute(
         &self,

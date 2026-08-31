@@ -14,6 +14,9 @@ impl DirectiveBridge for SearchBridge {
     fn name(&self) -> &'static str {
         "search"
     }
+    fn read_only(&self) -> bool {
+        true
+    }
 
     fn execute(
         &self,

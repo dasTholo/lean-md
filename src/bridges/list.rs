@@ -13,6 +13,9 @@ impl DirectiveBridge for ListBridge {
     fn name(&self) -> &'static str {
         "list"
     }
+    fn read_only(&self) -> bool {
+        true
+    }
 
     fn execute(
         &self,

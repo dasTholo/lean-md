@@ -18,6 +18,9 @@ impl DirectiveBridge for SmellsBridge {
     fn name(&self) -> &'static str {
         "smells"
     }
+    fn read_only(&self) -> bool {
+        true
+    }
 
     fn execute(
         &self,

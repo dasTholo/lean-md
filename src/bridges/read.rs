@@ -14,6 +14,9 @@ impl DirectiveBridge for ReadBridge {
     fn name(&self) -> &'static str {
         "read"
     }
+    fn read_only(&self) -> bool {
+        true
+    }
     fn execute(
         &self,
         ctx: &Rc<EngineContext>,

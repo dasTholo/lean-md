@@ -14,6 +14,9 @@ impl DirectiveBridge for ArchitectureBridge {
     fn name(&self) -> &'static str {
         "architecture"
     }
+    fn read_only(&self) -> bool {
+        true
+    }
 
     fn execute(
         &self,

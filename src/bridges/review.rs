@@ -24,6 +24,9 @@ impl DirectiveBridge for ReviewBridge {
     fn name(&self) -> &'static str {
         "review"
     }
+    fn read_only(&self) -> bool {
+        true
+    }
 
     fn accepts_pipe(&self) -> bool {
         true

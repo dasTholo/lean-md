@@ -95,6 +95,14 @@ pub trait DirectiveBridge {
     fn accepts_pipe(&self) -> bool {
         false
     }
+    /// Whether this bridge only READS (no write, no state change). A
+    /// `BridgeError::Backend` from a read-only bridge degrades to a visible note in
+    /// `render::dispatch_result` instead of aborting the enclosing `@phase`: an
+    /// infrastructure outage must not swallow the rest of the phase and its
+    /// `@on complete` sinks. Default `false` — writing bridges keep aborting.
+    fn read_only(&self) -> bool {
+        false
+    }
 }
 
 /// Name-keyed registry of directive bridges.
@@ -204,6 +212,45 @@ mod tests {
             "render",
         ] {
             assert!(reg.get(name).is_some(), "missing bridge: {name}");
+        }
+    }
+
+    #[test]
+    fn read_only_matrix_matches_the_contract() {
+        let reg = default_registry();
+        for n in [
+            "read",
+            "search",
+            "symbol",
+            "find",
+            "graph",
+            "impact",
+            "outline",
+            "repomap",
+            "architecture",
+            "smells",
+            "review",
+            "routes",
+            "inspect",
+            "recall",
+            "list",
+        ] {
+            assert!(reg.get(n).expect(n).read_only(), "{n} must be read-only");
+        }
+        for n in [
+            "edit",
+            "refactor",
+            "reformat",
+            "dispatch",
+            "handoff",
+            "remember",
+            "checkpoint",
+            "query",
+        ] {
+            assert!(
+                !reg.get(n).expect(n).read_only(),
+                "{n} must NOT be read-only"
+            );
         }
     }
 }

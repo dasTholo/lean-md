@@ -16,6 +16,9 @@ impl DirectiveBridge for RoutesBridge {
     fn name(&self) -> &'static str {
         "routes"
     }
+    fn read_only(&self) -> bool {
+        true
+    }
 
     fn execute(
         &self,

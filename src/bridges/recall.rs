@@ -18,6 +18,9 @@ impl DirectiveBridge for RecallBridge {
     fn name(&self) -> &'static str {
         "recall"
     }
+    fn read_only(&self) -> bool {
+        true
+    }
 
     fn execute(
         &self,

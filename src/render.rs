@@ -28,9 +28,27 @@ pub(crate) fn dispatch_result(
 ) -> std::result::Result<String, super::bridges::BridgeError> {
     let args = DirectiveArgs::parse(raw_args);
     match ctx.registry.get(name) {
-        Some(bridge) => bridge.execute(ctx, &args),
+        Some(bridge) => match bridge.execute(ctx, &args) {
+            // Read-only + backend outage → degrade (I2 abort stays for writes).
+            Err(e @ super::bridges::BridgeError::Backend(_)) if bridge.read_only() => {
+                Ok(degraded_note(name, &e))
+            }
+            other => other,
+        },
         None => Ok(resolve_value(ctx, name, raw_args)),
     }
+}
+
+/// Visible stand-in for a read-only directive whose backend call failed.
+/// Carries the `BridgeError` display, so the note keeps the historic
+/// `BACKEND_REQUIRED:` wording the e2e tests assert on.
+/// Byte-stable (#498): a pure function of (name, error) — no timestamp/counter.
+fn degraded_note(name: &str, e: &super::bridges::BridgeError) -> String {
+    format!(
+        "<!-- lmd:@{} unavailable: {} -->",
+        sanitize_comment(name),
+        sanitize_comment(&format!("{e}"))
+    )
 }
 
 /// Look up `name` in the registry and run the bridge; on miss/error emit a

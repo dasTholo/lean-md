@@ -14,6 +14,9 @@ impl DirectiveBridge for ImpactBridge {
     fn name(&self) -> &'static str {
         "impact"
     }
+    fn read_only(&self) -> bool {
+        true
+    }
 
     fn execute(
         &self,

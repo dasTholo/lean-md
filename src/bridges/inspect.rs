@@ -16,6 +16,9 @@ impl DirectiveBridge for InspectBridge {
     fn name(&self) -> &'static str {
         "inspect"
     }
+    fn read_only(&self) -> bool {
+        true
+    }
 
     fn execute(
         &self,

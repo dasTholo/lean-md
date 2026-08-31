@@ -31,6 +31,9 @@ impl DirectiveBridge for SymbolBridge {
     fn name(&self) -> &'static str {
         "symbol"
     }
+    fn read_only(&self) -> bool {
+        true
+    }
 
     fn execute(
         &self,

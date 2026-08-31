@@ -15,6 +15,9 @@ impl DirectiveBridge for RepomapBridge {
     fn name(&self) -> &'static str {
         "repomap"
     }
+    fn read_only(&self) -> bool {
+        true
+    }
 
     fn execute(
         &self,

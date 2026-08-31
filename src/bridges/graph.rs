@@ -18,6 +18,9 @@ impl DirectiveBridge for GraphBridge {
     fn name(&self) -> &'static str {
         "graph"
     }
+    fn read_only(&self) -> bool {
+        true
+    }
 
     fn execute(
         &self,

@@ -757,7 +757,8 @@ trailing prose
     fn body_error_aborts_phase_with_stable_envelope() {
         // A directive that returns Err headless (here @count with no pattern →
         // MissingArg) aborts its phase with the PHASE_ABORTED envelope. (@read is
-        // outbound now and never Errs, so an in-process erroring directive is used.)
+        // read-only (B1): a real backend failure there degrades to a note instead of
+        // aborting, so an in-process erroring directive is used here.)
         let out = render("@phase \"Parser\"\n@count\nAFTER\n@phase-end\nNEXT\n");
         assert!(
             out.contains("PHASE_ABORTED \"Parser\" at @count"),
@@ -860,7 +861,7 @@ trailing prose
         std::fs::create_dir_all(&root).unwrap();
         let (ctx, _calls) = recording_ctx(root);
         // @count with no pattern → MissingArg → phase abort (in-process error;
-        // @read is outbound now and never Errs).
+        // @read is read-only (B1) and degrades backend failures instead of erroring).
         let out = crate::engine::render_body(&ctx, "@phase \"Parser\"\n@count\n@phase-end\n");
         assert!(
             out.contains("PHASE_ABORTED"),
@@ -991,7 +992,9 @@ trailing prose
         // bridge inside a @phase MUST abort the phase (Err propagates) and MUST
         // NOT fire the @on complete sink. Before the I2 fix, every bridge flattened
         // BackendError into Ok("ERROR: BACKEND_REQUIRED …"), so the phase saw no
-        // error and the sink fired falsely.
+        // error and the sink fired falsely. B1: a WRITING bridge (@edit) is used
+        // here since a read-only bridge's BackendError now degrades instead of
+        // aborting (see a_read_only_backend_failure_does_not_abort_the_phase).
         let calls = std::rc::Rc::new(RefCell::new(Vec::new()));
         struct FailingBackend {
             calls: std::rc::Rc<RefCell<Vec<(String, serde_json::Value)>>>,
@@ -1015,7 +1018,7 @@ trailing prose
         ));
         let out = crate::engine::render_body(
             &ctx,
-            "@phase \"P\"\n@read /etc/passwd\n@on complete task=\"done [100%]\"\n@phase-end\n",
+            "@phase \"P\"\n@edit /etc/passwd old=\"x\" new=\"y\"\n@on complete task=\"done [100%]\"\n@phase-end\n",
         );
         assert!(
             out.contains("PHASE_ABORTED"),
@@ -1359,5 +1362,81 @@ trailing prose
         });
         assert_eq!(call["message"], "status: DONE; commits: a1b2c3, d4e5f6");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Records every outbound `(tool, args)` call like `RecordingBackend`, but
+    /// fails (as a real `BackendError::NonZero`, mirroring an unreachable session)
+    /// on one designated tool while succeeding on everything else — used to pin the
+    /// B1 contract: a read-only bridge's backend failure degrades, a writing
+    /// bridge's stays fatal.
+    struct Recorder {
+        calls: std::rc::Rc<RefCell<Vec<(String, serde_json::Value)>>>,
+        fail: &'static str,
+    }
+    impl CodeIntelBackend for Recorder {
+        fn call(&self, tool: &str, args: serde_json::Value) -> Result<String, BackendError> {
+            self.calls.borrow_mut().push((tool.to_string(), args));
+            if tool == self.fail {
+                return Err(BackendError::NonZero {
+                    code: 2,
+                    stderr: "error: -32603: session not available".into(),
+                });
+            }
+            Ok(String::new())
+        }
+    }
+
+    #[test]
+    fn a_read_only_backend_failure_does_not_abort_the_phase() {
+        let calls = std::rc::Rc::new(RefCell::new(Vec::new()));
+        let ctx = Rc::new(EngineContext::with_backend(
+            LeanMdHeader::default(),
+            std::path::PathBuf::from("."),
+            Box::new(Recorder {
+                calls: calls.clone(),
+                fail: "ctx_read",
+            }),
+        ));
+        let src = "@phase \"t1\"\n@read src/lib.rs mode=full\nAFTER-TEXT\n@on complete decision=\"t1 done\"\n@phase-end\n";
+        let out = render_with_phases(&ctx, src);
+        assert!(!out.contains("PHASE_ABORTED"), "{out}");
+        assert!(
+            out.contains("AFTER-TEXT"),
+            "body after the anchor must survive: {out}"
+        );
+        let recorded = calls.borrow();
+        assert!(
+            // `find_call` returns the FIRST decision match, which is the unconditional
+            // phase-OPEN narrative ("Phase: t1", fired at :315 regardless of this fix) —
+            // so a value-blind lookup can't discriminate. Search for the specific
+            // closing value instead: it can only appear once the `@on complete`
+            // decision sink actually fired (i.e. the phase did not abort).
+            recorded.iter().any(|(t, a)| {
+                t == "ctx_session"
+                    && a.get("action").and_then(|v| v.as_str()) == Some("decision")
+                    && a.get("value").and_then(|v| v.as_str()) == Some("t1 done")
+            }),
+            "@on complete decision sink must still fire with its value intact: {:?}",
+            recorded
+        );
+    }
+
+    #[test]
+    fn a_writing_bridge_still_aborts_the_phase() {
+        let calls = std::rc::Rc::new(RefCell::new(Vec::new()));
+        let ctx = Rc::new(EngineContext::with_backend(
+            LeanMdHeader::default(),
+            std::path::PathBuf::from("."),
+            Box::new(Recorder {
+                calls: calls.clone(),
+                fail: "ctx_edit",
+            }),
+        ));
+        let src = "@phase \"t1\"\n@edit src/lib.rs old=\"a\" new=\"b\"\nAFTER-TEXT\n@phase-end\n";
+        let out = render_with_phases(&ctx, src);
+        assert!(
+            out.contains("PHASE_ABORTED"),
+            "a write must stay fatal: {out}"
+        );
     }
 }
