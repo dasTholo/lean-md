@@ -209,6 +209,7 @@ als HTML-Kommentar:
 | B2 | `mode=full` + fehlschlagendes `ctx_read` → Notiz, kein zweiter Backendcall |
 | B2 | Byte-Stabilität: zwei Renders derselben Quelle sind identisch (#498) |
 | C1 | MCP `tools/call` mit `path` + `phase` → nur die benannte Phase |
+| C1 (e2e) | `lean-md mcp` über stdio: `tools/call` mit `path` + `phase` → nur die benannte Phase; unbekannte Phase → `-32602` (I-4) |
 | C2 | Fixture: Plan in `<root>/docs/plans/`, Seed in `<root>/.lean-ctx/lean-md/` → `@import` löst auf |
 | C2 (Härtung) | Relativer `path`: Jail muss `.` (cwd/Projektroot) sein, nicht das Plan-Verzeichnis (C-1-Regression) |
 | C2 (Härtung) | Marker auf einem Vorfahren von `$HOME` (nicht nur exakt `$HOME`) wird ebenso verworfen |
@@ -216,6 +217,7 @@ als HTML-Kommentar:
 | C2 (Härtung) | Kein Marker gefunden, Plan liegt direkt in `$HOME` → Fallback-Jail weicht auf `.` aus, nie `$HOME` (I-1) |
 | C2 (Härtung) | Kein Marker, Plan in `$HOME` UND cwd = `$HOME` → `mcp_load_source` scheitert (`-32602`), kein `$HOME`-Jail (I-2) |
 | C3 | Sink-zählendes Fake-Backend im `mcp`-Modus → 0 Calls; im CLI-Modus unverändert |
+| C3 (e2e) | `lean-ctx`-Stub auf dem `PATH`: `lean-md mcp` protokolliert 0 Calls, `lean-md render --phase` weiterhin `ctx_session` (I-4) |
 | C3 (Härtung) | Fixture deckt alle drei Sink-Familien ab: `decision=` (`ctx_session`), `remember=` (`ctx_knowledge`), `compress` (`ctx_compress`) — für die letzten beiden ist `fire_action`s Guard der einzige (I-5) |
 
 Alle Tests über `cargo nextest run` (nie `cargo test`).
