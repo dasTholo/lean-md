@@ -515,7 +515,7 @@ fn tool_defs() -> Value {
             "consumer": { "type": "string", "description": "Override audience: ai|human" },
             "crp":      { "type": "string", "description": "Override CRP mode: tdd|compact|off" },
             "skill":    { "type": "string", "description": "Render an embedded lmd skill body by name (alternative to path/content)" },
-            "phase":     { "type": "string", "description": "Render only this named phase of the skill (requires skill; mutually exclusive with companion)" },
+            "phase":     { "type": "string", "description": "Render only this named phase — of a skill (mutually exclusive with companion) or of a path/content whole-doc source" },
             "companion": { "type": "string", "description": "Render a skill's named companion reference (requires skill; mutually exclusive with phase)" }
         }
     });
@@ -554,6 +554,18 @@ fn tool_defs() -> Value {
     ])
 }
 
+/// Walk up from `start` to the first directory carrying a `.lean-ctx/` or `.git/`
+/// marker: that is the project root, the same root the CLI path jails on (cwd). No
+/// marker → `None`, and the caller keeps the file's parent. The jail deliberately
+/// grows upwards (design 2026-08-31 §2.3 C2) so a project-relative
+/// `@import .lean-ctx/lean-md/…` resolves on the MCP path too.
+fn project_root_of(start: &std::path::Path) -> Option<std::path::PathBuf> {
+    start
+        .ancestors()
+        .find(|d| d.join(".lean-ctx").is_dir() || d.join(".git").is_dir())
+        .map(std::path::Path::to_path_buf)
+}
+
 /// Resolve lmd source from MCP params: `content` (inline) or `path` (file read).
 fn mcp_load_source(params: &Value) -> Result<(String, std::path::PathBuf), String> {
     if let Some(content) = params.get("content").and_then(Value::as_str) {
@@ -564,10 +576,17 @@ fn mcp_load_source(params: &Value) -> Result<(String, std::path::PathBuf), Strin
         .and_then(Value::as_str)
         .ok_or_else(|| "missing 'path' or 'content' parameter".to_string())?;
     let source = std::fs::read_to_string(path).map_err(|e| format!("ctx_md: read {path}: {e}"))?;
-    let jail = std::path::Path::new(path).parent().map_or_else(
+    let parent = std::path::Path::new(path).parent().map_or_else(
         || std::path::PathBuf::from("."),
         std::path::Path::to_path_buf,
     );
+    let jail = project_root_of(&parent).unwrap_or(parent);
+    // `Path::parent` of a bare filename is "" — keep the cwd form the renderer expects.
+    let jail = if jail.as_os_str().is_empty() {
+        std::path::PathBuf::from(".")
+    } else {
+        jail
+    };
     Ok((source, jail))
 }
 
@@ -1387,6 +1406,34 @@ mod tests {
             matches!(err, lean_md::skills::SkillRenderError::PhaseNotFound(_)),
             "unknown phase must be a caller error: {err:?}"
         );
+    }
+
+    #[test]
+    fn mcp_jails_on_the_project_root_so_project_relative_imports_resolve() {
+        let root = std::env::temp_dir().join(format!("lmd_jail_root_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        lean_md::seeds::materialize_contracts(&root, ".lean-ctx/lean-md", false).unwrap();
+        let plan_dir = root.join("docs/plans");
+        std::fs::create_dir_all(&plan_dir).unwrap();
+        let plan = plan_dir.join("p.lmd.md");
+        std::fs::write(
+            &plan,
+            "@lean-md\nconsumer: ai\n\n@import .lean-ctx/lean-md/plan-recipes /\n@call verify(src/lib.rs)\n",
+        )
+        .unwrap();
+
+        let (source, jail) = mcp_load_source(&json!({ "path": plan.to_str().unwrap() })).unwrap();
+        assert_eq!(
+            jail, root,
+            "the jail must be the project root, not the plan's parent"
+        );
+
+        let out = do_render(&source, jail, None, None, None).unwrap();
+        assert!(
+            !out.contains("fragment not found"),
+            "a project-relative @import must resolve: {out}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

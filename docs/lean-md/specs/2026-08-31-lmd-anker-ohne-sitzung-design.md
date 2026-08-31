@@ -150,6 +150,12 @@ als HTML-Kommentar:
   `@import .lean-ctx/lean-md/plan-recipes` auf, und CLI- und Gateway-Render laufen
   auf derselben Wurzel. **Der Jail wächst dadurch nach oben** — gehört als
   Entscheidung in Spec §7 vermerkt.
+
+  **Entscheidung (umgesetzt).** Der Gateway-Jail wandert vom Plan-Verzeichnis auf den
+  Projektroot (erster Vorfahre mit `.lean-ctx/` oder `.git/`). Er wächst damit nach
+  oben; das ist der Preis dafür, daß CLI- und Gateway-Render dieselbe Wurzel sehen und
+  `@import .lean-ctx/lean-md/…` überhaupt auflöst. Ohne Marker bleibt es beim
+  Elternverzeichnis.
 - **C3 Sinks im MCP-Modus abschalten (Auto-Erkennung).** Läuft die Binary als
   `lean-md mcp`, werden `ctx_session`/`ctx_knowledge`/`ctx_agent`-Sinks zu No-ops
   (`session_decision`, `session_set_task`, `session_add_finding`, `@on complete`).
