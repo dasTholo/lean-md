@@ -145,9 +145,32 @@ pub fn render_skill(
             let isolated = ctx
                 .phase_body(p)
                 .ok_or_else(|| SkillRenderError::PhaseNotFound(p.to_string()))?;
-            Ok(render_body(&ctx, &isolated))
+            // Same wrap as `render_source_with_phase` (I-3). No embedded skill
+            // body carries an `@on complete` inside a `@phase` today, so this is
+            // latent — but the two isolated-phase renders must not answer the
+            // same input differently, and the first skill that grows one would
+            // otherwise inherit the exact bug that was just fixed next door.
+            Ok(render_body(&ctx, &wrap_isolated_phase(p, &isolated)))
         }
     }
+}
+
+/// Re-wrap a captured phase body in its own `@phase` / `@phase-end` for an
+/// isolated render. The capture pre-pass stores every body WITHOUT those
+/// markers on purpose — `@dispatch phase=` splices that raw form into a
+/// subagent brief, where a `@phase` line would be noise. Rendering the raw form
+/// leaves the phase's own `@on complete` without an open scope: the sink never
+/// fires, and the renderer reports `@on complete outside @phase` — a false
+/// statement about a well-formed source, printed before the body at that.
+/// Wrapping restores the scope for THIS render only; `ctx.phase_bodies` keeps
+/// the raw form (I-3).
+///
+/// Shared by both isolated-phase renders (`render_skill`,
+/// `render_source_with_phase`) so the two can never drift: an embedded skill
+/// body and a generated plan must answer `--phase p` the same way.
+/// Byte-stable (#498): a pure function of (name, body).
+fn wrap_isolated_phase(name: &str, body: &str) -> String {
+    format!("@phase \"{name}\"\n{body}\n@phase-end\n")
 }
 
 /// Render an arbitrary `.lmd.md` `source` with the same header-parse, var-prepass
@@ -194,16 +217,7 @@ pub fn render_source_with_phase(
             let isolated = ctx
                 .phase_body(p)
                 .ok_or_else(|| SkillRenderError::PhaseNotFound(p.to_string()))?;
-            // Re-wrap the captured body in its own `@phase` / `@phase-end`. The
-            // capture pre-pass stores every body WITHOUT those markers on purpose —
-            // `@dispatch phase=` splices that raw form into a subagent brief, where a
-            // `@phase` line would be noise. Rendering the raw form here, however,
-            // leaves the phase's own `@on complete` without an open scope: the sink
-            // never fires, and the renderer reports `@on complete outside @phase` —
-            // a false statement about a well-formed plan. Wrapping restores the
-            // scope for THIS render only; `ctx.phase_bodies` keeps the raw form.
-            let wrapped = format!("@phase \"{p}\"\n{isolated}\n@phase-end\n");
-            Ok(render_body(&ctx, &wrapped))
+            Ok(render_body(&ctx, &wrap_isolated_phase(p, &isolated)))
         }
     }
 }
