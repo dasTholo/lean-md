@@ -22,6 +22,19 @@ const MAX_SUMMARY_LEN: usize = 120;
 /// Extract a finding from a tool call result. Returns `None` if the output
 /// is not interesting or if a duplicate was emitted within the dedup window.
 pub fn extract(tool_name: &str, output: &str) -> Option<AutoFinding> {
+    // A `<!-- lmd:@name unavailable: … -->` degradation note (a read-only
+    // bridge's `BridgeError::Backend`, `render::dispatch_result`) or a
+    // `<!-- lmd:@name err: … -->` dispatch-error comment (`render::dispatch`/
+    // `dispatch_pipe`) is directive-error prose, not tool content. Guarded here —
+    // the single funnel every per-tool extractor below shares — so it catches the
+    // note regardless of which tool name it is filed under (any read-only bridge
+    // can degrade, not just `ctx_read`). Without this, `extract_ctx_read` read the
+    // comment's leading `<!--` token as a file path and emitted a garbage finding
+    // (`AutoFinding{file:"<!--", summary:"Read <!--"}`).
+    if output.trim_start().starts_with("<!-- lmd:@") {
+        return None;
+    }
+
     let finding = match tool_name {
         "ctx_read" => extract_ctx_read(output),
         "ctx_search" => extract_ctx_search(output),
@@ -690,6 +703,26 @@ mod tests {
         );
         let t = extract("ctx_shell", &test_out).expect("test-result finding");
         assert!(t.summary.contains("Test"), "got: {}", t.summary);
+    }
+
+    #[test]
+    fn extract_ignores_degradation_and_dispatch_error_notes() {
+        clear_recent();
+        // `render::dispatch_result`'s `<!-- lmd:@read unavailable: ... -->` note
+        // (read-only bridge, degraded backend) must not surface as a finding for
+        // any tool name — the guard lives once in `extract`, not per-extractor.
+        assert!(extract("ctx_read", "<!-- lmd:@read unavailable: BACKEND_REQUIRED: backend exit 2: session not available -->").is_none());
+        assert!(
+            extract(
+                "ctx_search",
+                "<!-- lmd:@search unavailable: BACKEND_REQUIRED: boom -->"
+            )
+            .is_none()
+        );
+        // `render::dispatch`'s `<!-- lmd:@name err: ... -->` shares the same prefix.
+        assert!(extract("ctx_shell", "<!-- lmd:@query err: shell denied -->").is_none());
+        // Leading whitespace before the marker must not defeat the guard.
+        assert!(extract("ctx_read", "  \n<!-- lmd:@read unavailable: x -->").is_none());
     }
 
     #[test]

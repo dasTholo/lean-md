@@ -347,7 +347,7 @@ mod tests {
     use rushdown::parser::{Options as ParserOptions, Parser};
     use rushdown::text::BasicReader;
 
-    use super::{sanitize_comment, splice_directives};
+    use super::{degraded_note, sanitize_comment, splice_directives};
     use crate::engine::EngineContext;
     use crate::header::LeanMdHeader;
     use crate::parser::lmd_parser_extension;
@@ -357,6 +357,30 @@ mod tests {
         assert_eq!(sanitize_comment("x-->y"), "x--&gt;y");
         assert_eq!(sanitize_comment("<!--z"), "&lt;!--z");
         assert_eq!(sanitize_comment("plain"), "plain");
+    }
+
+    #[test]
+    fn degraded_note_sanitizes_both_fields_and_is_byte_stable() {
+        // Point 2 (review of Task 1, B1): the `<!-- lmd:@name unavailable: … -->`
+        // wording was never asserted. Pins the marker shape, the independent
+        // `sanitize_comment` pass over both the directive name and the
+        // `BridgeError` display, and #498 byte-stability.
+        let name = "read-->oops";
+        let err = crate::bridges::BridgeError::Backend(crate::backend::BackendError::NonZero {
+            code: 2,
+            stderr: "boom<!--inject-->end".to_string(),
+        });
+        let a = degraded_note(name, &err);
+        let b = degraded_note(name, &err);
+        assert_eq!(
+            a, b,
+            "#498: two renders of the same (name, error) are byte-identical: {a}"
+        );
+        assert_eq!(
+            a,
+            "<!-- lmd:@read--&gt;oops unavailable: BACKEND_REQUIRED: backend exit 2: boom&lt;!--inject--&gt;end -->",
+            "marker shape + sanitize_comment on both fields: {a}"
+        );
     }
 
     #[test]

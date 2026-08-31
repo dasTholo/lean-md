@@ -1422,6 +1422,38 @@ trailing prose
     }
 
     #[test]
+    fn capture_auto_ignores_a_degraded_read_note() {
+        // Regression: B1 degrades a read-only bridge's backend failure to a visible
+        // `<!-- lmd:@read unavailable: ... -->` note instead of aborting the phase
+        // (see `a_read_only_backend_failure_does_not_abort_the_phase`). Before this
+        // fix, `@on complete capture=auto` fed that note straight into
+        // `auto_findings::extract("ctx_read", note)`, which mistook the comment's
+        // leading `<!--` token for a file path and emitted a garbage session
+        // finding (`AutoFinding{file:"<!--", summary:"Read <!--"}`).
+        let calls = std::rc::Rc::new(RefCell::new(Vec::new()));
+        let ctx = Rc::new(EngineContext::with_backend(
+            LeanMdHeader::default(),
+            std::path::PathBuf::from("."),
+            Box::new(Recorder {
+                calls: calls.clone(),
+                fail: "ctx_read",
+            }),
+        ));
+        let src =
+            "@phase \"t1\"\n@read src/lib.rs mode=full\n@on complete capture=auto\n@phase-end\n";
+        let out = render_with_phases(&ctx, src);
+        assert!(!out.contains("PHASE_ABORTED"), "{out}");
+        let calls = calls.borrow();
+        assert!(
+            !calls
+                .iter()
+                .any(|(t, a)| t == "ctx_session" && a["action"] == "finding"),
+            "capture=auto must not turn a degraded-read note into a session finding: {:?}",
+            calls
+        );
+    }
+
+    #[test]
     fn a_writing_bridge_still_aborts_the_phase() {
         let calls = std::rc::Rc::new(RefCell::new(Vec::new()));
         let ctx = Rc::new(EngineContext::with_backend(
@@ -1437,6 +1469,12 @@ trailing prose
         assert!(
             out.contains("PHASE_ABORTED"),
             "a write must stay fatal: {out}"
+        );
+        assert!(
+            calls.borrow().iter().any(|(t, _)| t == "ctx_edit"),
+            "PHASE_ABORTED must come from the backend path (ctx_edit actually called), \
+             not an earlier author error (e.g. Resolve/jail) that never reaches the backend: {:?}",
+            calls.borrow()
         );
     }
 }

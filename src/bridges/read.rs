@@ -51,8 +51,10 @@ mod tests {
     fn read_dispatches_to_backend() {
         // Post-I2 dispatch contract: a successful backend exit-0 yields Ok (live
         // content or a tool-owned envelope); a real backend failure (lean-ctx
-        // absent / jail-refused) yields Err(BridgeError::Backend) so a @read
-        // inside a @phase aborts. The bridge must never panic.
+        // absent / jail-refused) yields Err(BridgeError::Backend) from the bridge
+        // itself. `@read` is read_only (B1), so `render::dispatch_result` turns
+        // that Err into a degraded note instead of aborting the enclosing @phase.
+        // The bridge must never panic.
         let f = std::env::temp_dir().join("lmd_read_bridge.txt");
         std::fs::write(&f, "SENTINEL_LINE_42\n").unwrap();
         let ctx = Rc::new(EngineContext::new(

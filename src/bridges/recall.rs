@@ -108,8 +108,10 @@ mod tests {
     #[test]
     fn headless_recall_returns_backend_envelope_or_empty() {
         // Post-I2: `@recall` routes outbound to ctx_knowledge. A real backend
-        // failure (lean-ctx absent / jail-refused) is now Err(BridgeError::Backend)
-        // so it aborts an enclosing @phase; an exit-0 backend yields Ok(empty |
+        // failure (lean-ctx absent / jail-refused) is Err(BridgeError::Backend)
+        // from the bridge itself. `@recall` is read_only (B1), so
+        // `render::dispatch_result` degrades that Err to a visible note instead
+        // of aborting the enclosing @phase; an exit-0 backend yields Ok(empty |
         // tool-owned envelope). Never a panic.
         let ctx = headless_ctx();
         match RecallBridge.execute(&ctx, &DirectiveArgs::parse("query=anything")) {

@@ -55,8 +55,11 @@ pub enum BridgeError {
     /// A real outbound `ctx.backend.call(...)` failure (Spawn/NonZero/Io) — e.g.
     /// `lean-ctx` unreachable or a PathJail reject (`NonZero{stderr}`). Distinct
     /// from a tool-owned `ERROR:` envelope (tool exit 0): this variant propagates
-    /// as `Err` so a failing code-intel call inside a `@phase` aborts the phase
-    /// (I2). Display is a pure function of the `BackendError` content (#498).
+    /// as `Err`. From a WRITING bridge this still aborts the enclosing `@phase`
+    /// (I2); from a `read_only()` bridge it is caught by `render::dispatch_result`
+    /// and degrades to a visible note instead (see `read_only` below) — the abort
+    /// is no longer unconditional. Display is a pure function of the
+    /// `BackendError` content (#498).
     Backend(crate::backend::BackendError),
 }
 
