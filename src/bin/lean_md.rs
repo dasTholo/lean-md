@@ -566,18 +566,23 @@ fn tool_defs() -> Value {
 /// keeps the file's parent. The jail deliberately grows upwards (design
 /// 2026-08-31 §2.3 C2) so a project-relative `@import .lean-ctx/lean-md/…`
 /// resolves on the MCP path too — but never past `$HOME` (see
-/// `exceeds_home_bound`): a marker at or above `$HOME` is rejected outright.
+/// `exceeds_home_bound`): a marker at or above `$HOME` is not a match.
+///
+/// The bound is part of the SEARCH, not a verdict on its result: applying it
+/// afterwards let a `.lean-ctx/` at `$HOME` (the ordinary user config) win the
+/// first pass, fail the bound, and take the whole lookup down with it — the
+/// project's own `.git/` root below `$HOME` was never considered, and the
+/// caller silently fell back to the plan's parent directory (I-1).
 fn project_root_of(start: &std::path::Path) -> Option<std::path::PathBuf> {
-    let root = start
+    start
         .ancestors()
-        .find(|d| d.join(".lean-ctx").is_dir())
-        .or_else(|| start.ancestors().find(|d| d.join(".git").is_dir()))
-        .map(std::path::Path::to_path_buf)?;
-    if exceeds_home_bound(&root) {
-        None
-    } else {
-        Some(root)
-    }
+        .find(|d| d.join(".lean-ctx").is_dir() && !exceeds_home_bound(d))
+        .or_else(|| {
+            start
+                .ancestors()
+                .find(|d| d.join(".git").is_dir() && !exceeds_home_bound(d))
+        })
+        .map(std::path::Path::to_path_buf)
 }
 
 /// True when `candidate` sits at or above `$HOME` — i.e. `$HOME` equals
@@ -1665,6 +1670,38 @@ mod tests {
             "a marker above $HOME must be rejected too, not only one exactly at $HOME: {found:?}"
         );
         let _ = std::fs::remove_dir_all(&tmp_root);
+    }
+
+    #[test]
+    fn a_home_level_marker_must_not_kill_the_git_fallback_below_it() {
+        // The `$HOME` bound used to be applied AFTER the marker search had already
+        // committed to a result: `find(.lean-ctx)` matched `$HOME/.lean-ctx` (the
+        // ordinary lean-ctx user config every developer has), `or_else` never ran
+        // because that search returned `Some`, and the bound then turned the whole
+        // lookup into `None`. The project's own `.git` root BELOW `$HOME` was never
+        // even considered, so the caller silently fell back to the plan's parent
+        // directory — exactly the jail C2 exists to widen. The bound belongs INSIDE
+        // the search: a marker over the bound is not a match, not a veto.
+        let fake_home =
+            std::env::temp_dir().join(format!("lmd_home_leanctx_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&fake_home);
+        std::fs::create_dir_all(fake_home.join(".lean-ctx")).unwrap();
+        let project = fake_home.join("proj");
+        std::fs::create_dir_all(project.join(".git")).unwrap();
+        let start = project.join("docs/plans");
+        std::fs::create_dir_all(&start).unwrap();
+
+        let guard = HomeGuard::set(&fake_home);
+        let found = project_root_of(&start);
+        drop(guard);
+
+        assert_eq!(
+            found,
+            Some(project),
+            "a `.lean-ctx` marker at $HOME must be skipped, not abort the search — the \
+             project's own `.git` root below it still has to win: {found:?}"
+        );
+        let _ = std::fs::remove_dir_all(&fake_home);
     }
 
     #[test]

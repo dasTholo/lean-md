@@ -155,8 +155,15 @@ als HTML-Kommentar:
     Vorfahre mit `.lean-ctx/` gesucht, nur wenn keiner existiert der nächste mit
     `.git/`. Der speziellere Marker gewinnt also immer, nicht der nähere.
   - Der Jail überschreitet nie `$HOME`: ein Marker auf `$HOME`-Ebene oder darüber
-    wird verworfen (`None`). Seit dem Review-Nachzug zur C2-Härtung (I-1, gefixt
-    2026-08-31) gilt die Bound auch, wenn KEIN Marker gefunden wird — liegt schon
+    ist **kein Treffer** — die Bound steckt in der Suche, nicht hinter ihr. Beide
+    Durchläufe (erst `.lean-ctx/`, dann `.git/`) filtern jeden Kandidaten einzeln
+    gegen die Bound. Wurde sie erst auf das Suchergebnis angewandt, gewann ein
+    `.lean-ctx/` in `$HOME` (die übliche User-Config) den ersten Durchlauf,
+    scheiterte danach an der Bound und riß die ganze Suche mit: der
+    `.git/`-Projektroot *unterhalb* von `$HOME` kam nie zum Zug, und der Aufrufer
+    fiel still auf das Plan-Elternverzeichnis zurück (Review-Nachzug I-1, gefixt
+    2026-08-31).
+  - Die Bound gilt auch, wenn KEIN Marker gefunden wird — liegt schon
     das Elternverzeichnis der Plandatei selbst bei/über `$HOME`, weicht der
     Aufrufer weiter auf den cwd (`.`) aus, statt `$HOME` unkontrolliert als Jail zu
     übernehmen. Grund, den der ursprüngliche Plan nicht auf dem Schirm hatte —
@@ -192,6 +199,7 @@ als HTML-Kommentar:
 | C2 | Fixture: Plan in `<root>/docs/plans/`, Seed in `<root>/.lean-ctx/lean-md/` → `@import` löst auf |
 | C2 (Härtung) | Relativer `path`: Jail muss `.` (cwd/Projektroot) sein, nicht das Plan-Verzeichnis (C-1-Regression) |
 | C2 (Härtung) | Marker auf einem Vorfahren von `$HOME` (nicht nur exakt `$HOME`) wird ebenso verworfen |
+| C2 (Härtung) | `.lean-ctx/` auf `$HOME`-Ebene + `.git/` im Projekt darunter → der `.git/`-Root gewinnt, die Suche bricht nicht ab (I-1) |
 | C2 (Härtung) | Kein Marker gefunden, Plan liegt direkt in `$HOME` → Fallback-Jail weicht auf `.` aus, nie `$HOME` (I-1) |
 | C3 | Sink-zählendes Fake-Backend im `mcp`-Modus → 0 Calls; im CLI-Modus unverändert |
 
