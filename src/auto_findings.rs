@@ -36,6 +36,19 @@ pub fn extract(tool_name: &str, output: &str) -> Option<AutoFinding> {
     // this, `extract_ctx_read` read the comment's leading `<!--` token as a
     // file path and emitted a garbage finding
     // (`AutoFinding{file:"<!--", summary:"Read <!--"}`).
+    //
+    // Deliberate trade-off (M-4): the guard also drops
+    // `read_fallback`'s SUCCESSFUL outline branch
+    // (`<!-- lmd:@read fallback=ctx_outline … -->\n<real outline>`), so
+    // `capture=auto` silently loses a finding it would have had without the
+    // degrade. Extracting the remainder instead is worse, not better:
+    // `ctx_outline` emits no path header at all (measured — its first line is
+    // `enum pub BackendError @L9-13`), so `extract_ctx_read` would take
+    // `enum`/`impl`/`fn` for a file path and file `Read enum` as a session
+    // finding — a fabricated fact of exactly the class this guard exists to
+    // stop. Recovering it honestly needs an outline-shaped extractor plus the
+    // `@read` path from the directive args, which is a separate change; until
+    // then, one missing finding beats one invented one.
     if output
         .trim_start()
         .starts_with(crate::render::LMD_NOTE_PREFIX)
@@ -731,6 +744,22 @@ mod tests {
         assert!(extract("ctx_shell", "<!-- lmd:@query err: shell denied -->").is_none());
         // Leading whitespace before the marker must not defeat the guard.
         assert!(extract("ctx_read", "  \n<!-- lmd:@read unavailable: x -->").is_none());
+    }
+
+    #[test]
+    fn the_successful_outline_fallback_is_dropped_on_purpose() {
+        clear_recent();
+        // M-4, pinned as a decision rather than a bug: the guard also swallows
+        // `read_fallback`'s successful `ctx_outline` branch, so `capture=auto`
+        // loses that finding. The alternative — strip the marker line and
+        // extract the rest — is worse: `ctx_outline` output carries no path
+        // header, so `extract_ctx_read` would file `Read enum` (its first token)
+        // as a fact. Change this test only together with an outline-shaped
+        // extractor that knows the real `@read` path.
+        let outline_fallback = "<!-- lmd:@read fallback=ctx_outline (ctx_read failed: \
+             BACKEND_REQUIRED: backend exit 2: session not available) -->\n\
+             enum pub BackendError @L9-13\nstruct pub CliBackend @L36-38\n";
+        assert!(extract("ctx_read", outline_fallback).is_none());
     }
 
     #[test]

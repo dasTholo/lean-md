@@ -42,7 +42,11 @@ impl DirectiveBridge for ReadBridge {
             // session" wording even when the actual cause was e.g. a missing
             // `lean-ctx` binary (`BackendError::Spawn`) or a server-side jail
             // rejection (`BackendError::NonZero`) — both factually wrong claims.
-            Err(e) => Ok(read_fallback(ctx, path, mode, &e)),
+            // The cause travels as a `BridgeError`, not the bare
+            // `BackendError`: its `Display` carries the `BACKEND_REQUIRED:`
+            // marker, which `render::degraded_note` — the other producer of
+            // this failure class — also emits. One wording, one source (M-3).
+            Err(e) => Ok(read_fallback(ctx, path, mode, &BridgeError::Backend(e))),
         }
     }
 }
@@ -67,14 +71,42 @@ impl DirectiveBridge for ReadBridge {
 /// reconciling if `resolve_tool_path` ever grows a real failure path.
 /// `path`/`mode` are author-controlled (`DirectiveArgs` quoting allows literal
 /// newlines via `\n`-escapes) and get interpolated into both an HTML comment
-/// and a `>`-blockquote below; `cause` is the backend's own error text. All
+/// and a `>`-blockquote below; `cause` is the `BridgeError` display (the
+/// backend's own error text behind the shared `BACKEND_REQUIRED:` marker). All
 /// three are sanitized (C1 review correction) the same way
 /// `render::degraded_note` sanitizes its fields — a comment-delimiter
 /// (`-->`/`<!--`) or raw-newline breakout is otherwise possible from any of
 /// them.
 /// Byte-stable (#498): a pure function of (path, mode, cause, ctx.jail_root).
-fn read_fallback(ctx: &Rc<EngineContext>, path: &str, mode: &str, cause: &BackendError) -> String {
+fn read_fallback(ctx: &Rc<EngineContext>, path: &str, mode: &str, cause: &BridgeError) -> String {
     let safe_cause = sanitize_comment(&cause.to_string());
+    // `path`/`mode` are sanitized once, up front: every branch below
+    // interpolates them into an HTML comment and/or a `>`-blockquote.
+    let safe_path = sanitize_comment(path);
+    let safe_mode = sanitize_comment(mode);
+
+    // A cause that looks like a deliberate server-side path rejection (jail /
+    // deny) must not be followed by an order to read the same path some other
+    // way — that would just ask the agent to route around a refusal. Any other
+    // cause (infra outage: lean-ctx missing, a transient session hiccup, …) is
+    // not a policy decision, so the self-read order still stands (C2 review
+    // decision: suppress rather than reword — a refused path has no safe
+    // rephrasing of "read it yourself").
+    //
+    // This runs BEFORE the `ctx_outline` substitute below (M-2): that
+    // substitute is the same "try the refused path another way" move, only as
+    // a call instead of a sentence. The server refuses `ctx_outline` on a
+    // jailed path with byte-identical stderr (measured against lean-ctx
+    // 3.10.0), so the retry never produced content — it only spent a
+    // subprocess per anchor and contradicted the note it was about to render.
+    if looks_like_a_deliberate_refusal(cause) {
+        return format!(
+            "{LMD_NOTE_PREFIX}read unavailable: no session-free substitute for mode={safe_mode}; cause: {safe_cause} -->\n\
+             > \u{26A0} @read {safe_path} mode={safe_mode} \u{2014} ctx_read refused this path: {safe_cause}\n\
+             >   This path was rejected server-side; reading it another way is not a fix.\n"
+        );
+    }
+
     if matches!(mode, "signatures" | "map" | "auto") {
         let root = ctx.jail_root.to_str().unwrap_or(".");
         if let Ok(abs) = crate::pathx::resolve_tool_path(Some(root), None, path)
@@ -92,22 +124,6 @@ fn read_fallback(ctx: &Rc<EngineContext>, path: &str, mode: &str, cause: &Backen
     // guard) — without it, `@on complete capture=auto` mistook the "> ⚠"
     // blockquote for real `ctx_read` output and emitted a garbage session
     // finding.
-    let safe_path = sanitize_comment(path);
-    let safe_mode = sanitize_comment(mode);
-    // A cause that looks like a deliberate server-side path rejection (jail /
-    // deny) must not be followed by an order to read the same path some other
-    // way — that would just ask the agent to route around a refusal. Any other
-    // cause (infra outage: lean-ctx missing, a transient session hiccup, …) is
-    // not a policy decision, so the self-read order still stands (C2 review
-    // decision: suppress rather than reword — a refused path has no safe
-    // rephrasing of "read it yourself").
-    if looks_like_a_deliberate_refusal(cause) {
-        return format!(
-            "{LMD_NOTE_PREFIX}read unavailable: no session-free substitute for mode={safe_mode}; cause: {safe_cause} -->\n\
-             > \u{26A0} @read {safe_path} mode={safe_mode} \u{2014} ctx_read refused this path: {safe_cause}\n\
-             >   This path was rejected server-side; reading it another way is not a fix.\n"
-        );
-    }
     format!(
         "{LMD_NOTE_PREFIX}read unavailable: no session-free substitute for mode={safe_mode}; cause: {safe_cause} -->\n\
          > \u{26A0} @read {safe_path} mode={safe_mode} \u{2014} ctx_read failed: {safe_cause}\n\
@@ -115,20 +131,31 @@ fn read_fallback(ctx: &Rc<EngineContext>, path: &str, mode: &str, cause: &Backen
     )
 }
 
-/// Best-effort classification of a `BackendError` as a deliberate server-side
+/// Substrings that only a deliberate server-side path rejection produces.
+/// Both are verbatim fragments of lean-ctx's own jail errors, measured against
+/// lean-ctx 3.10.0 (`core/error.rs` `path escapes project root: {path} (root:
+/// {root})` plus `core/pathjail.rs`'s `Access denied: outside active project
+/// (…)` hint); a real refusal carries both, so either one alone is enough.
+const REFUSAL_MARKERS: &[&str] = &["path escapes project root", "access denied: outside active"];
+
+/// Best-effort classification of a `BridgeError` as a deliberate server-side
 /// refusal (PathJail / access denial) rather than an infrastructure outage.
-/// `Spawn`/`Io` are always infra (lean-ctx itself never ran); a `NonZero` exit
-/// is infra unless its stderr names a jail/deny reason. Heuristic, not a
-/// contract: worst case it under-detects and the self-read order still shows
-/// (never a false "safe to reroute" claim beyond that).
-fn looks_like_a_deliberate_refusal(e: &BackendError) -> bool {
+/// Only a `Backend(NonZero)` can qualify: `Spawn`/`Io` mean lean-ctx itself
+/// never ran, and every non-`Backend` variant is an author error that never
+/// reaches this function. A `NonZero` exit is infra unless its stderr contains
+/// one of the full `REFUSAL_MARKERS` phrases.
+///
+/// Deliberately biased towards under-detection (M-1): the previous version
+/// matched the bare words `jail`/`denied`/`escapes`/`outside`, which arbitrary
+/// error prose contains, and a false positive renders "This path was rejected
+/// server-side" for a plain outage — a claim about a server decision that was
+/// never made. Under-detection costs only a self-read order for a path that
+/// will refuse it again; over-detection states something untrue.
+fn looks_like_a_deliberate_refusal(e: &BridgeError) -> bool {
     match e {
-        BackendError::NonZero { stderr, .. } => {
+        BridgeError::Backend(BackendError::NonZero { stderr, .. }) => {
             let s = stderr.to_ascii_lowercase();
-            s.contains("jail")
-                || s.contains("denied")
-                || s.contains("escapes")
-                || s.contains("outside")
+            REFUSAL_MARKERS.iter().any(|m| s.contains(m))
         }
         _ => false,
     }
@@ -415,32 +442,145 @@ mod tests {
         // rendered "backend has no session" plus an order to read the
         // deliberately refused path anyway. A recognizable server-side
         // jail/deny cause must drop that order instead of inviting the agent
-        // to route around the refusal.
-        struct JailReject;
-        impl crate::backend::CodeIntelBackend for JailReject {
-            fn call(
-                &self,
-                _tool: &str,
-                _args: serde_json::Value,
-            ) -> Result<String, crate::backend::BackendError> {
-                Err(crate::backend::BackendError::NonZero {
-                    code: 2,
-                    stderr: "error: -32602: path escapes jail: /etc/passwd".into(),
-                })
-            }
-        }
-        let ctx = Rc::new(EngineContext::with_backend(
-            LeanMdHeader::default(),
-            fallback_root(),
-            Box::new(JailReject),
-        ));
+        // to route around the refusal. The stderr is the real lean-ctx wording
+        // (M-1) — the invented "path escapes jail" this test used to carry only
+        // ever exercised the over-broad `contains("jail")` arm.
+        let calls = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let ctx = refusing_ctx(&calls, REAL_JAIL_STDERR);
         let out = ReadBridge
             .execute(&ctx, &DirectiveArgs::parse("/etc/passwd mode=full"))
             .unwrap();
-        assert!(out.contains("escapes jail"), "{out}");
+        assert!(out.contains("escapes project root"), "{out}");
         assert!(
             !out.contains("Read it yourself"),
             "must not suggest routing around a refusal: {out}"
         );
+    }
+
+    /// The verbatim stderr of a real `lean-ctx call ctx_read` on a jailed path
+    /// (measured against lean-ctx 3.10.0), so the refusal heuristic is pinned to
+    /// wording lean-ctx actually emits instead of an invented one.
+    const REAL_JAIL_STDERR: &str = "error: path resolution failed: path escapes \
+         project root: /etc/passwd (root: /srv/p). Access denied: outside active \
+         project (/srv/p). To allow: open that project in a new window, or: \
+         LEAN_CTX_EXTRA_ROOTS=/etc.";
+
+    /// Backend that refuses `ctx_read` server-side but would happily answer
+    /// `ctx_outline` — the only way to see whether the substitute is attempted.
+    struct RefusingRead {
+        calls: std::rc::Rc<std::cell::RefCell<Vec<(String, serde_json::Value)>>>,
+        stderr: &'static str,
+    }
+    impl crate::backend::CodeIntelBackend for RefusingRead {
+        fn call(
+            &self,
+            tool: &str,
+            args: serde_json::Value,
+        ) -> Result<String, crate::backend::BackendError> {
+            self.calls
+                .borrow_mut()
+                .push((tool.to_string(), args.clone()));
+            match tool {
+                "ctx_outline" => Ok("OUTLINE_OK\n".to_string()),
+                _ => Err(crate::backend::BackendError::NonZero {
+                    code: 2,
+                    stderr: self.stderr.into(),
+                }),
+            }
+        }
+    }
+
+    fn refusing_ctx(
+        calls: &std::rc::Rc<std::cell::RefCell<Vec<(String, serde_json::Value)>>>,
+        stderr: &'static str,
+    ) -> Rc<EngineContext> {
+        Rc::new(EngineContext::with_backend(
+            LeanMdHeader::default(),
+            fallback_root(),
+            Box::new(RefusingRead {
+                calls: calls.clone(),
+                stderr,
+            }),
+        ))
+    }
+
+    #[test]
+    fn a_refused_path_is_not_retried_through_the_outline_substitute() {
+        // M-2: the refusal check used to run AFTER the `signatures|map|auto`
+        // outline arm, so a deliberately refused path was immediately offered to
+        // a second tool on the same path. The server refuses `ctx_outline` for
+        // the same reason (measured: identical stderr), so the retry could only
+        // ever waste a subprocess — while the rendered text claimed the opposite
+        // ("reading it another way is not a fix").
+        let calls = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let ctx = refusing_ctx(&calls, REAL_JAIL_STDERR);
+        let out = ReadBridge
+            .execute(&ctx, &DirectiveArgs::parse("/etc/passwd mode=signatures"))
+            .unwrap();
+        assert!(
+            !calls.borrow().iter().any(|(t, _)| t == "ctx_outline"),
+            "a refusal must not be routed around by a second tool: {:?}",
+            calls.borrow()
+        );
+        assert!(
+            out.contains("rejected server-side"),
+            "the refusal note must win over the outline substitute: {out}"
+        );
+    }
+
+    #[test]
+    fn an_infrastructure_failure_that_merely_says_outside_is_not_a_refusal() {
+        // M-1: the heuristic matched the bare substrings "outside"/"denied"/
+        // "jail"/"escapes", which any error prose can contain. A false positive
+        // renders "This path was rejected server-side" for a plain outage —
+        // asserting a server decision that never happened.
+        let calls = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let ctx = refusing_ctx(
+            &calls,
+            "error: -32603: the indexer died outside the request window; retry",
+        );
+        let out = ReadBridge
+            .execute(&ctx, &DirectiveArgs::parse("src/seal.rs mode=full"))
+            .unwrap();
+        assert!(
+            out.contains("Read it yourself"),
+            "an infra outage is not a policy decision — the self-read order stands: {out}"
+        );
+        assert!(
+            !out.contains("rejected server-side"),
+            "must not claim a server-side rejection it never saw: {out}"
+        );
+    }
+
+    #[test]
+    fn every_fallback_branch_keeps_the_backend_required_marker() {
+        // M-3: `read_fallback` interpolated `BackendError::to_string()` while
+        // `render::degraded_note` interpolates `BridgeError`, which prefixes
+        // `BACKEND_REQUIRED:`. Two producers of the same failure class must not
+        // drift — the marker is the documented backwards-compatibility anchor.
+        let calls = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let self_read = ReadBridge
+            .execute(
+                &failing_ctx(&calls),
+                &DirectiveArgs::parse("src/seal.rs mode=full"),
+            )
+            .unwrap();
+        assert!(self_read.contains("BACKEND_REQUIRED:"), "{self_read}");
+
+        let outline = ReadBridge
+            .execute(
+                &failing_ctx(&calls),
+                &DirectiveArgs::parse("src/lib.rs mode=signatures"),
+            )
+            .unwrap();
+        assert!(outline.contains("BACKEND_REQUIRED:"), "{outline}");
+
+        let refused = ReadBridge
+            .execute(
+                &refusing_ctx(&calls, REAL_JAIL_STDERR),
+                &DirectiveArgs::parse("/etc/passwd mode=full"),
+            )
+            .unwrap();
+        assert!(refused.contains("BACKEND_REQUIRED:"), "{refused}");
     }
 }
