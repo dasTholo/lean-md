@@ -22,16 +22,24 @@ const MAX_SUMMARY_LEN: usize = 120;
 /// Extract a finding from a tool call result. Returns `None` if the output
 /// is not interesting or if a duplicate was emitted within the dedup window.
 pub fn extract(tool_name: &str, output: &str) -> Option<AutoFinding> {
-    // A `<!-- lmd:@name unavailable: … -->` degradation note (a read-only
-    // bridge's `BridgeError::Backend`, `render::dispatch_result`) or a
-    // `<!-- lmd:@name err: … -->` dispatch-error comment (`render::dispatch`/
-    // `dispatch_pipe`) is directive-error prose, not tool content. Guarded here —
-    // the single funnel every per-tool extractor below shares — so it catches the
-    // note regardless of which tool name it is filed under (any read-only bridge
-    // can degrade, not just `ctx_read`). Without this, `extract_ctx_read` read the
-    // comment's leading `<!--` token as a file path and emitted a garbage finding
+    // A `<!-- lmd:@name unavailable: … -->` degradation note — either the
+    // generic `render::dispatch_result` read-only backend-failure degrade
+    // (`BridgeError::Backend`, any `read_only()` bridge; rendered by
+    // `render::degraded_note`) or `bridges::read::read_fallback`'s
+    // `@read`-specific B2 self-fallback (which bypasses `dispatch_result`
+    // entirely and renders the note itself) — or a `<!-- lmd:@name err: … -->`
+    // dispatch-error comment (`render::dispatch`/`dispatch_pipe`), is
+    // directive-error prose, not tool content. Guarded here — the single
+    // funnel every per-tool extractor below shares — so it catches the note
+    // regardless of which producer emitted it or which tool name it is filed
+    // under (any read-only bridge can degrade, not just `ctx_read`). Without
+    // this, `extract_ctx_read` read the comment's leading `<!--` token as a
+    // file path and emitted a garbage finding
     // (`AutoFinding{file:"<!--", summary:"Read <!--"}`).
-    if output.trim_start().starts_with("<!-- lmd:@") {
+    if output
+        .trim_start()
+        .starts_with(crate::render::LMD_NOTE_PREFIX)
+    {
         return None;
     }
 

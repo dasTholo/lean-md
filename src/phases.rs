@@ -1367,8 +1367,11 @@ trailing prose
     /// Records every outbound `(tool, args)` call like `RecordingBackend`, but
     /// fails (as a real `BackendError::NonZero`, mirroring an unreachable session)
     /// on one designated tool while succeeding on everything else — used to pin the
-    /// B1 contract: a read-only bridge's backend failure degrades, a writing
-    /// bridge's stays fatal.
+    /// contract that a read-only bridge's backend failure degrades (a writing
+    /// bridge's stays fatal), regardless of *where* that degrade happens: inside
+    /// the bridge itself (`@read`'s B2 self-fallback,
+    /// `bridges::read::read_fallback`) or in the generic `dispatch_result`
+    /// read-only branch (e.g. `@search`, which has no bridge-internal fallback).
     struct Recorder {
         calls: std::rc::Rc<RefCell<Vec<(String, serde_json::Value)>>>,
         fail: &'static str,
@@ -1387,7 +1390,20 @@ trailing prose
     }
 
     #[test]
-    fn a_read_only_backend_failure_does_not_abort_the_phase() {
+    fn a_read_directive_survives_backend_failure_via_its_own_b2_fallback() {
+        // C3 review correction: this test's name/framing used to claim it pins
+        // `dispatch_result`'s generic read-only degrade branch
+        // (`Err(e @ BridgeError::Backend(_)) if bridge.read_only() =>
+        // Ok(degraded_note(...))`). Post-B2, `ReadBridge::execute` catches its
+        // own backend failure internally and always returns `Ok`
+        // (`bridges::read::read_fallback`), so `@read` never reaches that
+        // branch anymore — this test's `fail: "ctx_read"` Recorder failure is
+        // absorbed entirely inside the bridge. It still pins a valuable,
+        // separate contract: a backend outage during `@read` must not abort
+        // the phase or lose its `@on complete` sink. See
+        // `a_search_backend_failure_degrades_via_dispatch_result` below for
+        // actual coverage of the `dispatch_result` branch itself, via a
+        // bridge (`@search`) that has no bridge-internal fallback.
         let calls = std::rc::Rc::new(RefCell::new(Vec::new()));
         let ctx = Rc::new(EngineContext::with_backend(
             LeanMdHeader::default(),
@@ -1422,14 +1438,64 @@ trailing prose
     }
 
     #[test]
+    fn a_search_backend_failure_degrades_via_dispatch_result() {
+        // C3 review correction: no test actually exercised `dispatch_result`'s
+        // generic read-only degrade branch or asserted its note wording — the
+        // sibling `@read` test above became vacuous for that branch once B2
+        // gave `@read` its own bridge-internal fallback (`ReadBridge::execute`
+        // never returns `BridgeError::Backend` anymore). `@search` has no
+        // bridge-internal fallback, so its backend failure must travel through
+        // `dispatch_result` to degrade — this pins that the branch is still
+        // reachable and still renders the documented
+        // `<!-- lmd:@name unavailable: ... -->` note (`render::degraded_note`).
+        let calls = std::rc::Rc::new(RefCell::new(Vec::new()));
+        let ctx = Rc::new(EngineContext::with_backend(
+            LeanMdHeader::default(),
+            std::path::PathBuf::from("."),
+            Box::new(Recorder {
+                calls: calls.clone(),
+                fail: "ctx_search",
+            }),
+        ));
+        let src = "@phase \"t1\"\n@search needle\nAFTER-TEXT\n@on complete decision=\"t1 done\"\n@phase-end\n";
+        let out = render_with_phases(&ctx, src);
+        assert!(!out.contains("PHASE_ABORTED"), "{out}");
+        assert!(
+            out.contains("<!-- lmd:@search unavailable: BACKEND_REQUIRED: backend exit 2:"),
+            "dispatch_result's degrade branch must render the documented note wording: {out}"
+        );
+        assert!(
+            out.contains("AFTER-TEXT"),
+            "body after the anchor must survive: {out}"
+        );
+        let recorded = calls.borrow();
+        assert!(
+            recorded.iter().any(|(t, a)| {
+                t == "ctx_session"
+                    && a.get("action").and_then(|v| v.as_str()) == Some("decision")
+                    && a.get("value").and_then(|v| v.as_str()) == Some("t1 done")
+            }),
+            "@on complete decision sink must still fire with its value intact: {:?}",
+            recorded
+        );
+    }
+
+    #[test]
     fn capture_auto_ignores_a_degraded_read_note() {
-        // Regression: B1 degrades a read-only bridge's backend failure to a visible
-        // `<!-- lmd:@read unavailable: ... -->` note instead of aborting the phase
-        // (see `a_read_only_backend_failure_does_not_abort_the_phase`). Before this
-        // fix, `@on complete capture=auto` fed that note straight into
-        // `auto_findings::extract("ctx_read", note)`, which mistook the comment's
-        // leading `<!--` token for a file path and emitted a garbage session
-        // finding (`AutoFinding{file:"<!--", summary:"Read <!--"}`).
+        // Regression: B1's generic read-only backend-failure degrade produced
+        // a `<!-- lmd:@read unavailable: ... -->` note via `render::
+        // dispatch_result` (`render::degraded_note`). Post-B2, `@read` never
+        // reaches that generic path anymore — `ReadBridge::execute` catches
+        // its own backend failure and renders the note itself
+        // (`bridges::read::read_fallback`; see
+        // `a_read_directive_survives_backend_failure_via_its_own_b2_fallback`
+        // above), which still starts with the same `<!-- lmd:@` prefix
+        // (`render::LMD_NOTE_PREFIX`) by design — so this regression still
+        // applies. Before this fix, `@on complete capture=auto` fed that note
+        // straight into `auto_findings::extract("ctx_read", note)`, which
+        // mistook the comment's leading `<!--` token for a file path and
+        // emitted a garbage session finding
+        // (`AutoFinding{file:"<!--", summary:"Read <!--"}`).
         let calls = std::rc::Rc::new(RefCell::new(Vec::new()));
         let ctx = Rc::new(EngineContext::with_backend(
             LeanMdHeader::default(),

@@ -10,12 +10,28 @@ use super::engine::EngineContext;
 use super::node::{LmdDirective, LmdInline, LmdPipe};
 use super::parser::lmd_parser_extension;
 
-/// Neutralize HTML-comment delimiters so an untrusted directive name or a
-/// bridge err str cannot break out of the fallback `<!-- … -->` wrapper
-/// (spec §9 F-2). Phase-1 target is the AI ctx, not a browser DOM, so a
-/// minimal delimiter-escape is sufficient.
-fn sanitize_comment(s: &str) -> String {
-    s.replace("-->", "--&gt;").replace("<!--", "&lt;!--")
+/// Shared marker prefix for every degraded-directive note this crate can
+/// render — `degraded_note` below (the generic `dispatch_result` read-only
+/// backend-failure degrade) and `bridges::read::read_fallback` (the
+/// `@read`-specific B2 self-fallback, which bypasses `dispatch_result`
+/// entirely and renders its own note) both start their output with it.
+/// `auto_findings::extract`'s guard matches on this exact prefix to recognize
+/// ANY of these notes as directive-error prose, not tool content — regardless
+/// of which producer emitted it. Single source of truth: a hardcoded copy of
+/// this literal in a third place would silently drift from a real producer.
+pub(crate) const LMD_NOTE_PREFIX: &str = "<!-- lmd:@";
+
+/// Neutralize HTML-comment delimiters and raw newlines so an untrusted
+/// directive name, bridge-error text, or bridge-rendered field cannot break
+/// out of the enclosing `<!-- … -->` comment or a `>`-prefixed blockquote
+/// line (spec §9 F-2; newline handling added for `read_fallback`'s blockquote
+/// use, C1 review). Phase-1 target is the AI ctx, not a browser DOM, so a
+/// minimal delimiter/newline escape is sufficient.
+pub(crate) fn sanitize_comment(s: &str) -> String {
+    s.replace("-->", "--&gt;")
+        .replace("<!--", "&lt;!--")
+        .replace('\r', "\\r")
+        .replace('\n', "\\n")
 }
 
 /// Result-returning dispatch sibling: the phase executor needs the `Err` to
@@ -45,7 +61,7 @@ pub(crate) fn dispatch_result(
 /// Byte-stable (#498): a pure function of (name, error) — no timestamp/counter.
 fn degraded_note(name: &str, e: &super::bridges::BridgeError) -> String {
     format!(
-        "<!-- lmd:@{} unavailable: {} -->",
+        "{LMD_NOTE_PREFIX}{} unavailable: {} -->",
         sanitize_comment(name),
         sanitize_comment(&format!("{e}"))
     )
