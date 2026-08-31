@@ -20,7 +20,10 @@ use serde_json::{Value, json};
 // ─── Shared helpers ────────────────────────────────────────────────────────
 
 /// Load source text from a file path. (The parent-dir jail is dead since the Bug-3
-/// fix — both render/check paths jail on the cwd — so this returns text only.)
+/// fix for the CLI `render`/`check` paths — both still jail on the cwd,
+/// unconditionally. The MCP path is separate and does NOT go through this
+/// function: `mcp_load_source` below jails on the file's own discovered project
+/// root when `project_root_of` finds one, which need not be the cwd.)
 fn load_file(path: &str) -> String {
     match std::fs::read_to_string(path) {
         Ok(s) => s,
@@ -582,19 +585,39 @@ fn project_root_of(start: &std::path::Path) -> Option<std::path::PathBuf> {
 /// enforces: `jail_root` is threaded into `--project-root` on *every* outbound
 /// backend call, not just `@import`, so a marker at or above `$HOME` (e.g. a
 /// dotfiles repo's `~/.git`) would jail every call onto the whole home
-/// directory — exactly the case this excludes. A missing or empty `$HOME`
-/// disables the bound (returns `false`): there is nothing to compare against.
+/// directory — exactly the case this excludes. `std::env::home_dir()` falls
+/// back to `getpwuid_r` on Unix, so on Linux a missing/empty `$HOME` env var
+/// does NOT actually reach the early-return below in practice — the
+/// "disables the bound" path is a defensive fallback for the (here
+/// unreachable-on-Linux) case where no home directory can be determined at
+/// all, not a realistic escape hatch. Real-world behavior is fail-closed: the
+/// bound keeps applying even with `$HOME` unset.
+///
 /// Both sides are canonicalized before comparing so a relative `candidate`
 /// (the marker search runs against the process cwd, same as `ancestors()`)
-/// lines up correctly with the always-absolute `$HOME`; if canonicalization
-/// fails (e.g. a race between the marker check and this call) the raw path is
-/// used as a best-effort fallback rather than panicking or skipping the bound.
+/// lines up correctly with the always-absolute `$HOME`. An empty `candidate`
+/// — the marker search matching the cwd itself, see `project_root_of` — is
+/// resolved to `.` first so canonicalization turns it into the cwd instead of
+/// failing outright: `canonicalize("")` is an ENOENT, and without this step
+/// the raw-path fallback below would compare against the literal empty path,
+/// which every path trivially "starts with" — silently tripping the bound on
+/// every cwd-rooted match (the C-1 regression: a relative `path` argument
+/// resolves its marker at the empty ancestor, got rejected here, and fell
+/// back to the plan's own parent directory instead of the project root). If
+/// canonicalization still fails for another reason (e.g. a race between the
+/// marker check and this call) the raw path is used as a best-effort
+/// fallback rather than panicking or skipping the bound.
 fn exceeds_home_bound(candidate: &std::path::Path) -> bool {
     let Some(home) = std::env::home_dir().filter(|h| !h.as_os_str().is_empty()) else {
         return false;
     };
     let home = std::fs::canonicalize(&home).unwrap_or(home);
-    let candidate = std::fs::canonicalize(candidate).unwrap_or_else(|_| candidate.to_path_buf());
+    let candidate = if candidate.as_os_str().is_empty() {
+        std::path::PathBuf::from(".")
+    } else {
+        candidate.to_path_buf()
+    };
+    let candidate = std::fs::canonicalize(&candidate).unwrap_or(candidate);
     home.starts_with(&candidate)
 }
 
@@ -612,7 +635,24 @@ fn mcp_load_source(params: &Value) -> Result<(String, std::path::PathBuf), Strin
         || std::path::PathBuf::from("."),
         std::path::Path::to_path_buf,
     );
-    let jail = project_root_of(&parent).unwrap_or(parent);
+    // The `$HOME` bound applies to the FALLBACK too, not just a marker match (I-1):
+    // without this, a plan sitting directly in `$HOME` with no `.lean-ctx`/`.git`
+    // ancestor at all would jail on `$HOME` itself — `project_root_of` correctly
+    // returns `None` here (no marker to find), but the old `unwrap_or(parent)` took
+    // `parent` unchecked. Falling back further to cwd (`.`) mirrors the bare-filename
+    // fallback just below: it is a strictly narrower default than `$HOME` in the
+    // ordinary case (server launched from inside a project directory), and there is
+    // no narrower directory left to prefer once even `parent` is rejected — we
+    // deliberately do not chase this further (e.g. re-checking cwd itself against the
+    // bound), since that would only matter for the degenerate case of a server
+    // launched with cwd at or above `$HOME`, out of scope here.
+    let jail = project_root_of(&parent).unwrap_or_else(|| {
+        if exceeds_home_bound(&parent) {
+            std::path::PathBuf::from(".")
+        } else {
+            parent
+        }
+    });
     // `Path::parent` of a bare filename is "" — keep the cwd form the renderer expects.
     let jail = if jail.as_os_str().is_empty() {
         std::path::PathBuf::from(".")
@@ -922,6 +962,50 @@ fn cmd_mcp() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// RAII guard restoring `$HOME` on drop, including on panic — a test that mutates
+    /// process-global env state must not leave it corrupted if a later assertion in
+    /// the same test panics before a manual restore would run. Mutating `$HOME` is
+    /// safe here: `cargo nextest` runs one process per test, so this does not race
+    /// other tests reading/writing the real env var (M-7).
+    struct HomeGuard(Option<std::ffi::OsString>);
+
+    impl HomeGuard {
+        fn set(new: &std::path::Path) -> Self {
+            let prev = std::env::var_os("HOME");
+            unsafe {
+                std::env::set_var("HOME", new);
+            }
+            Self(prev)
+        }
+    }
+
+    impl Drop for HomeGuard {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(h) => unsafe { std::env::set_var("HOME", h) },
+                None => unsafe { std::env::remove_var("HOME") },
+            }
+        }
+    }
+
+    /// RAII guard restoring the process cwd on drop, including on panic — same
+    /// rationale as `HomeGuard`. Safe under `cargo nextest` (one process per test).
+    struct CwdGuard(std::path::PathBuf);
+
+    impl CwdGuard {
+        fn set(new: &std::path::Path) -> Self {
+            let prev = std::env::current_dir().expect("cwd must be readable");
+            std::env::set_current_dir(new).expect("cwd must be settable");
+            Self(prev)
+        }
+    }
+
+    impl Drop for CwdGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.0);
+        }
+    }
 
     /// The text a check renders, verdict aside — for the assertions whose subject is the
     /// WORDING. Where the subject is the verdict, tests assert `is_ok()` / `is_err()`.
@@ -1462,8 +1546,50 @@ mod tests {
 
         let out = do_render(&source, jail, None, None, None).unwrap();
         assert!(
-            !out.contains("fragment not found"),
+            !out.contains("lmd: @import") && !out.contains("failed:"),
             "a project-relative @import must resolve: {out}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn mcp_jails_on_the_project_root_for_a_relative_path_too() {
+        // C-1 regression: `project_root_of` walks `start.ancestors()`, which for a
+        // RELATIVE path ends at the empty ancestor `""` — `"".join(".lean-ctx")`
+        // resolves against the process cwd, so the marker is found there. Before the
+        // fix, `exceeds_home_bound("")` always returned `true` (canonicalizing an
+        // empty path fails, and `Path::starts_with("")` is true for any path), so
+        // the marker was rejected and the caller silently fell back to the plan's
+        // own parent directory instead of the project root — exactly the regression
+        // the review found in the hardened code. This test fails red against that
+        // code (jail == "docs/plans", not the cwd form `.`).
+        let root = std::env::temp_dir().join(format!("lmd_jail_root_rel_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        lean_md::seeds::materialize_contracts(&root, ".lean-ctx/lean-md", false).unwrap();
+        let plan_dir = root.join("docs/plans");
+        std::fs::create_dir_all(&plan_dir).unwrap();
+        let plan = plan_dir.join("p.lmd.md");
+        std::fs::write(
+            &plan,
+            "@lean-md\nconsumer: ai\n\n@import .lean-ctx/lean-md/plan-recipes /\n@call verify(src/lib.rs)\n",
+        )
+        .unwrap();
+
+        let guard = CwdGuard::set(&root);
+        let (source, jail) = mcp_load_source(&json!({ "path": "docs/plans/p.lmd.md" })).unwrap();
+        assert_eq!(
+            jail,
+            std::path::PathBuf::from("."),
+            "a relative path's marker match lands on the empty ancestor (cwd) — the \
+             jail must resolve to the cwd form `.`, not fall back to the plan's own \
+             parent directory: {jail:?}"
+        );
+        let out = do_render(&source, jail, None, None, None).unwrap();
+        drop(guard);
+
+        assert!(
+            !out.contains("lmd: @import") && !out.contains("failed:"),
+            "a project-relative @import must resolve for a relative `path` argument too: {out}"
         );
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1473,7 +1599,7 @@ mod tests {
         // `.lean-ctx/` is the more specific marker and must win over `.git/`
         // regardless of which one sits closer to `start` — a nested repo
         // (`.git` a few levels down) must not shadow an outer `.lean-ctx/`.
-        let root = std::env::temp_dir().join(format!("lmd_marker_prec_{}_a", std::process::id()));
+        let root = std::env::temp_dir().join(format!("lmd_marker_prec_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let nested_git_dir = root.join("sub/nested/.git");
         std::fs::create_dir_all(&nested_git_dir).unwrap();
@@ -1495,28 +1621,71 @@ mod tests {
         // `jail_root` feeds `--project-root` into every outbound backend call
         // (not only `@import`), so a marker sitting AT `$HOME` (e.g. a
         // dotfiles repo's `~/.git`) must never become the jail — that would
-        // widen every call onto the whole home directory. Mutating `$HOME`
-        // is safe here: `cargo nextest` runs one process per test, so this
-        // does not race other tests reading/writing the real env var.
+        // widen every call onto the whole home directory.
         let fake_home = std::env::temp_dir().join(format!("lmd_fake_home_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&fake_home);
         std::fs::create_dir_all(fake_home.join(".git")).unwrap();
         let start = fake_home.join("sub/deep");
         std::fs::create_dir_all(&start).unwrap();
 
-        let real_home = std::env::var_os("HOME");
-        unsafe {
-            std::env::set_var("HOME", &fake_home);
-        }
+        let guard = HomeGuard::set(&fake_home);
         let found = project_root_of(&start);
-        match real_home {
-            Some(h) => unsafe { std::env::set_var("HOME", h) },
-            None => unsafe { std::env::remove_var("HOME") },
-        }
+        drop(guard);
 
         assert_eq!(
             found, None,
             "a marker at $HOME itself must be rejected, not jailed on"
+        );
+        let _ = std::fs::remove_dir_all(&fake_home);
+    }
+
+    #[test]
+    fn a_marker_above_home_is_rejected_too_not_only_at_home_exactly() {
+        // M-6: the coverage above only exercises candidate == $HOME exactly. The
+        // bound (`home.starts_with(candidate)`) must reject an ANCESTOR of $HOME
+        // just as much — e.g. a `.git` two levels above `$HOME` would otherwise
+        // jail every backend call onto that wider tree, `$HOME` included.
+        let tmp_root =
+            std::env::temp_dir().join(format!("lmd_home_ancestor_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp_root);
+        std::fs::create_dir_all(tmp_root.join(".git")).unwrap();
+        let fake_home = tmp_root.join("home_within");
+        let start = fake_home.join("proj/sub/deep");
+        std::fs::create_dir_all(&start).unwrap();
+
+        let guard = HomeGuard::set(&fake_home);
+        let found = project_root_of(&start);
+        drop(guard);
+
+        assert_eq!(
+            found, None,
+            "a marker above $HOME must be rejected too, not only one exactly at $HOME: {found:?}"
+        );
+        let _ = std::fs::remove_dir_all(&tmp_root);
+    }
+
+    #[test]
+    fn the_fallback_jail_is_bounded_too_not_only_a_discovered_marker() {
+        // I-1: `project_root_of` returning `None` (no `.lean-ctx`/`.git` ancestor at
+        // all) used to fall straight through to the plan's own parent directory
+        // UNCHECKED. A plan sitting directly in `$HOME` with no project marker
+        // anywhere hits exactly that path and used to jail on `$HOME` itself — the
+        // same widening the marker bound above exists to prevent, just reached
+        // through the fallback instead of a found marker.
+        let fake_home =
+            std::env::temp_dir().join(format!("lmd_home_fallback_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&fake_home);
+        std::fs::create_dir_all(&fake_home).unwrap();
+        let plan = fake_home.join("p.lmd.md");
+        std::fs::write(&plan, "@lean-md\nconsumer: ai\n\nhi\n").unwrap();
+
+        let guard = HomeGuard::set(&fake_home);
+        let (_source, jail) = mcp_load_source(&json!({ "path": plan.to_str().unwrap() })).unwrap();
+        drop(guard);
+
+        assert_ne!(
+            jail, fake_home,
+            "the fallback jail must never be $HOME either: {jail:?}"
         );
         let _ = std::fs::remove_dir_all(&fake_home);
     }

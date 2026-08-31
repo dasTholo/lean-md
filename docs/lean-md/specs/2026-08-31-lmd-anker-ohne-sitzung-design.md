@@ -148,18 +148,22 @@ als HTML-Kommentar:
   Verzeichnis der Plandatei aufwärts nach `.lean-ctx/` bzw. `.git/` und nimmt den
   Fund als Jail-Wurzel; ohne Fund bleibt das Elternverzeichnis. Damit löst
   `@import .lean-ctx/lean-md/plan-recipes` auf, und CLI- und Gateway-Render laufen
-  auf derselben Wurzel. **Der Jail wächst dadurch nach oben** — gehört als
-  Entscheidung in Spec §7 vermerkt. Zwei Härtungen (nachträglich, vom Menschen
+  auf derselben Wurzel. **Der Jail wächst dadurch nach oben** — als Entscheidung
+  weiter unten in diesem Abschnitt festgehalten (nicht in einem separaten Spec §7,
   entschieden — der ursprüngliche Plan-Codeblock kannte sie noch nicht):
   - `.lean-ctx/` schlägt `.git/` unabhängig vom Abstand: erst wird der nächste
     Vorfahre mit `.lean-ctx/` gesucht, nur wenn keiner existiert der nächste mit
     `.git/`. Der speziellere Marker gewinnt also immer, nicht der nähere.
   - Der Jail überschreitet nie `$HOME`: ein Marker auf `$HOME`-Ebene oder darüber
-    wird verworfen (`None`, Aufrufer behält das Elternverzeichnis). Grund, den der
-    ursprüngliche Plan nicht auf dem Schirm hatte — `jail_root` geht 1:1 als
-    `--project-root` an **jeden** `ctx_*`-Backend-Call (`CodeIntelBackend`, nicht
-    nur `@import`); ein Dotfiles-Repo direkt in `$HOME` (`~/.git`) würde sonst
-    jeden Backend-Call auf das gesamte Home-Verzeichnis aufziehen.
+    wird verworfen (`None`). Seit dem Review-Nachzug zur C2-Härtung (I-1, gefixt
+    2026-08-31) gilt die Bound auch, wenn KEIN Marker gefunden wird — liegt schon
+    das Elternverzeichnis der Plandatei selbst bei/über `$HOME`, weicht der
+    Aufrufer weiter auf den cwd (`.`) aus, statt `$HOME` unkontrolliert als Jail zu
+    übernehmen. Grund, den der ursprüngliche Plan nicht auf dem Schirm hatte —
+    `jail_root` geht 1:1 als `--project-root` an **jeden** `ctx_*`-Backend-Call
+    (`CodeIntelBackend`, nicht nur `@import`); ein Dotfiles-Repo direkt in `$HOME`
+    (`~/.git`) würde sonst jeden Backend-Call auf das gesamte Home-Verzeichnis
+    aufziehen.
 
   **Entscheidung (umgesetzt).** Der Gateway-Jail wandert vom Plan-Verzeichnis auf den
   Projektroot (nächster Vorfahre mit `.lean-ctx/`, sonst nächster Vorfahre mit
@@ -186,6 +190,9 @@ als HTML-Kommentar:
 | B2 | Byte-Stabilität: zwei Renders derselben Quelle sind identisch (#498) |
 | C1 | MCP `tools/call` mit `path` + `phase` → nur die benannte Phase |
 | C2 | Fixture: Plan in `<root>/docs/plans/`, Seed in `<root>/.lean-ctx/lean-md/` → `@import` löst auf |
+| C2 (Härtung) | Relativer `path`: Jail muss `.` (cwd/Projektroot) sein, nicht das Plan-Verzeichnis (C-1-Regression) |
+| C2 (Härtung) | Marker auf einem Vorfahren von `$HOME` (nicht nur exakt `$HOME`) wird ebenso verworfen |
+| C2 (Härtung) | Kein Marker gefunden, Plan liegt direkt in `$HOME` → Fallback-Jail weicht auf `.` aus, nie `$HOME` (I-1) |
 | C3 | Sink-zählendes Fake-Backend im `mcp`-Modus → 0 Calls; im CLI-Modus unverändert |
 
 Alle Tests über `cargo nextest run` (nie `cargo test`).
@@ -200,6 +207,13 @@ Alle Tests über `cargo nextest run` (nie `cargo test`).
 - **C2:** größerer Jail beim Gateway-Render. Bewusst, aber sicherheitsrelevant.
 - **C3:** Sinks verschwinden im Gateway-Pfad. Alternative (Puffern und im Ergebnis
   anhängen) wurde verworfen — mehr Aufwand, kein Gewinn für den Anker-Fall.
+- **C2 (Nachzug):** das MCP-Renderergebnis für ein `path`-Argument hängt jetzt
+  zusätzlich von `$HOME`, vom Prozess-cwd (bei relativen Pfaden) und von
+  `.lean-ctx`/`.git`-Markerverzeichnissen oberhalb der Plandatei ab — „Ausgabe =
+  reine Funktion der Argumente" (#498) gilt für den `path`-Zweig so nicht mehr
+  uneingeschränkt. Der `content`-Zweig (Jail bleibt fest `.`) ist davon nicht
+  betroffen. Als Determinismus-Risiko festgehalten, nicht behoben — der Trade-off
+  ist der Preis dafür, daß CLI- und Gateway-Render denselben Projektroot sehen.
 
 ## 5. Offene Punkte
 
