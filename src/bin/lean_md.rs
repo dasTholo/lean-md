@@ -31,20 +31,21 @@ fn load_file(path: &str) -> String {
     }
 }
 
-/// Core render logic for the MCP `ctx_md_render` whole-document handler.
-/// Routes through `render_source_with_phase(.., None, ..)` so the MCP surface runs the
-/// same `@var`/vars.toml pre-pass as the CLI whole-doc render — CLI and MCP stay
-/// byte-identical for plain (non-skill) `.lmd.md` sources (#498). (`cmd_render` no
-/// longer calls this after the Bug-3 fix; only the MCP handler does.)
+/// Core render logic for the MCP `ctx_md_render` whole-document (path/content)
+/// handler. Thin passthrough to `render_source_with_phase` so the MCP surface runs
+/// the same `@var`/vars.toml pre-pass and phase isolation as the CLI whole-doc
+/// render — CLI and MCP stay byte-identical for plain (non-skill) `.lmd.md`
+/// sources (#498). Callers map `PhaseNotFound` to a caller error (-32602);
+/// everything else stays a render-note in the result. (`cmd_render` no longer
+/// calls this after the Bug-3 fix; only the MCP handler does.)
 fn do_render(
     source: &str,
     jail: std::path::PathBuf,
     consumer: Option<Consumer>,
     crp: Option<CrpMode>,
-) -> String {
-    // phase=None can never be PhaseNotFound → the Result is always Ok.
-    lean_md::render_source_with_phase(source, None, consumer, crp, jail)
-        .unwrap_or_else(|e| format!("<!-- lmd render error: {e:?} -->"))
+    phase: Option<&str>,
+) -> Result<String, lean_md::skills::SkillRenderError> {
+    lean_md::render_source_with_phase(source, phase, consumer, crp, jail)
 }
 
 /// Seed-refresh status for `check` — READ-ONLY, it only reports what a previous
@@ -807,13 +808,24 @@ fn cmd_mcp() {
                                         .get("crp")
                                         .and_then(Value::as_str)
                                         .and_then(CrpMode::parse);
-                                    let rendered = do_render(&source, jail, consumer, crp);
-                                    rpc_ok(
-                                        &id,
-                                        json!({
-                                            "content": [{ "type": "text", "text": rendered }]
-                                        }),
-                                    )
+                                    let phase = args.get("phase").and_then(Value::as_str);
+                                    match do_render(&source, jail, consumer, crp, phase) {
+                                        Ok(rendered) => rpc_ok(
+                                            &id,
+                                            json!({ "content": [{ "type": "text", "text": rendered }] }),
+                                        ),
+                                        // A phase the document does not define is a caller
+                                        // error — same verdict as the skill branch above.
+                                        Err(
+                                            e @ lean_md::skills::SkillRenderError::PhaseNotFound(_),
+                                        ) => rpc_err(&id, -32602, &format!("{e}")),
+                                        // Everything else stays a note in the RESULT (#498).
+                                        Err(e) => rpc_ok(
+                                            &id,
+                                            json!({ "content": [{ "type": "text", "text":
+                                                format!("<!-- lmd render error: {e:?} -->") }] }),
+                                        ),
+                                    }
                                 }
                                 Err(e) => rpc_err(&id, -32602, &e),
                             }
@@ -1014,7 +1026,13 @@ mod tests {
         lock.save(&root).unwrap();
 
         // render must not heal it …
-        let _ = do_render("@lean-md\nconsumer: ai\n\nhi\n", root.clone(), None, None);
+        let _ = do_render(
+            "@lean-md\nconsumer: ai\n\nhi\n",
+            root.clone(),
+            None,
+            None,
+            None,
+        );
         assert_eq!(
             std::fs::read_to_string(&target).unwrap(),
             "# stale untouched\n"
@@ -1337,7 +1355,7 @@ mod tests {
         // scans every @var default up front). A plain default that sits AFTER its use would
         // resolve either way, so it does not discriminate; the forward form does.
         let src = "@lean-md\nconsumer: ai\n\n{{ var greeting }}\n@var greeting default=\"hello\"\n";
-        let out = do_render(src, std::path::PathBuf::from("."), None, None);
+        let out = do_render(src, std::path::PathBuf::from("."), None, None, None).unwrap();
         assert!(
             out.contains("hello"),
             "do_render must run the @var pre-pass so a forward reference resolves: {out}"
@@ -1350,6 +1368,24 @@ mod tests {
         assert!(
             !without_prepass.contains("hello"),
             "guard: without the pre-pass a forward reference must NOT resolve: {without_prepass}"
+        );
+    }
+
+    #[test]
+    fn mcp_whole_doc_render_honours_the_phase_argument() {
+        let src = "@lean-md\nconsumer: ai\n\n@phase \"t1\"\nONE\n@phase-end\n@phase \"t2\"\nTWO\n@phase-end\n";
+        let out = do_render(src, std::path::PathBuf::from("."), None, None, Some("t1")).unwrap();
+        assert!(out.contains("ONE"), "{out}");
+        assert!(
+            !out.contains("TWO"),
+            "phase isolation must not leak the sibling: {out}"
+        );
+
+        let err =
+            do_render(src, std::path::PathBuf::from("."), None, None, Some("nope")).unwrap_err();
+        assert!(
+            matches!(err, lean_md::skills::SkillRenderError::PhaseNotFound(_)),
+            "unknown phase must be a caller error: {err:?}"
         );
     }
 
