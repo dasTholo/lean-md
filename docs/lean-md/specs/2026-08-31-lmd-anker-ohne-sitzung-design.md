@@ -216,6 +216,7 @@ als HTML-Kommentar:
 | C2 (Härtung) | Kein Marker gefunden, Plan liegt direkt in `$HOME` → Fallback-Jail weicht auf `.` aus, nie `$HOME` (I-1) |
 | C2 (Härtung) | Kein Marker, Plan in `$HOME` UND cwd = `$HOME` → `mcp_load_source` scheitert (`-32602`), kein `$HOME`-Jail (I-2) |
 | C3 | Sink-zählendes Fake-Backend im `mcp`-Modus → 0 Calls; im CLI-Modus unverändert |
+| C3 (Härtung) | Fixture deckt alle drei Sink-Familien ab: `decision=` (`ctx_session`), `remember=` (`ctx_knowledge`), `compress` (`ctx_compress`) — für die letzten beiden ist `fire_action`s Guard der einzige (I-5) |
 
 Alle Tests über `cargo nextest run` (nie `cargo test`).
 

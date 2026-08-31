@@ -1587,7 +1587,17 @@ trailing prose
 
     #[test]
     fn mcp_mode_silences_the_session_sinks_and_cli_mode_keeps_them() {
-        let src = "@phase \"t1\"\nBODY\n@on complete decision=\"done\"\n@phase-end\n";
+        // The guard under test lives in `fire_action`, and for two sink families it
+        // is the ONLY one: `remember` (→ `bridges::remember::knowledge_remember`,
+        // `ctx_knowledge`) and `compress`/`checkpoint` (→ `ctx_compress`) call the
+        // backend with no guard of their own. A fixture carrying only `decision=`
+        // is covered a second time by `session_decision`'s guard, so deleting
+        // `fire_action`'s would leave it green and re-introduce the gateway
+        // recursion for exactly those two families unnoticed (I-5). All three sinks
+        // are therefore in the fixture.
+        let src = "@phase \"t1\"\nBODY\n@on complete decision=\"done\"\n\
+                   @on complete remember=\"a fact\" category=\"decision\"\n\
+                   @on complete compress\n@phase-end\n";
         let ctx_for = |calls: &std::rc::Rc<RefCell<Vec<(String, serde_json::Value)>>>| {
             Rc::new(EngineContext::with_backend(
                 LeanMdHeader::default(),
@@ -1599,14 +1609,16 @@ trailing prose
             ))
         };
 
-        // CLI mode (default): the sink fires.
+        // CLI mode (default): every one of the three sinks fires.
         let cli = std::rc::Rc::new(RefCell::new(Vec::new()));
         let _ = render_with_phases(&ctx_for(&cli), src);
-        assert!(
-            cli.borrow().iter().any(|(t, _)| t == "ctx_session"),
-            "CLI path must keep its sinks: {:?}",
-            cli.borrow()
-        );
+        for tool in ["ctx_session", "ctx_knowledge", "ctx_compress"] {
+            assert!(
+                cli.borrow().iter().any(|(t, _)| t == tool),
+                "CLI path must keep its sinks — {tool} missing: {:?}",
+                cli.borrow()
+            );
+        }
 
         // MCP mode: no outbound call at all, body unchanged.
         set_session_sinks_disabled(true);
