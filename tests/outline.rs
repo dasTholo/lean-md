@@ -175,3 +175,47 @@ fn a_flag_as_phase_list_and_a_second_dash_are_named_usage_errors() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn every_finding_kind_reaches_the_cli() {
+    let dir = project("kinds");
+    let cases: [(&str, &str, &[&str]); 10] = [
+        ("unknown_macro", "@call nope() /\n", &[]),
+        (
+            "arity",
+            "@import .lean-ctx/lean-md/recipes /\n@call route(a) /\n",
+            &[],
+        ),
+        ("malformed_call", "@call broken /\n", &[]),
+        ("embedded_call", "- @call route(a, b, c) /\n", &[]),
+        (
+            "duplicate_phase",
+            "@phase \"t\"\n@phase-end\n@phase \"t\"\n@phase-end\n",
+            &[],
+        ),
+        (
+            "nested_phase",
+            "@phase \"a\"\n@phase \"b\"\n@phase-end\n",
+            &[],
+        ),
+        ("unterminated_phase", "@phase \"t\"\ntext\n", &[]),
+        ("unterminated_define", "@define w()\nbody\n", &[]),
+        ("import", "@import .lean-ctx/lean-md/nope /\n", &[]),
+        ("missing_phase", "text\n", &["--require-phase", "lanes"]),
+    ];
+    for (kind, src, extra) in cases {
+        let mut args = vec!["outline", "-", "--json"];
+        args.extend_from_slice(extra);
+        let (stdout, stderr, code) = run(&args, &dir, Some(src));
+        assert_eq!(code, 1, "{kind}: {stderr}");
+        let v: serde_json::Value = serde_json::from_str(&stdout).expect("json on stdout");
+        let kinds: Vec<&str> = v["errors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["kind"].as_str().unwrap())
+            .collect();
+        assert!(kinds.contains(&kind), "{kind}: {kinds:?}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

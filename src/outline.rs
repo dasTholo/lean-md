@@ -1003,4 +1003,64 @@ mod tests {
             assert!(o.errors.is_empty(), "{src:?}: {:?}", o.errors);
         }
     }
+
+    #[test]
+    fn a_failing_nested_import_is_reported_at_the_document_import() {
+        let dir =
+            std::env::temp_dir().join(format!("lmd_outline_nested_import_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".lean-ctx/lean-md")).unwrap();
+        std::fs::write(
+            dir.join(".lean-ctx/lean-md/lib.lmd.md"),
+            "@import .lean-ctx/lean-md/missing /\n",
+        )
+        .unwrap();
+        let o = outline("text\n@import .lean-ctx/lean-md/lib /\n", dir.clone(), &[]);
+        assert_eq!(o.errors.len(), 1, "{:?}", o.errors);
+        assert_eq!((o.errors[0].kind, o.errors[0].line), ("import", 2));
+        assert!(
+            o.errors[0].message.contains(".lean-ctx/lean-md/missing"),
+            "{:?}",
+            o.errors
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_import_cycle_terminates_without_a_finding() {
+        let dir =
+            std::env::temp_dir().join(format!("lmd_outline_import_cycle_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".lean-ctx/lean-md")).unwrap();
+        std::fs::write(
+            dir.join(".lean-ctx/lean-md/a.lmd.md"),
+            "@import .lean-ctx/lean-md/b /\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".lean-ctx/lean-md/b.lmd.md"),
+            "@import .lean-ctx/lean-md/a /\n",
+        )
+        .unwrap();
+        let o = outline("@import .lean-ctx/lean-md/a /\n", dir.clone(), &[]);
+        assert!(o.errors.is_empty(), "{:?}", o.errors);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_finding_in_the_second_block_of_a_duplicate_names_its_phase() {
+        let o = run("@phase \"t\"\na\n@phase-end\n@phase \"t\"\n@call nope() /\n@phase-end\n");
+        assert_eq!(
+            o.errors,
+            vec![
+                err(
+                    "duplicate_phase",
+                    4,
+                    Some("t"),
+                    "duplicate @phase \"t\" — first defined at line 1, again at line 4"
+                ),
+                err("unknown_macro", 5, Some("t"), "macro not found: nope"),
+            ]
+        );
+    }
 }
