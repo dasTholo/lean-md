@@ -159,6 +159,9 @@ enum LineKind<'a> {
     PhaseEnd,
     /// An active `@call` line; `Err` when its signature is malformed.
     Call(Result<OutlineCall, ()>),
+    /// A `@call` inside a list item or block quote: a render executes it, outline does not
+    /// outline it.
+    Embedded,
     /// Anything else, fenced lines included.
     Text,
 }
@@ -245,9 +248,40 @@ fn classify<'a>(pass1: &mut Pass1, fenced: bool, line: usize, text: &'a str) -> 
         LineKind::PhaseOpen(parse_phase_name(rest))
     } else if let Some(call) = call_at(line, text) {
         LineKind::Call(call)
+    } else if is_embedded_call(text) {
+        LineKind::Embedded
     } else {
         LineKind::Text
     }
+}
+
+/// Whether `text`, past optional indentation and one or more list or quote markers,
+/// starts with a `@call` directive — rushdown reads the line as a list item or block
+/// quote, and a render executes the call there.
+fn is_embedded_call(text: &str) -> bool {
+    let mut rest = text.trim_start();
+    let mut marked = false;
+    while let Some(after) = strip_container_marker(rest) {
+        rest = after;
+        marked = true;
+    }
+    marked && parse_directive_line(rest.as_bytes()).is_some_and(|(name, _)| name == "call")
+}
+
+/// `text` past one leading container marker: `>` with optional spaces, or a bullet
+/// (`-` `*` `+`) or an ordinal (`1.` `2)`) followed by at least one space.
+fn strip_container_marker(text: &str) -> Option<&str> {
+    if let Some(after) = text.strip_prefix('>') {
+        return Some(after.trim_start_matches(' '));
+    }
+    let digits = text.bytes().take_while(u8::is_ascii_digit).count();
+    let after = if digits > 0 {
+        text[digits..].strip_prefix(['.', ')'])?
+    } else {
+        text.strip_prefix(['-', '*', '+'])?
+    };
+    let rest = after.trim_start_matches(' ');
+    (rest.len() < after.len()).then_some(rest)
 }
 
 impl Scan<'_> {
@@ -300,7 +334,8 @@ fn findings(ctx: &Rc<EngineContext>, scan: &Scan, required: &[String]) -> Vec<Ou
     out
 }
 
-/// `malformed_call`, `unknown_macro` and `arity` for every active `@call` line.
+/// `malformed_call`, `unknown_macro` and `arity` for every active `@call` line, and
+/// `embedded_call` for a `@call` inside a list or quote.
 fn call_findings(ctx: &Rc<EngineContext>, scan: &Scan, out: &mut Vec<OutlineError>) {
     for line in &scan.lines {
         let finding = match &line.kind {
@@ -308,6 +343,10 @@ fn call_findings(ctx: &Rc<EngineContext>, scan: &Scan, out: &mut Vec<OutlineErro
                 Some(("malformed_call", "malformed @call signature".to_string()))
             }
             LineKind::Call(Ok(call)) => macro_mismatch(ctx, call),
+            LineKind::Embedded => Some((
+                "embedded_call",
+                "@call inside a list or quote is not outlined".to_string(),
+            )),
             _ => None,
         };
         if let Some((kind, message)) = finding {
@@ -923,5 +962,45 @@ mod tests {
                 err("unterminated_define", 3, None, "unterminated @define w"),
             ]
         );
+    }
+
+    #[test]
+    fn a_call_inside_a_list_or_quote_is_an_embedded_call() {
+        for form in [
+            "- @call g() /",
+            "* @call g() /",
+            "+ @call g() /",
+            "1. @call g() /",
+            "2) @call g() /",
+            "> @call g() /",
+            "> - @call g() /",
+            "  - @call g() /",
+        ] {
+            let o = run(&format!("@phase \"t\"\n{form}\n@phase-end\n"));
+            assert!(o.phases[0].calls.is_empty(), "{form}: {:?}", o.phases);
+            assert_eq!(
+                o.errors,
+                vec![err(
+                    "embedded_call",
+                    2,
+                    Some("t"),
+                    "@call inside a list or quote is not outlined"
+                )],
+                "{form}"
+            );
+        }
+    }
+
+    #[test]
+    fn look_alikes_of_an_embedded_call_are_not_reported() {
+        for src in [
+            "-@call nope() /\n",
+            "  @call nope() /\n",
+            "```\n- @call nope() /\n```\n",
+            "@define w()\n- @call nope() /\n@define-end\n",
+        ] {
+            let o = run(src);
+            assert!(o.errors.is_empty(), "{src:?}: {:?}", o.errors);
+        }
     }
 }
