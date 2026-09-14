@@ -95,14 +95,10 @@ pub fn outline_with_ctx(ctx: &Rc<EngineContext>, source: &str, required: &[Strin
 }
 
 /// `Some(Ok(call))` for a well-formed `@call` line, `Some(Err(()))` for a malformed one,
-/// `None` for any other line, and for a line indented four spaces or more (an indented
-/// code block, never a directive).
+/// `None` for any other line — an indented one included: a render reads a directive only
+/// when its `@` starts the line, so `  @call x() /` renders as text.
 fn call_at(line: usize, text: &str) -> Option<Result<OutlineCall, ()>> {
-    let trimmed = text.trim_start();
-    if text.len() - trimmed.len() >= 4 {
-        return None;
-    }
-    let (name, args) = parse_directive_line(trimmed.as_bytes())?;
+    let (name, args) = parse_directive_line(text.as_bytes())?;
     if name != "call" {
         return None;
     }
@@ -367,6 +363,13 @@ mod tests {
     fn indented_code_lines_are_not_calls() {
         let o = run("@phase \"a\"\n    @call g() /\n@phase-end\n");
         assert!(o.phases[0].calls.is_empty());
+    }
+
+    #[test]
+    fn any_indented_call_is_text_like_in_a_render() {
+        let o = run("@phase \"a\"\n  @call nope() /\n\t@call nope() /\n @call g() /\n@phase-end\n");
+        assert!(o.phases[0].calls.is_empty(), "{:?}", o.phases[0].calls);
+        assert!(o.errors.is_empty(), "{:?}", o.errors);
     }
 
     #[test]
