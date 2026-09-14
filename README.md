@@ -27,11 +27,13 @@ lean-md mcp                      # stdio JSON-RPC 2.0 MCP server (lmd_render / l
   `--consumer=human` narrates directives as prose; `--crp` selects the output
   density (token-compressed rendering protocol).
 - `check` parse-checks a source and reports header config + directive count.
-- `outline` prints a document's structure as one JSON object without rendering:
-  phases with their `@call`s, the macro signatures in scope, and findings (unknown
-  macro, wrong argument count, malformed `@call`, duplicate phase, unresolvable
-  `@import`, missing required phase). Exit 0 without findings, 1 with findings,
-  2 on unusable input.
+- `outline` prints a document's structure as one JSON object without rendering: phases
+  with their active `@call`s (lines starting with `@call`, outside fences and `@define`
+  bodies), the macro signatures in scope, and findings — `unknown_macro`, `arity`,
+  `malformed_call`, `embedded_call` (a `@call` in a list or quote), `duplicate_phase`,
+  `nested_phase`, `unterminated_phase`, `unterminated_define`, `import`, `missing_phase`.
+  Every `@if`/`@consumer` branch is checked; only the body after the header is scanned.
+  Exit 0 without findings, 1 with findings, 2 on unusable input.
 - `mcp` serves `lmd_render` / `lmd_check` over stdio (alias `ctx_md_render` / `ctx_md_check`)
   — this is the entry point the addon wiring spawns (`command = "lean-md"`, `args = ["mcp"]`).
 

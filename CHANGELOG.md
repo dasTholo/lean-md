@@ -12,11 +12,16 @@ SemVer; the sections below track them separately.
 
 ### Added
 - `lean-md outline <file|-> --json [--require-phase a,b]`: the structure of an `.lmd.md`
-  document as one JSON object — phases in document order with their `@call`s (arguments
-  split exactly as a render splits them), the macro signatures in scope, and every
-  finding a render would only hit later: unknown macro, wrong argument count, malformed
-  `@call`, duplicate phase, unresolvable `@import`, missing required phase. No render,
-  no bridge, no session sink, no file written. Exit 0 without findings, 1 with
+  document as one JSON object, without rendering — phases in document order with their
+  active `@call`s (a line starting with `@call`, outside fences and `@define` bodies;
+  arguments split exactly as a render splits them), and the macro signatures in scope.
+  Findings: `unknown_macro`, `arity` (a lint — a render pads missing arguments),
+  `malformed_call`, `embedded_call` (a `@call` inside a list or quote, which a render
+  executes but outline does not outline), `duplicate_phase`, `nested_phase`,
+  `unterminated_phase`, `unterminated_define` (nothing after it is outlined, as a render
+  drops it), `import`, `missing_phase`. Every `@if`/`@consumer` branch is outlined and
+  checked — outline is consumer-agnostic. Only the body after the header is scanned. No
+  render, no bridge, no session sink, no file written. Exit 0 without findings, 1 with
   findings, 2 on unusable input.
 
 ## [binary 0.2.3] — 2026-08-31
