@@ -20,6 +20,7 @@ pub mod header;
 pub mod lock;
 pub mod macros;
 pub mod node;
+pub mod outline;
 pub mod parser;
 pub mod pathx;
 pub mod phases;

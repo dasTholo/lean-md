@@ -51,6 +51,15 @@ impl MacroRegistry {
     pub fn is_empty(&self) -> bool {
         self.authored.is_empty()
     }
+    /// Every authored macro sorted by name — the order `outline` reports them in (#498).
+    pub fn sorted_defs(&self) -> Vec<&MacroDef> {
+        let mut names: Vec<&String> = self.authored.keys().collect();
+        names.sort();
+        names
+            .into_iter()
+            .filter_map(|name| self.authored.get(name))
+            .collect()
+    }
     /// Project each authored macro to a one-line signature `name(p1, p2) — <doc>`,
     /// where <doc> is the first non-empty body line with HTML-comment markers
     /// stripped (the description convention). Names are sorted so the output is a
@@ -728,6 +737,20 @@ Run: `{{ test_cmd }} {{ name }}`
             !idx.contains("Run: `"),
             "macro body must not appear in index"
         );
+    }
+
+    #[test]
+    fn sorted_defs_lists_every_macro_by_name() {
+        let mut reg = MacroRegistry::new();
+        for n in ["b", "a"] {
+            reg.insert_authored(MacroDef {
+                name: n.to_string(),
+                params: vec!["p".to_string()],
+                body: String::new(),
+            });
+        }
+        let names: Vec<&str> = reg.sorted_defs().iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, ["a", "b"]);
     }
 
     #[test]
