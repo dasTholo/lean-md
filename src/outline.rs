@@ -113,6 +113,18 @@ fn call_at(line: usize, text: &str) -> Option<Result<OutlineCall, ()>> {
     )
 }
 
+/// Whether a `@define` line's `rest` (the text right after the `@define` prefix, not yet
+/// trimmed) opens a macro body — mirrors `extract_definitions`'s Pass-1 rule (spec §2.3):
+/// an empty header, one starting with `-end`, or one that fails `parse_call_signature`
+/// never opens a body, so the line is dropped without swallowing what follows.
+fn opens_define_body(rest: &str) -> bool {
+    let header = rest.trim();
+    if header.is_empty() || header.starts_with("-end") {
+        return false;
+    }
+    parse_call_signature(header).is_some()
+}
+
 /// Every finding in `source`, sorted by `(line, kind)`.
 fn findings(
     ctx: &Rc<EngineContext>,
@@ -127,18 +139,12 @@ fn findings(
     for (idx, text) in source.lines().enumerate() {
         let line = idx + 1;
         let trimmed = text.trim_start();
-        if fenced[idx] {
-            continue;
-        }
-        if trimmed.starts_with("@define-end") {
-            in_define = false;
-            continue;
-        }
-        if trimmed.starts_with("@define") {
-            in_define = true;
-            continue;
-        }
+        // Pass-1 lines (`@define`/`@define-end`/`@import`) are read exactly like
+        // `extract_definitions`: fence-blind. Only the `@call` check below is fenced.
         if in_define {
+            if trimmed.starts_with("@define-end") {
+                in_define = false;
+            }
             continue;
         }
         if let Some(rest) = trimmed.strip_prefix("@import") {
@@ -146,6 +152,15 @@ fn findings(
             if !target.is_empty() {
                 import_errors(ctx, target, line, &mut seen_imports, &mut out);
             }
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("@define") {
+            if opens_define_body(rest) {
+                in_define = true;
+            }
+            continue;
+        }
+        if fenced[idx] {
             continue;
         }
         let phase = phase_of(blocks, line);
@@ -247,15 +262,11 @@ fn import_errors(
             let mut in_define = false;
             for text in content.lines() {
                 let trimmed = text.trim_start();
-                if trimmed.starts_with("@define-end") {
-                    in_define = false;
-                    continue;
-                }
-                if trimmed.starts_with("@define") {
-                    in_define = true;
-                    continue;
-                }
+                // Same Pass-1 order as `findings`, mirroring `extract_definitions`.
                 if in_define {
+                    if trimmed.starts_with("@define-end") {
+                        in_define = false;
+                    }
                     continue;
                 }
                 if let Some(rest) = trimmed.strip_prefix("@import") {
@@ -263,6 +274,13 @@ fn import_errors(
                     if !nested.is_empty() {
                         import_errors(ctx, nested, line, seen, out);
                     }
+                    continue;
+                }
+                if let Some(rest) = trimmed.strip_prefix("@define") {
+                    if opens_define_body(rest) {
+                        in_define = true;
+                    }
+                    continue;
                 }
             }
         }
@@ -502,6 +520,45 @@ mod tests {
             o.errors
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_malformed_define_opens_no_body() {
+        let o = run("@define foo\n@call nope() /\n@define-end\n");
+        assert_eq!(
+            o.errors,
+            vec![err("unknown_macro", 2, None, "macro not found: nope")]
+        );
+        let o = run("@define\n@call nope() /\n");
+        assert_eq!(
+            o.errors,
+            vec![err("unknown_macro", 2, None, "macro not found: nope")]
+        );
+    }
+
+    #[test]
+    fn a_fenced_import_is_checked_like_pass_one() {
+        let dir =
+            std::env::temp_dir().join(format!("lmd_outline_fenced_import_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let o = outline(
+            "```\n@import .lean-ctx/lean-md/nope /\n```\n",
+            dir.clone(),
+            &[],
+        );
+        assert_eq!(o.errors.len(), 1, "{:?}", o.errors);
+        assert_eq!((o.errors[0].kind, o.errors[0].line), ("import", 2));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_fenced_define_body_still_hides_its_calls() {
+        let o = run("```\n@define w()\n@call nope() /\n@define-end\n```\n@call nope2() /\n");
+        assert_eq!(
+            o.errors,
+            vec![err("unknown_macro", 6, None, "macro not found: nope2")]
+        );
     }
 
     #[test]
