@@ -13,7 +13,7 @@ use crate::engine::EngineContext;
 use crate::header::parse_header;
 use crate::macros::{extract_definitions, parse_call_signature};
 use crate::parser::block::parse_directive_line;
-use crate::phases::{phase_blocks, phase_title};
+use crate::phases::{PhaseBlock, fenced_mask, parse_phase_name, phase_blocks, phase_title};
 
 /// One active `@call` line: the macro, its arguments split exactly as a render splits
 /// them (no padding, no truncation), and its 1-based line.
@@ -67,8 +67,9 @@ pub fn outline_with_ctx(ctx: &Rc<EngineContext>, source: &str, required: &[Strin
         .into_iter()
         .map(|def| (def.name.clone(), def.params.clone()))
         .collect();
-    let phases = phase_blocks(source)
-        .into_iter()
+    let blocks = phase_blocks(source);
+    let phases = blocks
+        .iter()
         .map(|block| {
             let text: Vec<&str> = block.body.iter().map(|(_, l, _)| l.as_str()).collect();
             let calls = block
@@ -78,18 +79,18 @@ pub fn outline_with_ctx(ctx: &Rc<EngineContext>, source: &str, required: &[Strin
                 .filter_map(|(line, text, _)| call_at(*line, text).and_then(Result::ok))
                 .collect();
             OutlinePhase {
-                name: block.name,
+                name: block.name.clone(),
                 title: phase_title(&text.join("\n")),
                 line: block.line,
                 calls,
             }
         })
         .collect();
-    let _ = required;
+    let errors = findings(ctx, source, &blocks, required);
     Outline {
         phases,
         macros,
-        errors: Vec::new(),
+        errors,
     }
 }
 
@@ -114,6 +115,168 @@ fn call_at(line: usize, text: &str) -> Option<Result<OutlineCall, ()>> {
             })
             .ok_or(()),
     )
+}
+
+/// Every finding in `source`, sorted by `(line, kind)`.
+fn findings(
+    ctx: &Rc<EngineContext>,
+    source: &str,
+    blocks: &[PhaseBlock],
+    required: &[String],
+) -> Vec<OutlineError> {
+    let mut out = Vec::new();
+    let fenced = fenced_mask(source);
+    let mut in_define = false;
+    let mut seen_imports: Vec<String> = Vec::new();
+    for (idx, text) in source.lines().enumerate() {
+        let line = idx + 1;
+        let trimmed = text.trim_start();
+        if fenced[idx] {
+            continue;
+        }
+        if trimmed.starts_with("@define-end") {
+            in_define = false;
+            continue;
+        }
+        if trimmed.starts_with("@define") {
+            in_define = true;
+            continue;
+        }
+        if in_define {
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("@import") {
+            let target = rest.trim().trim_end_matches('/').trim();
+            if !target.is_empty() {
+                import_errors(ctx, target, line, &mut seen_imports, &mut out);
+            }
+            continue;
+        }
+        let phase = phase_of(blocks, line);
+        match call_at(line, text) {
+            None => {}
+            Some(Err(())) => out.push(OutlineError {
+                kind: "malformed_call",
+                line,
+                phase,
+                message: "malformed @call signature".to_string(),
+            }),
+            Some(Ok(call)) => match ctx.macros.borrow().get(&call.macro_name) {
+                None => out.push(OutlineError {
+                    kind: "unknown_macro",
+                    line,
+                    phase,
+                    message: format!("macro not found: {}", call.macro_name),
+                }),
+                Some(def) if def.params.len() != call.args.len() => out.push(OutlineError {
+                    kind: "arity",
+                    line,
+                    phase,
+                    message: format!(
+                        "{} takes {} argument(s), got {}",
+                        call.macro_name,
+                        def.params.len(),
+                        call.args.len()
+                    ),
+                }),
+                Some(_) => {}
+            },
+        }
+    }
+    // Same rule as `phases::duplicate_phase`, which makes `render` and `check` refuse the
+    // source: every `@phase` line outside a fence counts, nested or unterminated ones too.
+    let mut first_seen: Vec<(String, usize)> = Vec::new();
+    for (idx, text) in source.lines().enumerate() {
+        let trimmed = text.trim_start();
+        if fenced[idx] || trimmed.starts_with("@phase-end") {
+            continue;
+        }
+        let Some(rest) = trimmed.strip_prefix("@phase") else {
+            continue;
+        };
+        let name = parse_phase_name(rest);
+        match first_seen.iter().find(|(seen, _)| *seen == name) {
+            Some((_, first)) => out.push(OutlineError {
+                kind: "duplicate_phase",
+                line: idx + 1,
+                phase: Some(name.clone()),
+                message: format!(
+                    "duplicate @phase \"{name}\" — first defined at line {first}, again at line {}",
+                    idx + 1
+                ),
+            }),
+            None => first_seen.push((name, idx + 1)),
+        }
+    }
+    for name in required {
+        if !blocks.iter().any(|block| block.name == *name) {
+            out.push(OutlineError {
+                kind: "missing_phase",
+                line: 0,
+                phase: Some(name.clone()),
+                message: format!("required @phase \"{name}\" is missing"),
+            });
+        }
+    }
+    out.sort_by(|a, b| (a.line, a.kind).cmp(&(b.line, b.kind)));
+    out
+}
+
+/// The phase whose body holds `line`, if any.
+fn phase_of(blocks: &[PhaseBlock], line: usize) -> Option<String> {
+    blocks
+        .iter()
+        .find(|block| {
+            let end = block.body.last().map_or(block.line, |(n, _, _)| *n);
+            block.line < line && line <= end
+        })
+        .map(|block| block.name.clone())
+}
+
+/// Resolve `target` like `@import` does and follow its own imports; every failure is
+/// reported at `line`, the `@import` in the outlined document.
+fn import_errors(
+    ctx: &Rc<EngineContext>,
+    target: &str,
+    line: usize,
+    seen: &mut Vec<String>,
+    out: &mut Vec<OutlineError>,
+) {
+    if seen.iter().any(|t| t == target) {
+        return;
+    }
+    seen.push(target.to_string());
+    match ctx.fragments.resolve(target, &ctx.jail_root) {
+        Ok(content) => {
+            let mut in_define = false;
+            for text in content.lines() {
+                let trimmed = text.trim_start();
+                if trimmed.starts_with("@define-end") {
+                    in_define = false;
+                    continue;
+                }
+                if trimmed.starts_with("@define") {
+                    in_define = true;
+                    continue;
+                }
+                if in_define {
+                    continue;
+                }
+                if let Some(rest) = trimmed.strip_prefix("@import") {
+                    let nested = rest.trim().trim_end_matches('/').trim();
+                    if !nested.is_empty() {
+                        import_errors(ctx, nested, line, seen, out);
+                    }
+                }
+            }
+        }
+        Err(e) => out.push(OutlineError {
+            kind: "import",
+            line,
+            phase: None,
+            message: format!("@import {target} failed: {e:?}"),
+        }),
+    }
 }
 
 impl Outline {
@@ -261,6 +424,122 @@ mod tests {
         assert_eq!(
             run(PLAN).to_json().to_string(),
             run(PLAN).to_json().to_string()
+        );
+    }
+
+    fn err(kind: &'static str, line: usize, phase: Option<&str>, message: &str) -> OutlineError {
+        OutlineError {
+            kind,
+            line,
+            phase: phase.map(str::to_string),
+            message: message.to_string(),
+        }
+    }
+
+    #[test]
+    fn unknown_macro_is_reported_with_its_phase() {
+        let o = run("@phase \"task-1\"\n@call nope(a) /\n@phase-end\n");
+        assert_eq!(
+            o.errors,
+            vec![err(
+                "unknown_macro",
+                2,
+                Some("task-1"),
+                "macro not found: nope"
+            )]
+        );
+    }
+
+    #[test]
+    fn arity_mismatch_is_reported() {
+        let o = run("@define g(a, b)\nx\n@define-end\n@call g(1) /\n");
+        assert_eq!(
+            o.errors,
+            vec![err("arity", 4, None, "g takes 2 argument(s), got 1")]
+        );
+    }
+
+    #[test]
+    fn malformed_call_is_reported() {
+        let o = run("@call broken /\n");
+        assert_eq!(
+            o.errors,
+            vec![err("malformed_call", 1, None, "malformed @call signature")]
+        );
+    }
+
+    #[test]
+    fn duplicate_phase_is_reported_at_the_second_site() {
+        let o = run("@phase \"t\"\na\n@phase-end\n@phase \"t\"\nb\n@phase-end\n");
+        assert_eq!(o.phases.len(), 2);
+        assert_eq!(
+            o.errors,
+            vec![err(
+                "duplicate_phase",
+                4,
+                Some("t"),
+                "duplicate @phase \"t\" — first defined at line 1, again at line 4"
+            )]
+        );
+    }
+
+    #[test]
+    fn a_missing_import_is_reported() {
+        let dir = std::env::temp_dir().join(format!("lmd_outline_import_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let o = outline("@import .lean-ctx/lean-md/nope /\n", dir.clone(), &[]);
+        assert_eq!(o.errors.len(), 1);
+        assert_eq!((o.errors[0].kind, o.errors[0].line), ("import", 1));
+        assert!(
+            o.errors[0]
+                .message
+                .starts_with("@import .lean-ctx/lean-md/nope failed"),
+            "{:?}",
+            o.errors
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_required_phase_is_reported() {
+        let o = outline(
+            "@phase \"a\"\n@phase-end\n",
+            std::env::temp_dir(),
+            &["a".to_string(), "lanes".to_string()],
+        );
+        assert_eq!(
+            o.errors,
+            vec![err(
+                "missing_phase",
+                0,
+                Some("lanes"),
+                "required @phase \"lanes\" is missing"
+            )]
+        );
+    }
+
+    #[test]
+    fn calls_in_fences_and_define_bodies_are_not_checked() {
+        let o = run("```\n@call nope() /\n```\n@define w()\n@call nope2() /\n@define-end\n");
+        assert!(o.errors.is_empty(), "{:?}", o.errors);
+    }
+
+    #[test]
+    fn errors_are_sorted_by_line_then_kind() {
+        let o = outline(
+            "@call b() /\n@call a(1) /\n",
+            std::env::temp_dir(),
+            &["x".to_string()],
+        );
+        let order: Vec<(usize, &str)> = o.errors.iter().map(|e| (e.line, e.kind)).collect();
+        assert_eq!(
+            order,
+            vec![
+                (0, "missing_phase"),
+                (1, "unknown_macro"),
+                (2, "unknown_macro")
+            ]
         );
     }
 }
