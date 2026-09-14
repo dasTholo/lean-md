@@ -541,14 +541,14 @@ fn map_cause_category(cause: &str) -> &'static str {
 }
 
 /// `@phase "Parser"` / `@phase Parser` → `Parser` (quotes optional, trimmed).
-fn parse_phase_name(rest: &str) -> String {
+pub(crate) fn parse_phase_name(rest: &str) -> String {
     rest.trim().trim_matches('"').trim().to_string()
 }
 
 /// `mask[i] == true` → line `i` (0-based) sits inside a fenced code block.
 /// Same fence rule as `unfenced_lines` — one implementation, so gate and renderer
 /// can never disagree on what a fence is.
-fn fenced_mask(source: &str) -> Vec<bool> {
+pub(crate) fn fenced_mask(source: &str) -> Vec<bool> {
     let fence_run = |l: &str| -> Option<(char, usize)> {
         let t = l.trim_start();
         let c = t.chars().next().filter(|c| *c == '`' || *c == '~')?;
@@ -640,28 +640,29 @@ fn is_on_complete(trimmed: &str) -> bool {
     false
 }
 
-/// Ordered scan of every `@phase "name" … @phase-end` block → `(name, raw_body)`.
-/// Single source of the phase-boundary semantics (flat v1: not nested; the first
-/// complete block per name wins). Both `capture_phase_bodies` and `outline_phases`
-/// consume this — no second parser. Byte-stable (#498).
-pub(crate) fn iter_phase_blocks(source: &str) -> Vec<(String, String)> {
-    let mut out: Vec<(String, String)> = Vec::new();
-    // A lossy source has no correct block list: the second block of a duplicated name
-    // would silently drop out here. Refuse instead — `outline_phases` (→ --list-phases)
-    // and `capture_phase_bodies` (→ --phase) both read this, so neither surface can
-    // present one of two blocks as if it were the whole file.
-    if duplicate_phase(source).is_some() {
-        return Vec::new();
-    }
+/// One `@phase "name" … @phase-end` block with its position in `source`. Unlike
+/// `iter_phase_blocks`, a duplicated name keeps every block: `outline` reports the
+/// duplicate instead of hiding it. `body` holds `(1-based line, text, fenced)`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PhaseBlock {
+    pub name: String,
+    /// 1-based line of the `@phase` directive.
+    pub line: usize,
+    pub body: Vec<(usize, String, bool)>,
+}
+
+/// Every complete phase block in document order, duplicates included. Same boundary
+/// rules as `iter_phase_blocks`: flat v1 phases, a nested `@phase` line is ignored,
+/// fenced lines never open or close a phase, an unterminated block is dropped.
+pub fn phase_blocks(source: &str) -> Vec<PhaseBlock> {
     let fenced = fenced_mask(source);
-    let mut open: Option<(String, Vec<&str>)> = None;
+    let mut out = Vec::new();
+    let mut open: Option<PhaseBlock> = None;
     for (idx, line) in source.lines().enumerate() {
         let trimmed = line.trim_start();
         if !fenced[idx] && trimmed.starts_with("@phase-end") {
-            if let Some((name, lines)) = open.take()
-                && !out.iter().any(|(n, _)| *n == name)
-            {
-                out.push((name, lines.join("\n")));
+            if let Some(block) = open.take() {
+                out.push(block);
             }
             continue;
         }
@@ -669,15 +670,44 @@ pub(crate) fn iter_phase_blocks(source: &str) -> Vec<(String, String)> {
             && let Some(rest) = trimmed.strip_prefix("@phase")
         {
             if open.is_none() {
-                open = Some((parse_phase_name(rest), Vec::new()));
+                open = Some(PhaseBlock {
+                    name: parse_phase_name(rest),
+                    line: idx + 1,
+                    body: Vec::new(),
+                });
             }
             continue;
         }
-        if let Some((_, lines)) = open.as_mut() {
-            lines.push(line);
+        if let Some(block) = open.as_mut() {
+            block.body.push((idx + 1, line.to_string(), fenced[idx]));
         }
     }
     out
+}
+
+/// Ordered scan of every `@phase "name" … @phase-end` block → `(name, raw_body)`.
+/// Single source of the phase-boundary semantics (flat v1: not nested; the first
+/// complete block per name wins). Both `capture_phase_bodies` and `outline_phases`
+/// consume this — no second parser. Byte-stable (#498).
+pub(crate) fn iter_phase_blocks(source: &str) -> Vec<(String, String)> {
+    // A lossy source has no correct block list: the second block of a duplicated name
+    // would silently drop out here. Refuse instead — `outline_phases` (→ --list-phases)
+    // and `capture_phase_bodies` (→ --phase) both read this, so neither surface can
+    // present one of two blocks as if it were the whole file.
+    if duplicate_phase(source).is_some() {
+        return Vec::new();
+    }
+    phase_blocks(source)
+        .into_iter()
+        .map(|block| {
+            let lines: Vec<&str> = block
+                .body
+                .iter()
+                .map(|(_, text, _)| text.as_str())
+                .collect();
+            (block.name, lines.join("\n"))
+        })
+        .collect()
 }
 
 /// A phase's identity for a preflight overview: its name + a human title.
@@ -701,7 +731,7 @@ pub fn outline_phases(source: &str) -> Vec<PhaseOutline> {
 }
 
 /// Derive a display title from a raw phase body (see `outline_phases`).
-fn phase_title(body: &str) -> String {
+pub(crate) fn phase_title(body: &str) -> String {
     // First markdown heading wins.
     for line in body.lines() {
         let t = line.trim_start();
@@ -1232,6 +1262,30 @@ trailing prose
         assert_eq!(blocks[1].0, "task-2");
         assert!(blocks[0].1.contains("A body"));
         assert!(blocks[1].1.contains("B body"));
+    }
+
+    #[test]
+    fn phase_blocks_keep_duplicates_with_their_lines() {
+        let src = "@lean-md\nconsumer: ai\n\n@phase \"t\"\nfirst\n@phase-end\n@phase \"t\"\nsecond\n@phase-end\n";
+        let blocks = super::phase_blocks(src);
+        assert_eq!(blocks.len(), 2);
+        assert_eq!((blocks[0].name.as_str(), blocks[0].line), ("t", 4));
+        assert_eq!((blocks[1].name.as_str(), blocks[1].line), ("t", 7));
+        assert_eq!(blocks[1].body, vec![(8, "second".to_string(), false)]);
+    }
+
+    #[test]
+    fn phase_blocks_mark_fenced_body_lines() {
+        let src = "@phase \"a\"\n```\n@call x() /\n```\n@call y() /\n@phase-end\n";
+        let blocks = super::phase_blocks(src);
+        let flags: Vec<(usize, bool)> = blocks[0].body.iter().map(|(n, _, f)| (*n, *f)).collect();
+        assert_eq!(flags, vec![(2, true), (3, true), (4, true), (5, false)]);
+    }
+
+    #[test]
+    fn phase_blocks_drop_an_unterminated_phase() {
+        let blocks = super::phase_blocks("@phase \"a\"\nbody\n");
+        assert!(blocks.is_empty());
     }
 
     #[test]
