@@ -13,7 +13,7 @@ use crate::engine::EngineContext;
 use crate::header::parse_header;
 use crate::macros::{extract_definitions, parse_call_signature};
 use crate::parser::block::parse_directive_line;
-use crate::phases::{PhaseBlock, fenced_mask, parse_phase_name, phase_blocks, phase_title};
+use crate::phases::{fenced_mask, parse_phase_name, phase_title};
 
 /// One active `@call` line: the macro, its arguments split exactly as a render splits
 /// them (no padding, no truncation), and its 1-based line.
@@ -67,30 +67,11 @@ pub fn outline_with_ctx(ctx: &Rc<EngineContext>, source: &str, required: &[Strin
         .into_iter()
         .map(|def| (def.name.clone(), def.params.clone()))
         .collect();
-    let blocks = phase_blocks(source);
-    let phases = blocks
-        .iter()
-        .map(|block| {
-            let text: Vec<&str> = block.body.iter().map(|(_, l, _)| l.as_str()).collect();
-            let calls = block
-                .body
-                .iter()
-                .filter(|(_, _, fenced)| !fenced)
-                .filter_map(|(line, text, _)| call_at(*line, text).and_then(Result::ok))
-                .collect();
-            OutlinePhase {
-                name: block.name.clone(),
-                title: phase_title(&text.join("\n")),
-                line: block.line,
-                calls,
-            }
-        })
-        .collect();
-    let errors = findings(ctx, source, &blocks, required);
+    let scan = scan(source, 0);
     Outline {
-        phases,
+        phases: scan.listed_phases(),
         macros,
-        errors,
+        errors: findings(ctx, &scan, required),
     }
 }
 
@@ -113,114 +94,286 @@ fn call_at(line: usize, text: &str) -> Option<Result<OutlineCall, ()>> {
     )
 }
 
-/// Whether a `@define` line's `rest` (the text right after the `@define` prefix, not yet
-/// trimmed) opens a macro body — mirrors `extract_definitions`'s Pass-1 rule (spec §2.3):
+/// The macro name when a `@define` line's `rest` (the text right after the `@define`
+/// prefix, not yet trimmed) opens a body — `extract_definitions`'s Pass-1 rule (spec §2.3):
 /// an empty header, one starting with `-end`, or one that fails `parse_call_signature`
-/// never opens a body, so the line is dropped without swallowing what follows.
-fn opens_define_body(rest: &str) -> bool {
+/// opens none, so the line is dropped without swallowing what follows.
+fn define_body_name(rest: &str) -> Option<String> {
     let header = rest.trim();
     if header.is_empty() || header.starts_with("-end") {
-        return false;
+        return None;
     }
-    parse_call_signature(header).is_some()
+    parse_call_signature(header).map(|(name, _)| name)
 }
 
-/// Every finding in `source`, sorted by `(line, kind)`.
-fn findings(
-    ctx: &Rc<EngineContext>,
-    source: &str,
-    blocks: &[PhaseBlock],
-    required: &[String],
-) -> Vec<OutlineError> {
-    let mut out = Vec::new();
-    let fenced = fenced_mask(source);
-    let mut in_define = false;
-    let mut seen_imports: Vec<String> = Vec::new();
-    for (idx, text) in source.lines().enumerate() {
-        let line = idx + 1;
+/// The Pass-1 state machine of `extract_definitions`, shared by the document scan and the
+/// import scan: fence-blind, an `@import` line read before a `@define` line.
+#[derive(Default)]
+struct Pass1 {
+    /// `(line, name)` of the `@define` whose body is still open.
+    open_define: Option<(usize, String)>,
+}
+
+/// What Pass 1 does with one line.
+enum Pass1Line<'a> {
+    /// Swallowed: a `@define` line, a line of an open body or its `@define-end`.
+    Define,
+    /// Swallowed: an `@import` line with its target (empty when it names none).
+    Import(&'a str),
+    /// Left to the later passes.
+    Other,
+}
+
+impl Pass1 {
+    fn step<'a>(&mut self, line: usize, text: &'a str) -> Pass1Line<'a> {
         let trimmed = text.trim_start();
-        // Pass-1 lines (`@define`/`@define-end`/`@import`) are read exactly like
-        // `extract_definitions`: fence-blind. Only the `@call` check below is fenced.
-        if in_define {
+        if self.open_define.is_some() {
             if trimmed.starts_with("@define-end") {
-                in_define = false;
+                self.open_define = None;
             }
-            continue;
+            return Pass1Line::Define;
         }
         if let Some(rest) = trimmed.strip_prefix("@import") {
-            let target = rest.trim().trim_end_matches('/').trim();
-            if !target.is_empty() {
-                import_errors(ctx, target, line, &mut seen_imports, &mut out);
-            }
-            continue;
+            return Pass1Line::Import(rest.trim().trim_end_matches('/').trim());
         }
         if let Some(rest) = trimmed.strip_prefix("@define") {
-            if opens_define_body(rest) {
-                in_define = true;
+            self.open_define = define_body_name(rest).map(|name| (line, name));
+            return Pass1Line::Define;
+        }
+        Pass1Line::Other
+    }
+}
+
+/// How a render reads one scanned line, decided once by [`scan`].
+enum LineKind<'a> {
+    /// Swallowed by Pass 1: a `@define` line or a line of its body.
+    Define,
+    /// Swallowed by Pass 1: an `@import` line with its target (empty when it names none).
+    Import(&'a str),
+    /// An unfenced `@phase` line with its name.
+    PhaseOpen(String),
+    /// An unfenced `@phase-end` line.
+    PhaseEnd,
+    /// An active `@call` line; `Err` when its signature is malformed.
+    Call(Result<OutlineCall, ()>),
+    /// Anything else, fenced lines included.
+    Text,
+}
+
+struct ScannedLine<'a> {
+    /// 1-based line in the outlined source.
+    line: usize,
+    text: &'a str,
+    kind: LineKind<'a>,
+    /// Index into [`Scan::phases`] of the phase open at this line, its `@phase-end` included.
+    phase: Option<usize>,
+}
+
+/// A top-level `@phase` line; `closed` once its `@phase-end` is met.
+struct PhaseSite {
+    name: String,
+    line: usize,
+    closed: bool,
+}
+
+struct Scan<'a> {
+    lines: Vec<ScannedLine<'a>>,
+    phases: Vec<PhaseSite>,
+}
+
+/// Every line of `text` classified once, in the order a render reads it: Pass 1
+/// (fence-blind), then fences, then the flat `@phase` structure (a nested `@phase` leaves
+/// the open phase open, like the render and `phase_blocks`) and `@call`s. `offset` is the
+/// number of source lines before `text`.
+fn scan(text: &str, offset: usize) -> Scan<'_> {
+    let fenced = fenced_mask(text);
+    let mut pass1 = Pass1::default();
+    let mut phases: Vec<PhaseSite> = Vec::new();
+    let mut open: Option<usize> = None;
+    let mut lines = Vec::new();
+    for (idx, raw) in text.lines().enumerate() {
+        let line = offset + idx + 1;
+        let kind = classify(&mut pass1, fenced[idx], line, raw);
+        let phase = open;
+        match (&kind, open) {
+            (LineKind::PhaseOpen(name), None) => {
+                phases.push(PhaseSite {
+                    name: name.clone(),
+                    line,
+                    closed: false,
+                });
+                open = Some(phases.len() - 1);
             }
-            continue;
+            (LineKind::PhaseEnd, Some(i)) => {
+                phases[i].closed = true;
+                open = None;
+            }
+            _ => {}
         }
-        if fenced[idx] {
-            continue;
-        }
-        let phase = phase_of(blocks, line);
-        match call_at(line, text) {
-            None => {}
-            Some(Err(())) => out.push(OutlineError {
-                kind: "malformed_call",
-                line,
-                phase,
-                message: "malformed @call signature".to_string(),
-            }),
-            Some(Ok(call)) => match ctx.macros.borrow().get(&call.macro_name) {
-                None => out.push(OutlineError {
-                    kind: "unknown_macro",
-                    line,
-                    phase,
-                    message: format!("macro not found: {}", call.macro_name),
-                }),
-                Some(def) if def.params.len() != call.args.len() => out.push(OutlineError {
-                    kind: "arity",
-                    line,
-                    phase,
-                    message: format!(
-                        "{} takes {} argument(s), got {}",
-                        call.macro_name,
-                        def.params.len(),
-                        call.args.len()
-                    ),
-                }),
-                Some(_) => {}
-            },
+        lines.push(ScannedLine {
+            line,
+            text: raw,
+            kind,
+            phase,
+        });
+    }
+    Scan { lines, phases }
+}
+
+/// One line's [`LineKind`]: Pass-1 lines first, fence-blind like `extract_definitions`;
+/// every later rule only for an unfenced line.
+fn classify<'a>(pass1: &mut Pass1, fenced: bool, line: usize, text: &'a str) -> LineKind<'a> {
+    match pass1.step(line, text) {
+        Pass1Line::Define => return LineKind::Define,
+        Pass1Line::Import(target) => return LineKind::Import(target),
+        Pass1Line::Other if fenced => return LineKind::Text,
+        Pass1Line::Other => {}
+    }
+    let trimmed = text.trim_start();
+    if trimmed.starts_with("@phase-end") {
+        LineKind::PhaseEnd
+    } else if let Some(rest) = trimmed.strip_prefix("@phase") {
+        LineKind::PhaseOpen(parse_phase_name(rest))
+    } else if let Some(call) = call_at(line, text) {
+        LineKind::Call(call)
+    } else {
+        LineKind::Text
+    }
+}
+
+impl Scan<'_> {
+    fn phase_name(&self, phase: Option<usize>) -> Option<String> {
+        phase.map(|i| self.phases[i].name.clone())
+    }
+
+    /// Every closed phase in document order with its active `@call`s — an unterminated
+    /// block is not addressable, so it is not listed (same rule as `phase_blocks`).
+    fn listed_phases(&self) -> Vec<OutlinePhase> {
+        self.phases
+            .iter()
+            .enumerate()
+            .filter(|(_, site)| site.closed)
+            .map(|(i, site)| {
+                let body: Vec<&ScannedLine> = self
+                    .lines
+                    .iter()
+                    .filter(|l| l.phase == Some(i))
+                    .filter(|l| !matches!(l.kind, LineKind::PhaseOpen(_) | LineKind::PhaseEnd))
+                    .collect();
+                let text: Vec<&str> = body.iter().map(|l| l.text).collect();
+                let calls = body
+                    .iter()
+                    .filter_map(|l| match &l.kind {
+                        LineKind::Call(Ok(call)) => Some(call.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                OutlinePhase {
+                    name: site.name.clone(),
+                    title: phase_title(&text.join("\n")),
+                    line: site.line,
+                    calls,
+                }
+            })
+            .collect()
+    }
+}
+
+/// Every finding in `scan`, sorted by `(line, kind)`.
+fn findings(ctx: &Rc<EngineContext>, scan: &Scan, required: &[String]) -> Vec<OutlineError> {
+    let mut out = Vec::new();
+    call_findings(ctx, scan, &mut out);
+    phase_findings(scan, &mut out);
+    import_findings(ctx, scan, &mut out);
+    missing_phases(scan, required, &mut out);
+    out.sort_by(|a, b| (a.line, a.kind).cmp(&(b.line, b.kind)));
+    out
+}
+
+/// `malformed_call`, `unknown_macro` and `arity` for every active `@call` line.
+fn call_findings(ctx: &Rc<EngineContext>, scan: &Scan, out: &mut Vec<OutlineError>) {
+    for line in &scan.lines {
+        let finding = match &line.kind {
+            LineKind::Call(Err(())) => {
+                Some(("malformed_call", "malformed @call signature".to_string()))
+            }
+            LineKind::Call(Ok(call)) => macro_mismatch(ctx, call),
+            _ => None,
+        };
+        if let Some((kind, message)) = finding {
+            out.push(OutlineError {
+                kind,
+                line: line.line,
+                phase: scan.phase_name(line.phase),
+                message,
+            });
         }
     }
-    // Same rule as `phases::duplicate_phase`, which makes `render` and `check` refuse the
-    // source: every `@phase` line outside a fence counts, nested or unterminated ones too.
-    let mut first_seen: Vec<(String, usize)> = Vec::new();
-    for (idx, text) in source.lines().enumerate() {
-        let trimmed = text.trim_start();
-        if fenced[idx] || trimmed.starts_with("@phase-end") {
-            continue;
-        }
-        let Some(rest) = trimmed.strip_prefix("@phase") else {
+}
+
+/// `unknown_macro` or `arity` for a well-formed `@call`; `None` when it fits its macro.
+fn macro_mismatch(ctx: &Rc<EngineContext>, call: &OutlineCall) -> Option<(&'static str, String)> {
+    let macros = ctx.macros.borrow();
+    let Some(def) = macros.get(&call.macro_name) else {
+        return Some((
+            "unknown_macro",
+            format!("macro not found: {}", call.macro_name),
+        ));
+    };
+    (def.params.len() != call.args.len()).then(|| {
+        let message = format!(
+            "{} takes {} argument(s), got {}",
+            call.macro_name,
+            def.params.len(),
+            call.args.len()
+        );
+        ("arity", message)
+    })
+}
+
+/// `duplicate_phase` — the rule `phases::duplicate_phase` applies: every `@phase` line a
+/// render reads counts, a nested one too.
+fn phase_findings(scan: &Scan, out: &mut Vec<OutlineError>) {
+    let mut first_seen: Vec<(&str, usize)> = Vec::new();
+    for line in &scan.lines {
+        let LineKind::PhaseOpen(name) = &line.kind else {
             continue;
         };
-        let name = parse_phase_name(rest);
-        match first_seen.iter().find(|(seen, _)| *seen == name) {
+        match first_seen.iter().find(|(seen, _)| *seen == name.as_str()) {
             Some((_, first)) => out.push(OutlineError {
                 kind: "duplicate_phase",
-                line: idx + 1,
+                line: line.line,
                 phase: Some(name.clone()),
                 message: format!(
                     "duplicate @phase \"{name}\" — first defined at line {first}, again at line {}",
-                    idx + 1
+                    line.line
                 ),
             }),
-            None => first_seen.push((name, idx + 1)),
+            None => first_seen.push((name, line.line)),
         }
     }
+}
+
+/// `import` for every `@import` whose target, or a library it imports, fails to resolve.
+fn import_findings(ctx: &Rc<EngineContext>, scan: &Scan, out: &mut Vec<OutlineError>) {
+    let mut seen = Vec::new();
+    for line in &scan.lines {
+        if let LineKind::Import(target) = line.kind
+            && !target.is_empty()
+        {
+            import_errors(ctx, target, line.line, &mut seen, out);
+        }
+    }
+}
+
+/// `missing_phase` for every required name no listed phase carries.
+fn missing_phases(scan: &Scan, required: &[String], out: &mut Vec<OutlineError>) {
     for name in required {
-        if !blocks.iter().any(|block| block.name == *name) {
+        if !scan
+            .phases
+            .iter()
+            .any(|site| site.closed && site.name == *name)
+        {
             out.push(OutlineError {
                 kind: "missing_phase",
                 line: 0,
@@ -229,19 +382,6 @@ fn findings(
             });
         }
     }
-    out.sort_by(|a, b| (a.line, a.kind).cmp(&(b.line, b.kind)));
-    out
-}
-
-/// The phase whose body holds `line`, if any.
-fn phase_of(blocks: &[PhaseBlock], line: usize) -> Option<String> {
-    blocks
-        .iter()
-        .find(|block| {
-            let end = block.body.last().map_or(block.line, |(n, _, _)| *n);
-            block.line < line && line <= end
-        })
-        .map(|block| block.name.clone())
 }
 
 /// Resolve `target` like `@import` does and follow its own imports; every failure is
@@ -259,28 +399,12 @@ fn import_errors(
     seen.push(target.to_string());
     match ctx.fragments.resolve(target, &ctx.jail_root) {
         Ok(content) => {
-            let mut in_define = false;
-            for text in content.lines() {
-                let trimmed = text.trim_start();
-                // Same Pass-1 order as `findings`, mirroring `extract_definitions`.
-                if in_define {
-                    if trimmed.starts_with("@define-end") {
-                        in_define = false;
-                    }
-                    continue;
-                }
-                if let Some(rest) = trimmed.strip_prefix("@import") {
-                    let nested = rest.trim().trim_end_matches('/').trim();
-                    if !nested.is_empty() {
-                        import_errors(ctx, nested, line, seen, out);
-                    }
-                    continue;
-                }
-                if let Some(rest) = trimmed.strip_prefix("@define") {
-                    if opens_define_body(rest) {
-                        in_define = true;
-                    }
-                    continue;
+            let mut pass1 = Pass1::default();
+            for (idx, text) in content.lines().enumerate() {
+                if let Pass1Line::Import(nested) = pass1.step(idx + 1, text)
+                    && !nested.is_empty()
+                {
+                    import_errors(ctx, nested, line, seen, out);
                 }
             }
         }
@@ -601,5 +725,15 @@ mod tests {
                 (2, "unknown_macro")
             ]
         );
+    }
+
+    #[test]
+    fn a_call_inside_a_define_body_in_a_phase_is_not_listed() {
+        let o = run(
+            "@define g()\nx\n@define-end\n@phase \"t\"\n@define w()\n@call g() /\n@define-end\n@call g() /\n@phase-end\n",
+        );
+        let lines: Vec<usize> = o.phases[0].calls.iter().map(|c| c.line).collect();
+        assert_eq!(lines, vec![8]);
+        assert!(o.errors.is_empty(), "{:?}", o.errors);
     }
 }
