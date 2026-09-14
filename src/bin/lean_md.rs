@@ -7,6 +7,7 @@
 //! Subcommands:
 //!   render <file> [--phase P] [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md]
 //!   check  <file>
+//!   outline <file|-> --json [--require-phase a,b]
 //!   mcp              — stdio JSON-RPC 2.0 MCP server (line-delimited framing)
 
 use lean_md::args::DirectiveArgs;
@@ -241,16 +242,18 @@ fn main() {
     match action {
         "render" => cmd_render(&args[1..]),
         "check" => cmd_check(&args[1..]),
+        "outline" => cmd_outline(&args[1..]),
         "mcp" => cmd_mcp(),
         "skill" => cmd_skill(&args[1..]),
         "source" => cmd_source(&args[1..]),
         "ack" => cmd_ack(&args[1..]),
         _ => {
             eprintln!(
-                "Usage: lean-md <render|check|mcp|skill|source|ack> [args]\n\
+                "Usage: lean-md <render|check|outline|mcp|skill|source|ack> [args]\n\
                  \n  render <file.lmd.md> [--phase P] [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md] [--list-phases]\
                  \n  render --skill NAME [--phase P | --companion C] [--consumer=human|ai] [--crp=off|compact|tdd] [-o out.md] [--list-phases]\
                  \n  check  <file.lmd.md>\
+                 \n  outline <file.lmd.md|-> --json [--require-phase a,b]  (structure + findings as JSON; exit 1 on findings)\
                  \n  source <file.lmd.md>  (raw file bytes, no rendering — for edit anchors)\
                  \n  ack    [<seed>…]      (keep your edited seeds; stop reporting them until the seed changes)\
                  \n  mcp                   (stdio JSON-RPC 2.0 MCP server)\
@@ -424,6 +427,74 @@ fn cmd_source(rest: &[String]) {
     };
     let source = load_file(file);
     print!("{source}");
+}
+
+// ─── outline subcommand ────────────────────────────────────────────────────
+
+/// `(file, required phases)` from the `outline` arguments. `Err` is a usage error:
+/// exit 2, message on stderr, nothing on stdout.
+fn parse_outline_flags(rest: &[String]) -> Result<(String, Vec<String>), String> {
+    let mut file: Option<String> = None;
+    let mut json = false;
+    let mut required = Vec::new();
+    let mut i = 0;
+    while i < rest.len() {
+        match rest[i].as_str() {
+            "--json" => json = true,
+            "--require-phase" => {
+                i += 1;
+                let Some(list) = rest.get(i) else {
+                    return Err("--require-phase needs a comma-separated list".to_string());
+                };
+                required.extend(
+                    list.split(',')
+                        .map(str::trim)
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_string),
+                );
+            }
+            "-" if file.is_none() => file = Some("-".to_string()),
+            arg if arg.starts_with('-') => return Err(format!("unknown flag {arg}")),
+            arg if file.is_none() => file = Some(arg.to_string()),
+            arg => return Err(format!("unexpected argument {arg}")),
+        }
+        i += 1;
+    }
+    let Some(file) = file else {
+        return Err("missing <file.lmd.md> or -".to_string());
+    };
+    if !json {
+        return Err("--json is required".to_string());
+    }
+    Ok((file, required))
+}
+
+fn cmd_outline(rest: &[String]) {
+    let (file, required) = match parse_outline_flags(rest) {
+        Ok(parsed) => parsed,
+        Err(e) => {
+            eprintln!("lean-md outline: {e}");
+            std::process::exit(2);
+        }
+    };
+    let read = if file == "-" {
+        std::io::read_to_string(std::io::stdin())
+    } else {
+        std::fs::read_to_string(&file)
+    };
+    let source = match read {
+        Ok(source) => source,
+        Err(e) => {
+            eprintln!("lean-md outline: read {file}: {e}");
+            std::process::exit(2);
+        }
+    };
+    let jail = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let outline = lean_md::outline::outline(&source, jail, &required);
+    println!("{}", outline.to_json());
+    if !outline.errors.is_empty() {
+        std::process::exit(1);
+    }
 }
 
 // ─── ack subcommand ────────────────────────────────────────────────────────
