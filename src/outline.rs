@@ -67,7 +67,10 @@ pub fn outline_with_ctx(ctx: &Rc<EngineContext>, source: &str, required: &[Strin
         .into_iter()
         .map(|def| (def.name.clone(), def.params.clone()))
         .collect();
-    let scan = scan(source, 0);
+    // Only the body a render reads is outlined; `body` is a suffix of `source`, so the
+    // header's newlines give the offset that keeps every line source-relative.
+    let header_lines = source[..source.len() - body.len()].matches('\n').count();
+    let scan = scan(body, header_lines);
     Outline {
         phases: scan.listed_phases(),
         macros,
@@ -735,5 +738,22 @@ mod tests {
         let lines: Vec<usize> = o.phases[0].calls.iter().map(|c| c.line).collect();
         assert_eq!(lines, vec![8]);
         assert!(o.errors.is_empty(), "{:?}", o.errors);
+    }
+
+    #[test]
+    fn a_header_without_a_blank_line_leaves_no_body_to_outline() {
+        let o = run("@lean-md\nconsumer: ai\n@phase \"t\"\n@call g() /\n@phase-end\n");
+        assert!(o.phases.is_empty(), "{:?}", o.phases);
+        assert!(o.errors.is_empty(), "{:?}", o.errors);
+    }
+
+    #[test]
+    fn body_findings_keep_their_source_line_after_a_header() {
+        let o = run("@lean-md\nconsumer: ai\n\n@phase \"t\"\n@call nope() /\n@phase-end\n");
+        assert_eq!(o.phases[0].line, 4);
+        assert_eq!(
+            o.errors,
+            vec![err("unknown_macro", 5, Some("t"), "macro not found: nope")]
+        );
     }
 }
