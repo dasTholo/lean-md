@@ -8,6 +8,17 @@ lean-md ships **two independently-versioned release lines** from one repo — th
 `Cargo.toml`) and the **skills-pack** (`content/skills/**`). Each carries its own
 SemVer; the sections below track them separately.
 
+## [binary 0.2.4] — 2026-09-14
+
+### Added
+- `lean-md outline <file|-> --json [--require-phase a,b]`: the structure of an `.lmd.md`
+  document as one JSON object — phases in document order with their `@call`s (arguments
+  split exactly as a render splits them), the macro signatures in scope, and every
+  finding a render would only hit later: unknown macro, wrong argument count, malformed
+  `@call`, duplicate phase, unresolvable `@import`, missing required phase. No render,
+  no bridge, no session sink, no file written. Exit 0 without findings, 1 with
+  findings, 2 on unusable input.
+
 ## [binary 0.2.3] — 2026-08-31
 
 Repairs `@read` and its sibling code-intel anchors on a session-less backend,
