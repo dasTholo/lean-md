@@ -182,6 +182,8 @@ struct PhaseSite {
 struct Scan<'a> {
     lines: Vec<ScannedLine<'a>>,
     phases: Vec<PhaseSite>,
+    /// `(line, name)` of a `@define` whose body never closes: every later line is its body.
+    unterminated_define: Option<(usize, String)>,
 }
 
 /// Every line of `text` classified once, in the order a render reads it: Pass 1
@@ -220,7 +222,11 @@ fn scan(text: &str, offset: usize) -> Scan<'_> {
             phase,
         });
     }
-    Scan { lines, phases }
+    Scan {
+        lines,
+        phases,
+        unterminated_define: pass1.open_define,
+    }
 }
 
 /// One line's [`LineKind`]: Pass-1 lines first, fence-blind like `extract_definitions`;
@@ -287,6 +293,7 @@ fn findings(ctx: &Rc<EngineContext>, scan: &Scan, required: &[String]) -> Vec<Ou
     let mut out = Vec::new();
     call_findings(ctx, scan, &mut out);
     phase_findings(scan, &mut out);
+    unterminated_findings(scan, &mut out);
     import_findings(ctx, scan, &mut out);
     missing_phases(scan, required, &mut out);
     out.sort_by(|a, b| (a.line, a.kind).cmp(&(b.line, b.kind)));
@@ -334,14 +341,24 @@ fn macro_mismatch(ctx: &Rc<EngineContext>, call: &OutlineCall) -> Option<(&'stat
     })
 }
 
-/// `duplicate_phase` — the rule `phases::duplicate_phase` applies: every `@phase` line a
-/// render reads counts, a nested one too.
+/// `nested_phase` for a `@phase` met while one is open, and `duplicate_phase` — the rule
+/// `phases::duplicate_phase` applies: every `@phase` line a render reads counts, a nested
+/// one too.
 fn phase_findings(scan: &Scan, out: &mut Vec<OutlineError>) {
     let mut first_seen: Vec<(&str, usize)> = Vec::new();
     for line in &scan.lines {
         let LineKind::PhaseOpen(name) = &line.kind else {
             continue;
         };
+        if let Some(open) = scan.phase_name(line.phase) {
+            let message = format!("nested @phase \"{name}\" inside @phase \"{open}\"");
+            out.push(OutlineError {
+                kind: "nested_phase",
+                line: line.line,
+                phase: Some(open),
+                message,
+            });
+        }
         match first_seen.iter().find(|(seen, _)| *seen == name.as_str()) {
             Some((_, first)) => out.push(OutlineError {
                 kind: "duplicate_phase",
@@ -354,6 +371,33 @@ fn phase_findings(scan: &Scan, out: &mut Vec<OutlineError>) {
             }),
             None => first_seen.push((name, line.line)),
         }
+    }
+}
+
+/// `unterminated_phase` for a phase that never reaches `@phase-end`, and
+/// `unterminated_define` for a `@define` body that never closes — a render drops
+/// everything after it, so the scan outlined nothing past it either.
+fn unterminated_findings(scan: &Scan, out: &mut Vec<OutlineError>) {
+    for site in scan.phases.iter().filter(|site| !site.closed) {
+        out.push(OutlineError {
+            kind: "unterminated_phase",
+            line: site.line,
+            phase: Some(site.name.clone()),
+            message: format!("unterminated @phase \"{}\"", site.name),
+        });
+    }
+    if let Some((line, name)) = &scan.unterminated_define {
+        let phase = scan
+            .lines
+            .iter()
+            .find(|l| l.line == *line)
+            .and_then(|l| scan.phase_name(l.phase));
+        out.push(OutlineError {
+            kind: "unterminated_define",
+            line: *line,
+            phase,
+            message: format!("unterminated @define {name}"),
+        });
     }
 }
 
@@ -754,6 +798,130 @@ mod tests {
         assert_eq!(
             o.errors,
             vec![err("unknown_macro", 5, Some("t"), "macro not found: nope")]
+        );
+    }
+
+    #[test]
+    fn an_unterminated_define_is_reported() {
+        let o = run("text\n@define w()\nbody\n");
+        assert_eq!(
+            o.errors,
+            vec![err(
+                "unterminated_define",
+                2,
+                None,
+                "unterminated @define w"
+            )]
+        );
+    }
+
+    #[test]
+    fn an_unterminated_define_in_a_phase_leaves_the_phase_unterminated() {
+        let o = run("@phase \"t\"\n@define w()\nbody\n@phase-end\n");
+        assert!(o.phases.is_empty(), "{:?}", o.phases);
+        assert_eq!(
+            o.errors,
+            vec![
+                err(
+                    "unterminated_phase",
+                    1,
+                    Some("t"),
+                    "unterminated @phase \"t\""
+                ),
+                err(
+                    "unterminated_define",
+                    2,
+                    Some("t"),
+                    "unterminated @define w"
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_nested_phase_is_reported_and_the_open_phase_continues() {
+        let o = run("@phase \"a\"\n@phase \"b\"\n@call nope() /\n@phase-end\n");
+        let names: Vec<&str> = o.phases.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["a"]);
+        assert_eq!(
+            o.errors,
+            vec![
+                err(
+                    "nested_phase",
+                    2,
+                    Some("a"),
+                    "nested @phase \"b\" inside @phase \"a\""
+                ),
+                err("unknown_macro", 3, Some("a"), "macro not found: nope"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_nested_phase_with_a_taken_name_is_also_a_duplicate() {
+        let o = run("@phase \"a\"\n@phase \"a\"\n@phase-end\n");
+        assert_eq!(
+            o.errors,
+            vec![
+                err(
+                    "duplicate_phase",
+                    2,
+                    Some("a"),
+                    "duplicate @phase \"a\" — first defined at line 1, again at line 2"
+                ),
+                err(
+                    "nested_phase",
+                    2,
+                    Some("a"),
+                    "nested @phase \"a\" inside @phase \"a\""
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_unterminated_phase_is_reported() {
+        let o = run("@phase \"t\"\ntext\n");
+        assert!(o.phases.is_empty(), "{:?}", o.phases);
+        assert_eq!(
+            o.errors,
+            vec![err(
+                "unterminated_phase",
+                1,
+                Some("t"),
+                "unterminated @phase \"t\""
+            )]
+        );
+    }
+
+    #[test]
+    fn nothing_after_an_unterminated_define_is_outlined() {
+        let src =
+            "@phase \"a\"\n@phase-end\n@define w()\n@phase \"b\"\n@call nope() /\n@phase-end\n";
+        let o = run(src);
+        let names: Vec<&str> = o.phases.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["a"]);
+        assert_eq!(
+            o.errors,
+            vec![err(
+                "unterminated_define",
+                3,
+                None,
+                "unterminated @define w"
+            )]
+        );
+        let o = outline(src, std::env::temp_dir(), &["b".to_string()]);
+        assert_eq!(
+            o.errors,
+            vec![
+                err(
+                    "missing_phase",
+                    0,
+                    Some("b"),
+                    "required @phase \"b\" is missing"
+                ),
+                err("unterminated_define", 3, None, "unterminated @define w"),
+            ]
         );
     }
 }
