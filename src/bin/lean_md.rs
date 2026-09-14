@@ -443,7 +443,8 @@ fn parse_outline_flags(rest: &[String]) -> Result<(String, Vec<String>), String>
             "--json" => json = true,
             "--require-phase" => {
                 i += 1;
-                let Some(list) = rest.get(i) else {
+                // A flag in the list slot (`-` and `--json` included) is a missing list.
+                let Some(list) = rest.get(i).filter(|list| !list.starts_with('-')) else {
                     return Err("--require-phase needs a comma-separated list".to_string());
                 };
                 required.extend(
@@ -454,7 +455,9 @@ fn parse_outline_flags(rest: &[String]) -> Result<(String, Vec<String>), String>
                 );
             }
             "-" if file.is_none() => file = Some("-".to_string()),
-            arg if arg.starts_with('-') => return Err(format!("unknown flag {arg}")),
+            arg if arg.starts_with('-') && arg != "-" => {
+                return Err(format!("unknown flag {arg}"));
+            }
             arg if file.is_none() => file = Some(arg.to_string()),
             arg => return Err(format!("unexpected argument {arg}")),
         }

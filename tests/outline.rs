@@ -148,3 +148,30 @@ fn usage_errors_exit_two_without_json() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_flag_as_phase_list_and_a_second_dash_are_named_usage_errors() {
+    let dir = project("usage_named");
+    let list = "--require-phase needs a comma-separated list";
+    for (args, message) in [
+        (
+            vec!["outline", "p.lmd.md", "--require-phase", "--json"],
+            list,
+        ),
+        (
+            vec!["outline", "p.lmd.md", "--require-phase", "-", "--json"],
+            list,
+        ),
+        (vec!["outline", "-", "-", "--json"], "unexpected argument -"),
+        (
+            vec!["outline", "p.lmd.md", "-", "--json"],
+            "unexpected argument -",
+        ),
+    ] {
+        let (stdout, stderr, code) = run(&args, &dir, None);
+        assert_eq!(code, 2, "{args:?}: {stderr}");
+        assert_eq!(stdout, "", "{args:?}");
+        assert_eq!(stderr, format!("lean-md outline: {message}\n"), "{args:?}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
