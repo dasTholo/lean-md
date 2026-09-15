@@ -190,18 +190,33 @@ struct Scan<'a> {
 }
 
 /// Every line of `text` classified once, in the order a render reads it: Pass 1
-/// (fence-blind), then fences, then the flat `@phase` structure (a nested `@phase` leaves
-/// the open phase open, like the render and `phase_blocks`) and `@call`s. `offset` is the
-/// number of source lines before `text`.
+/// (fence-blind), then fences over the lines Pass 1 keeps — the body a render scans once
+/// `extract_definitions` stripped it — then the flat `@phase` structure (a nested `@phase`
+/// leaves the open phase open, like the render and `phase_blocks`) and `@call`s. `offset`
+/// is the number of source lines before `text`; every line keeps its source number.
 fn scan(text: &str, offset: usize) -> Scan<'_> {
-    let fenced = fenced_mask(text);
     let mut pass1 = Pass1::default();
+    let first: Vec<(usize, &str, Pass1Line)> = text
+        .lines()
+        .enumerate()
+        .map(|(idx, raw)| (offset + idx + 1, raw, pass1.step(offset + idx + 1, raw)))
+        .collect();
+    let kept: Vec<&str> = first
+        .iter()
+        .filter(|(_, _, p1)| matches!(p1, Pass1Line::Other))
+        .map(|(_, raw, _)| *raw)
+        .collect();
+    // `lines()` drops the join's trailing empty lines; they read as text either way.
+    let mut fenced = fenced_mask(&kept.join("\n")).into_iter();
     let mut phases: Vec<PhaseSite> = Vec::new();
     let mut open: Option<usize> = None;
     let mut lines = Vec::new();
-    for (idx, raw) in text.lines().enumerate() {
-        let line = offset + idx + 1;
-        let kind = classify(&mut pass1, fenced[idx], line, raw);
+    for (line, raw, p1) in first {
+        let kind = match p1 {
+            Pass1Line::Define => LineKind::Define,
+            Pass1Line::Import(target) => LineKind::Import(target),
+            Pass1Line::Other => classify(fenced.next().unwrap_or(false), line, raw),
+        };
         let phase = open;
         match (&kind, open) {
             (LineKind::PhaseOpen(name), None) => {
@@ -232,14 +247,10 @@ fn scan(text: &str, offset: usize) -> Scan<'_> {
     }
 }
 
-/// One line's [`LineKind`]: Pass-1 lines first, fence-blind like `extract_definitions`;
-/// every later rule only for an unfenced line.
-fn classify<'a>(pass1: &mut Pass1, fenced: bool, line: usize, text: &'a str) -> LineKind<'a> {
-    match pass1.step(line, text) {
-        Pass1Line::Define => return LineKind::Define,
-        Pass1Line::Import(target) => return LineKind::Import(target),
-        Pass1Line::Other if fenced => return LineKind::Text,
-        Pass1Line::Other => {}
+/// The [`LineKind`] of a line Pass 1 keeps; a fenced one is text.
+fn classify(fenced: bool, line: usize, text: &str) -> LineKind<'static> {
+    if fenced {
+        return LineKind::Text;
     }
     let trimmed = text.trim_start();
     if trimmed.starts_with("@phase-end") {
@@ -1062,5 +1073,20 @@ mod tests {
                 err("unknown_macro", 5, Some("t"), "macro not found: nope"),
             ]
         );
+    }
+
+    #[test]
+    fn a_fence_opened_inside_a_define_body_masks_nothing_after_it() {
+        let o = run("@define w()\n```\n@define-end\n@call nope() /\n");
+        assert_eq!(
+            o.errors,
+            vec![err("unknown_macro", 4, None, "macro not found: nope")]
+        );
+    }
+
+    #[test]
+    fn fences_are_read_over_the_lines_pass_one_keeps() {
+        let o = run("@define w()\n```\n@define-end\n```\n@call nope() /\n```\n");
+        assert!(o.errors.is_empty(), "{:?}", o.errors);
     }
 }
