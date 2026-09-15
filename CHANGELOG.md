@@ -17,12 +17,15 @@ SemVer; the sections below track them separately.
   arguments split exactly as a render splits them), and the macro signatures in scope.
   Findings: `unknown_macro`, `arity` (a lint — a render pads missing arguments),
   `malformed_call`, `embedded_call` (a `@call` inside a list or quote, which a render
-  executes but outline does not outline), `duplicate_phase`, `nested_phase`,
-  `unterminated_phase`, `unterminated_define` (nothing after it is outlined, as a render
-  drops it), `import`, `missing_phase`. Every `@if`/`@consumer` branch is outlined and
-  checked — outline is consumer-agnostic. Only the body after the header is scanned. No
-  render, no bridge, no session sink, no file written. Exit 0 without findings, 1 with
-  findings, 2 on unusable input.
+  executes but outline does not outline; markers follow CommonMark list/quote rules),
+  `duplicate_phase` (counted on the raw source, header and `@define` bodies included,
+  like the gate `render`/`check` refuse on), `nested_phase`, `unterminated_phase`,
+  `unterminated_define` (nothing after it is outlined, as a whole-document render drops
+  it), `import` (named by the phase its `@import` sits in), `missing_phase`. Every
+  `@if`/`@consumer` branch is outlined and checked — outline is consumer-agnostic.
+  Apart from `duplicate_phase`, only the body after the header is scanned. No render, no
+  bridge, no session sink, no file written. Exit 0 without findings, 1 with findings, 2
+  on unusable input.
 
 ## [binary 0.2.3] — 2026-08-31
 
