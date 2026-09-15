@@ -470,14 +470,16 @@ fn unterminated_findings(scan: &Scan, out: &mut Vec<OutlineError>) {
     }
 }
 
-/// `import` for every `@import` whose target, or a library it imports, fails to resolve.
+/// `import` for every `@import` whose target, or a library it imports, fails to resolve,
+/// named by the phase its document `@import` line sits in.
 fn import_findings(ctx: &Rc<EngineContext>, scan: &Scan, out: &mut Vec<OutlineError>) {
     let mut seen = Vec::new();
     for line in &scan.lines {
         if let LineKind::Import(target) = line.kind
             && !target.is_empty()
         {
-            import_errors(ctx, target, line.line, &mut seen, out);
+            let phase = scan.phase_name(line.phase);
+            import_errors(ctx, target, line.line, phase.as_deref(), &mut seen, out);
         }
     }
 }
@@ -501,11 +503,12 @@ fn missing_phases(scan: &Scan, required: &[String], out: &mut Vec<OutlineError>)
 }
 
 /// Resolve `target` like `@import` does and follow its own imports; every failure is
-/// reported at `line`, the `@import` in the outlined document.
+/// reported at `line`, the `@import` in the outlined document, inside its `phase`.
 fn import_errors(
     ctx: &Rc<EngineContext>,
     target: &str,
     line: usize,
+    phase: Option<&str>,
     seen: &mut Vec<String>,
     out: &mut Vec<OutlineError>,
 ) {
@@ -520,14 +523,14 @@ fn import_errors(
                 if let Pass1Line::Import(nested) = pass1.step(idx + 1, text)
                     && !nested.is_empty()
                 {
-                    import_errors(ctx, nested, line, seen, out);
+                    import_errors(ctx, nested, line, phase, seen, out);
                 }
             }
         }
         Err(e) => out.push(OutlineError {
             kind: "import",
             line,
-            phase: None,
+            phase: phase.map(str::to_string),
             message: format!("@import {target} failed: {e:?}"),
         }),
     }
@@ -1178,5 +1181,34 @@ mod tests {
             o.errors,
             vec![err("unknown_macro", 6, None, "macro not found: nope2")]
         );
+    }
+
+    #[test]
+    fn an_import_finding_inside_a_phase_names_its_phase() {
+        let dir =
+            std::env::temp_dir().join(format!("lmd_outline_phase_import_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".lean-ctx/lean-md")).unwrap();
+        std::fs::write(
+            dir.join(".lean-ctx/lean-md/lib.lmd.md"),
+            "@import .lean-ctx/lean-md/missing /\n",
+        )
+        .unwrap();
+        let src = "@import .lean-ctx/lean-md/gone /\n@phase \"t\"\n@import .lean-ctx/lean-md/nope /\n@import .lean-ctx/lean-md/lib /\n@phase-end\n";
+        let o = outline(src, dir.clone(), &[]);
+        let sites: Vec<(&str, usize, Option<&str>)> = o
+            .errors
+            .iter()
+            .map(|e| (e.kind, e.line, e.phase.as_deref()))
+            .collect();
+        assert_eq!(
+            sites,
+            vec![
+                ("import", 1, None),
+                ("import", 3, Some("t")),
+                ("import", 4, Some("t"))
+            ]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
