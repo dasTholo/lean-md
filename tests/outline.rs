@@ -219,3 +219,23 @@ fn every_finding_kind_reaches_the_cli() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_duplicate_phase_inside_a_define_body_exits_one() {
+    let dir = project("define_duplicate");
+    let src =
+        "@phase \"t\"\nx\n@phase-end\n@define w()\n@phase \"t\"\ny\n@phase-end\n@define-end\n";
+    let (stdout, stderr, code) = run(&["outline", "-", "--json"], &dir, Some(src));
+    assert_eq!(code, 1, "{stderr}");
+    let v: serde_json::Value = serde_json::from_str(&stdout).expect("json on stdout");
+    assert_eq!(
+        v["errors"],
+        serde_json::json!([{
+            "kind": "duplicate_phase",
+            "line": 5,
+            "phase": "t",
+            "message": "duplicate @phase \"t\" — first defined at line 1, again at line 5"
+        }])
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

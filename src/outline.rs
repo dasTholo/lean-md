@@ -74,7 +74,7 @@ pub fn outline_with_ctx(ctx: &Rc<EngineContext>, source: &str, required: &[Strin
     Outline {
         phases: scan.listed_phases(),
         macros,
-        errors: findings(ctx, &scan, required),
+        errors: findings(ctx, source, &scan, required),
     }
 }
 
@@ -333,11 +333,17 @@ impl Scan<'_> {
     }
 }
 
-/// Every finding in `scan`, sorted by `(line, kind)`.
-fn findings(ctx: &Rc<EngineContext>, scan: &Scan, required: &[String]) -> Vec<OutlineError> {
+/// Every finding in `source` and its `scan`, sorted by `(line, kind)`.
+fn findings(
+    ctx: &Rc<EngineContext>,
+    source: &str,
+    scan: &Scan,
+    required: &[String],
+) -> Vec<OutlineError> {
     let mut out = Vec::new();
     call_findings(ctx, scan, &mut out);
-    phase_findings(scan, &mut out);
+    nested_phases(scan, &mut out);
+    duplicate_phases(source, &mut out);
     unterminated_findings(scan, &mut out);
     import_findings(ctx, scan, &mut out);
     missing_phases(scan, required, &mut out);
@@ -391,16 +397,12 @@ fn macro_mismatch(ctx: &Rc<EngineContext>, call: &OutlineCall) -> Option<(&'stat
     })
 }
 
-/// `nested_phase` for a `@phase` met while one is open, and `duplicate_phase` — the rule
-/// `phases::duplicate_phase` applies: every `@phase` line a render reads counts, a nested
-/// one too.
-fn phase_findings(scan: &Scan, out: &mut Vec<OutlineError>) {
-    let mut first_seen: Vec<(&str, usize)> = Vec::new();
+/// `nested_phase` for a `@phase` met while one is open.
+fn nested_phases(scan: &Scan, out: &mut Vec<OutlineError>) {
     for line in &scan.lines {
-        let LineKind::PhaseOpen(name) = &line.kind else {
-            continue;
-        };
-        if let Some(open) = scan.phase_name(line.phase) {
+        if let LineKind::PhaseOpen(name) = &line.kind
+            && let Some(open) = scan.phase_name(line.phase)
+        {
             let message = format!("nested @phase \"{name}\" inside @phase \"{open}\"");
             out.push(OutlineError {
                 kind: "nested_phase",
@@ -409,17 +411,34 @@ fn phase_findings(scan: &Scan, out: &mut Vec<OutlineError>) {
                 message,
             });
         }
-        match first_seen.iter().find(|(seen, _)| *seen == name.as_str()) {
+    }
+}
+
+/// `duplicate_phase` for the second and every later `@phase` line of a name, counted like
+/// the gate `render` and `check` refuse on (`phases::duplicate_phase`): over the raw
+/// source, header and `@define` bodies included, outside fences, a nested one too.
+fn duplicate_phases(source: &str, out: &mut Vec<OutlineError>) {
+    let fenced = fenced_mask(source);
+    let mut first_seen: Vec<(String, usize)> = Vec::new();
+    for (idx, text) in source.lines().enumerate().filter(|(idx, _)| !fenced[*idx]) {
+        let trimmed = text.trim_start();
+        if trimmed.starts_with("@phase-end") {
+            continue;
+        }
+        let Some(rest) = trimmed.strip_prefix("@phase") else {
+            continue;
+        };
+        let (name, line) = (parse_phase_name(rest), idx + 1);
+        match first_seen.iter().find(|(seen, _)| *seen == name) {
             Some((_, first)) => out.push(OutlineError {
                 kind: "duplicate_phase",
-                line: line.line,
-                phase: Some(name.clone()),
+                line,
                 message: format!(
-                    "duplicate @phase \"{name}\" — first defined at line {first}, again at line {}",
-                    line.line
+                    "duplicate @phase \"{name}\" — first defined at line {first}, again at line {line}"
                 ),
+                phase: Some(name),
             }),
-            None => first_seen.push((name, line.line)),
+            None => first_seen.push((name, line)),
         }
     }
 }
@@ -1088,5 +1107,76 @@ mod tests {
     fn fences_are_read_over_the_lines_pass_one_keeps() {
         let o = run("@define w()\n```\n@define-end\n```\n@call nope() /\n```\n");
         assert!(o.errors.is_empty(), "{:?}", o.errors);
+    }
+
+    #[test]
+    fn a_duplicate_inside_a_define_body_is_reported_like_the_render_gate() {
+        let o = run(
+            "@phase \"t\"\nx\n@phase-end\n@define w()\n@phase \"t\"\ny\n@phase-end\n@define-end\n",
+        );
+        assert_eq!(
+            o.errors,
+            vec![err(
+                "duplicate_phase",
+                5,
+                Some("t"),
+                "duplicate @phase \"t\" — first defined at line 1, again at line 5"
+            )]
+        );
+    }
+
+    #[test]
+    fn a_phase_line_in_the_header_counts_for_duplicates() {
+        let o = run("@lean-md\n@phase \"t\"\n\n@phase \"t\"\nT_BODY\n@phase-end\n");
+        assert_eq!(
+            o.errors,
+            vec![err(
+                "duplicate_phase",
+                4,
+                Some("t"),
+                "duplicate @phase \"t\" — first defined at line 2, again at line 4"
+            )]
+        );
+    }
+
+    #[test]
+    fn duplicate_phase_findings_match_the_render_gate() {
+        for (src, dup) in [
+            (
+                "@phase \"t\"\na\n@phase-end\n@phase \"t\"\nb\n@phase-end\n",
+                Some(4),
+            ),
+            ("@phase \"t\"\n@phase-end\n```\n@phase \"t\"\n```\n", None),
+            (
+                "@phase \"t\"\n@phase-end\n@define w()\n@phase \"t\"\n@phase-end\n@define-end\n",
+                Some(4),
+            ),
+            (
+                "@lean-md\n@phase \"t\"\n\n@phase \"t\"\nT_BODY\n@phase-end\n",
+                Some(4),
+            ),
+            ("@phase \"a\"\n@phase \"a\"\n@phase-end\n", Some(2)),
+            ("@phase \"a\"\n@phase-end\n@phase \"b\"\n@phase-end\n", None),
+        ] {
+            let found = run(src)
+                .errors
+                .iter()
+                .find(|e| e.kind == "duplicate_phase")
+                .map(|e| e.line);
+            let gate = crate::phases::duplicate_phase(src).map(|(_, _, line)| line);
+            assert_eq!((found, gate), (dup, dup), "{src:?}");
+        }
+    }
+
+    #[test]
+    fn a_phase_inside_a_define_body_is_not_listed_and_attributes_nothing() {
+        let o = run(
+            "@define w()\n@phase \"x\"\n@call nope() /\n@phase-end\n@define-end\n@call nope2() /\n",
+        );
+        assert!(o.phases.is_empty(), "{:?}", o.phases);
+        assert_eq!(
+            o.errors,
+            vec![err("unknown_macro", 6, None, "macro not found: nope2")]
+        );
     }
 }
