@@ -266,33 +266,69 @@ fn classify(fenced: bool, line: usize, text: &str) -> LineKind<'static> {
     }
 }
 
-/// Whether `text`, past optional indentation and one or more list or quote markers,
-/// starts with a `@call` directive — rushdown reads the line as a list item or block
-/// quote, and a render executes the call there.
+/// Whether `text` opens one or more list items or block quotes whose content starts with a
+/// `@call` directive — rushdown reads such a line the CommonMark way and a render executes
+/// the call. Each marker sits behind less than 4 columns of indentation; the `@call` sits
+/// behind none. Columns count from the line start, a tab advancing to the next multiple
+/// of 4.
 fn is_embedded_call(text: &str) -> bool {
-    let mut rest = text.trim_start();
-    let mut marked = false;
-    while let Some(after) = strip_container_marker(rest) {
-        rest = after;
-        marked = true;
+    let (mut rest, mut col, mut content_col, mut marked) = (text, 0, 0, false);
+    loop {
+        let (inner, inner_col) = skip_whitespace(rest, col);
+        let indent = inner_col - content_col;
+        let Some((marker, after)) = container_marker(inner).filter(|_| indent < 4) else {
+            return marked
+                && indent == 0
+                && parse_directive_line(inner.as_bytes()).is_some_and(|(name, _)| name == "call");
+        };
+        let marker_end = inner_col + (inner.len() - after.len());
+        let (_, gap_end) = skip_whitespace(after, marker_end);
+        let Some(next) = content_column(marker, marker_end, gap_end) else {
+            return false;
+        };
+        (rest, col, content_col, marked) = (after, marker_end, next, true);
     }
-    marked && parse_directive_line(rest.as_bytes()).is_some_and(|(name, _)| name == "call")
 }
 
-/// `text` past one leading container marker: `>` with optional spaces, or a bullet
-/// (`-` `*` `+`) or an ordinal (`1.` `2)`) followed by at least one space.
-fn strip_container_marker(text: &str) -> Option<&str> {
+/// `text` past its leading spaces and tabs, and the column it then starts at; `col` is the
+/// column `text` starts at.
+fn skip_whitespace(text: &str, col: usize) -> (&str, usize) {
+    let rest = text.trim_start_matches([' ', '\t']);
+    let end = text[..text.len() - rest.len()]
+        .bytes()
+        .fold(col, |c, b| if b == b'\t' { c + 4 - c % 4 } else { c + 1 });
+    (rest, end)
+}
+
+enum Marker {
+    Quote,
+    Item,
+}
+
+/// The container marker `text` starts with and the text right after it: `>`, a bullet
+/// (`-` `*` `+`) or an ordinal of 1–9 digits closed by `.` or `)`.
+fn container_marker(text: &str) -> Option<(Marker, &str)> {
     if let Some(after) = text.strip_prefix('>') {
-        return Some(after.trim_start_matches(' '));
+        return Some((Marker::Quote, after));
     }
     let digits = text.bytes().take_while(u8::is_ascii_digit).count();
-    let after = if digits > 0 {
-        text[digits..].strip_prefix(['.', ')'])?
-    } else {
-        text.strip_prefix(['-', '*', '+'])?
+    let after = match digits {
+        0 => text.strip_prefix(['-', '*', '+'])?,
+        1..=9 => text[digits..].strip_prefix(['.', ')'])?,
+        _ => return None,
     };
-    let rest = after.trim_start_matches(' ');
-    (rest.len() < after.len()).then_some(rest)
+    Some((Marker::Item, after))
+}
+
+/// The column a container's content starts at, its marker ending at `marker_end` and the
+/// whitespace after it at `gap_end`: a quote takes one optional column, a list item the
+/// whole gap. `None` for an item whose gap is empty (no marker) or 5+ columns wide (an
+/// indented code block).
+fn content_column(marker: Marker, marker_end: usize, gap_end: usize) -> Option<usize> {
+    match marker {
+        Marker::Quote => Some(marker_end + usize::from(gap_end > marker_end)),
+        Marker::Item => (1..=4).contains(&(gap_end - marker_end)).then_some(gap_end),
+    }
 }
 
 impl Scan<'_> {
@@ -999,6 +1035,7 @@ mod tests {
 
     #[test]
     fn a_call_inside_a_list_or_quote_is_an_embedded_call() {
+        // Every form is executed by a whole-document render (probed).
         for form in [
             "- @call g() /",
             "* @call g() /",
@@ -1006,8 +1043,20 @@ mod tests {
             "1. @call g() /",
             "2) @call g() /",
             "> @call g() /",
+            ">@call g() /",
             "> - @call g() /",
+            "- > @call g() /",
+            ">- @call g() /",
+            ">  - @call g() /",
+            ">\t- @call g() /",
             "  - @call g() /",
+            "   - @call g() /",
+            "-\t@call g() /",
+            "1.\t@call g() /",
+            "123.\t@call g() /",
+            "1234.\t@call g() /",
+            "-    @call g() /",
+            "123456789. @call g() /",
         ] {
             let o = run(&format!("@phase \"t\"\n{form}\n@phase-end\n"));
             assert!(o.phases[0].calls.is_empty(), "{form}: {:?}", o.phases);
@@ -1019,18 +1068,35 @@ mod tests {
                     Some("t"),
                     "@call inside a list or quote is not outlined"
                 )],
-                "{form}"
+                "{form:?}"
             );
         }
     }
 
     #[test]
     fn look_alikes_of_an_embedded_call_are_not_reported() {
+        // Every form renders as text (probed).
         for src in [
             "-@call nope() /\n",
             "  @call nope() /\n",
             "```\n- @call nope() /\n```\n",
             "@define w()\n- @call nope() /\n@define-end\n",
+            "-     @call nope() /\n",
+            "-\t\t@call nope() /\n",
+            "-   \t@call nope() /\n",
+            "  -  \t@call nope() /\n",
+            "1234567890. @call nope() /\n",
+            "    - @call nope() /\n",
+            "\t- @call nope() /\n",
+            ">\t@call nope() /\n",
+            "> \t@call nope() /\n",
+            ">  @call nope() /\n",
+            ">   @call nope() /\n",
+            ">    @call nope() /\n",
+            ">     @call nope() /\n",
+            ">     - @call nope() /\n",
+            "> -     @call nope() /\n",
+            "- >     @call nope() /\n",
         ] {
             let o = run(src);
             assert!(o.errors.is_empty(), "{src:?}: {:?}", o.errors);
